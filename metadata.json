@@ -1,0 +1,6 @@
+{
+  "name": "AdegaOS",
+  "description": "Sistema de gestão operacional completo para adegas, bares, distribuidoras e conveniências.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,702 @@
+import React, { useState, useMemo, useEffect } from 'react';
+import { 
+  BarChart3, Package, Layers, FileDown, Receipt, ShieldAlert, Key, 
+  Settings, ShoppingCart, User, Landmark, Sun, Moon, Sparkles, Monitor, Tablet, Truck, HelpCircle, Users,
+  ChefHat, LogOut, Menu
+} from 'lucide-react';
+
+import { Product, Supplier, Sale, FinancialTransaction, TableComandaState, CashierUser } from './types';
+import { 
+  INITIAL_PRODUCTS, MOCK_SALES, INITIAL_SUPPLIERS, 
+  INITIAL_TABLES_COMANDAS, INITIAL_CASHIER_USERS 
+} from './data/mockData';
+
+import {
+  fetchProductsFromDb,
+  saveProductToDb,
+  fetchSalesFromDb,
+  saveSaleToDb,
+  fetchSuppliersFromDb,
+  saveSupplierToDb,
+  deleteSupplierFromDb,
+  fetchTransactionsFromDb,
+  saveTransactionToDb,
+  deleteTransactionFromDb,
+  fetchTablesComandasFromDb,
+  saveTableComandaToDb,
+  deleteTableComandaFromDb,
+  fetchUsersFromDb,
+  saveUserToDb,
+  deleteUserFromDb,
+  isFirebaseEnabled
+} from './lib/firebase';
+
+
+// Import subcomponents
+import QuickSaleSidebar from './components/QuickSaleSidebar';
+import ManagerDashboard from './components/ManagerDashboard';
+import ManagerProducts from './components/ManagerProducts';
+import ManagerInventory from './components/ManagerInventory';
+import ManagerSales from './components/ManagerSales';
+import ManagerSuppliers from './components/ManagerSuppliers';
+import ManagerPurchases from './components/ManagerPurchases';
+import ManagerFinancial from './components/ManagerFinancial';
+import ManagerReports from './components/ManagerReports';
+import ManagerSettings from './components/ManagerSettings';
+import OrderApp from './components/OrderApp';
+import LoginScreen from './components/LoginScreen';
+import ProductionPanel from './components/ProductionPanel';
+
+export default function App() {
+  // Global Shared States
+  const [products, setProducts] = useState<Product[]>([]);
+  const [sales, setSales] = useState<Sale[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [financialTransactions, setFinancialTransactions] = useState<FinancialTransaction[]>([]);
+  const [tablesComandas, setTablesComandas] = useState<TableComandaState[]>([]);
+  const [usersList, setUsersList] = useState<CashierUser[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+
+  // Active user inside the Manager
+  const [currentUser, setCurrentUser] = useState<CashierUser | null>(null);
+
+  // Product Shell Layout controls
+  const [activeProductView, setActiveProductView] = useState<'manager' | 'order' | 'production'>('manager');
+  const [managerActiveTab, setManagerActiveTab] = useState<string>('dashboard');
+  const [isQuickSaleOpen, setIsQuickSaleOpen] = useState<boolean>(false);
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
+
+  // Load database on mount
+  useEffect(() => {
+    async function loadAllData() {
+      try {
+        const [p, s, sup, tx, tc, u] = await Promise.all([
+          fetchProductsFromDb(),
+          fetchSalesFromDb(),
+          fetchSuppliersFromDb(),
+          fetchTransactionsFromDb(),
+          fetchTablesComandasFromDb(),
+          fetchUsersFromDb()
+        ]);
+        setProducts(p);
+        setSales(s);
+        setSuppliers(sup);
+        setFinancialTransactions(tx);
+        setTablesComandas(tc);
+        setUsersList(u);
+      } catch (err) {
+        console.error("Error loading initial data:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadAllData();
+  }, []);
+
+  const handleLogin = (user: CashierUser) => {
+    setCurrentUser(user);
+    if (user.role === 'kitchen' || user.role === 'bar') {
+      setActiveProductView('production');
+    } else if (user.role === 'waiter') {
+      setActiveProductView('order');
+    } else {
+      setActiveProductView('manager');
+      setManagerActiveTab('dashboard');
+    }
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+  };
+
+  // Shared state manipulator functions with persistence triggers
+  const handleUpdateStock = (productId: string, qtyToRemove: number) => {
+    setProducts(prevProducts => {
+      const updated = prevProducts.map(p => {
+        if (p.id === productId) {
+          let targetBoxes = p.stockBoxes;
+          let targetUnits = p.stockUnits - qtyToRemove;
+
+          while (targetUnits < 0 && targetBoxes > 0) {
+            targetBoxes -= 1;
+            targetUnits += p.boxQuantity;
+          }
+
+          const uProd = {
+            ...p,
+            stockBoxes: Math.max(0, targetBoxes),
+            stockUnits: Math.max(0, targetUnits)
+          };
+          saveProductToDb(uProd);
+          return uProd;
+        }
+        return p;
+      });
+      return updated;
+    });
+  };
+
+  const handleUpdateFullStock = (productId: string, boxes: number, units: number) => {
+    setProducts(prev => prev.map(p => {
+      if (p.id === productId) {
+        const uProd = {
+          ...p,
+          stockBoxes: boxes,
+          stockUnits: units
+        };
+        saveProductToDb(uProd);
+        return uProd;
+      }
+      return p;
+    }));
+  };
+
+  const handleAddSale = (sale: Sale) => {
+    setSales(prev => [sale, ...prev]);
+    saveSaleToDb(sale);
+  };
+
+  const handleAddFinancial = (tx: FinancialTransaction) => {
+    setFinancialTransactions(prev => [tx, ...prev]);
+    saveTransactionToDb(tx);
+  };
+
+  const handleConfirmPayment = (txId: string) => {
+    setFinancialTransactions(prev => prev.map(tx => {
+      if (tx.id === txId) {
+        const uTx = { ...tx, status: 'pago' as const };
+        saveTransactionToDb(uTx);
+        return uTx;
+      }
+      return tx;
+    }));
+  };
+
+  const handleCancelSale = (saleId: string, reason: string) => {
+    // Locate the sale
+    const saleToCancel = sales.find(s => s.id === saleId);
+    if (!saleToCancel) return;
+
+    // 1. Mark status as canceled
+    const updatedSales = sales.map(s => {
+      if (s.id === saleId) {
+        const uSale = { ...s, status: 'cancelado' as const, cancelReason: reason };
+        saveSaleToDb(uSale);
+        return uSale;
+      }
+      return s;
+    });
+    setSales(updatedSales);
+
+    // 2. Return quantities back to physical inventory
+    saleToCancel.items.forEach(item => {
+      setProducts(prevProds => prevProds.map(p => {
+        if (p.id === item.productId) {
+          const targetUnits = p.stockUnits + item.quantity;
+          const uProd = {
+            ...p,
+            stockUnits: targetUnits
+          };
+          saveProductToDb(uProd);
+          return uProd;
+        }
+        return p;
+      }));
+    });
+
+    // 3. Mark matching financial transaction as "cancelado" or delete it to keep accounting clean
+    const matchingTx = financialTransactions.find(tx => tx.description === `Venda de Balcão #${saleToCancel.number}`);
+    if (matchingTx) {
+      deleteTransactionFromDb(matchingTx.id);
+    }
+    setFinancialTransactions(prev => prev.filter(tx => tx.description !== `Venda de Balcão #${saleToCancel.number}`));
+  };
+
+  const handleAddProduct = (prod: Product) => {
+    setProducts(prev => [...prev, prod]);
+    saveProductToDb(prod);
+  };
+
+  const handleUpdateProduct = (prod: Product) => {
+    setProducts(prev => prev.map(p => p.id === prod.id ? prod : p));
+    saveProductToDb(prod);
+  };
+
+  const handleAddSupplier = (sup: Supplier) => {
+    setSuppliers(prev => [...prev, sup]);
+    saveSupplierToDb(sup);
+  };
+
+  const handleDeleteSupplier = (id: string) => {
+    setSuppliers(prev => prev.filter(s => s.id !== id));
+    deleteSupplierFromDb(id);
+  };
+
+  const handleIncreaseStockBoxes = (productId: string, addedBoxes: number) => {
+    setProducts(prev => prev.map(p => {
+      if (p.id === productId) {
+        const uProd = {
+          ...p,
+          stockBoxes: p.stockBoxes + addedBoxes
+        };
+        saveProductToDb(uProd);
+        return uProd;
+      }
+      return p;
+    }));
+  };
+
+  const handleUpdateProductCost = (productId: string, newCost: number) => {
+    setProducts(prev => prev.map(p => {
+      if (p.id === productId) {
+        // Average costing math
+        const margin = p.sellPrice > 0 ? parseFloat((((p.sellPrice - newCost) / p.sellPrice) * 100).toFixed(2)) : 0;
+        const uProd = {
+          ...p,
+          costPrice: newCost,
+          margin
+        };
+        saveProductToDb(uProd);
+        return uProd;
+      }
+      return p;
+    }));
+  };
+
+  const handleToggleUserActive = (userId: string) => {
+    setUsersList(prev => prev.map(u => {
+      if (u.id === userId) {
+        const uUser = { ...u, active: !u.active };
+        saveUserToDb(uUser);
+        return uUser;
+      }
+      return u;
+    }));
+  };
+
+  const handleAddUser = (user: CashierUser) => {
+    setUsersList(prev => [...prev, user]);
+    saveUserToDb(user);
+  };
+
+  const handleDeleteUser = (userId: string) => {
+    setUsersList(prev => prev.filter(u => u.id !== userId));
+    deleteUserFromDb(userId);
+  };
+
+  const handleUpdateUserRole = (userId: string, newRole: any) => {
+    setUsersList(prev => prev.map(u => {
+      if (u.id === userId) {
+        const uUser = { ...u, role: newRole };
+        saveUserToDb(uUser);
+        return uUser;
+      }
+      return u;
+    }));
+  };
+
+  const handleAddTableComanda = (type: 'mesa' | 'comanda', number: number) => {
+    const newId = `${type}-${Date.now()}`;
+    const newItem: TableComandaState = {
+      id: newId,
+      type,
+      number,
+      status: 'livre',
+      items: [],
+      subtotal: 0
+    };
+    setTablesComandas(prev => {
+      const exists = prev.some(t => t.type === type && t.number === number);
+      if (exists) {
+        alert(`Já existe uma ${type === 'mesa' ? 'Mesa' : 'Comanda'} com o número ${number}.`);
+        return prev;
+      }
+      const updated = [...prev, newItem].sort((a, b) => {
+        if (a.type !== b.type) return a.type === 'mesa' ? -1 : 1;
+        return a.number - b.number;
+      });
+      saveTableComandaToDb(newItem);
+      return updated;
+    });
+  };
+
+  const handleRemoveTableComanda = (tableId: string) => {
+    setTablesComandas(prev => {
+      const item = prev.find(t => t.id === tableId);
+      if (!item) return prev;
+      if (item.status !== 'livre') {
+        alert(`Não é possível remover a ${item.type === 'mesa' ? 'Mesa' : 'Comanda'} ${item.number} pois ela está ${item.status}.`);
+        return prev;
+      }
+      deleteTableComandaFromDb(tableId);
+      return prev.filter(t => t.id !== tableId);
+    });
+  };
+
+  const handleUpdateTableItems = (tableId: string, items: any[]) => {
+    setTablesComandas(prev => prev.map(tbl => {
+      if (tbl.id === tableId) {
+        // Recalculate subtotal based on product prices
+        const subtotal = items.reduce((acc, i) => {
+          const prod = products.find(p => p.id === i.productId);
+          return acc + ((prod ? prod.sellPrice : 0) * i.quantity);
+        }, 0);
+
+        const uTbl = {
+          ...tbl,
+          items,
+          subtotal
+        };
+        saveTableComandaToDb(uTbl);
+        return uTbl;
+      }
+      return tbl;
+    }));
+  };
+
+  const handleUpdateTableStatus = (tableId: string, status: 'livre' | 'ocupada' | 'fechando', tableName?: string) => {
+    setTablesComandas(prev => prev.map(tbl => {
+      if (tbl.id === tableId) {
+        const uTbl = { 
+          ...tbl, 
+          status,
+          tableName: status === 'livre' ? undefined : (tableName !== undefined ? tableName : tbl.tableName)
+        };
+        saveTableComandaToDb(uTbl);
+        return uTbl;
+      }
+      return tbl;
+    }));
+  };
+
+  const handleToggleTheme = () => {
+    setTheme(prev => prev === 'dark' ? 'light' : 'dark');
+  };
+
+  if (loading) {
+    return (
+      <div className={`min-h-screen flex flex-col items-center justify-center font-sans ${
+        theme === 'dark' ? 'bg-black text-white' : 'bg-white text-black'
+      }`}>
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-10 h-10 border-4 border-emerald-500/30 border-t-emerald-400 rounded-full animate-spin"></div>
+          <span className="text-xs font-mono tracking-widest text-gray-500 uppercase">AdegaOS carregando...</span>
+        </div>
+      </div>
+    );
+  }
+
+
+  // Color theme selectors
+  const themeClasses = theme === 'dark' 
+    ? 'bg-[#000000] text-white scheme-dark' 
+    : 'bg-[#FFFFFF] text-[#111111] scheme-light';
+
+  const menuItems = [
+    { id: 'dashboard', name: 'Painel Executivo', icon: BarChart3 },
+    { id: 'produtos', name: 'Cadastro de Produtos', icon: Layers },
+    { id: 'estoque', name: 'Estoque Físico', icon: Package },
+    { id: 'vendas', name: 'Auditoria de Vendas', icon: Receipt },
+    { id: 'compras', name: 'Compras / NF-e', icon: Truck },
+    { id: 'producao', name: 'Fila de Produção', icon: ChefHat },
+    { id: 'salao', name: 'Lançamento (Order)', icon: Tablet },
+    { id: 'fornecedores', name: 'Fornecedores', icon: Users },
+    { id: 'financeiro', name: 'Financeiro / DRE', icon: Landmark },
+    { id: 'relatorios', name: 'Relatórios & BI', icon: FileDown },
+    { id: 'configuracoes', name: 'Configurações', icon: Settings },
+  ];
+
+  if (!currentUser) {
+    return (
+      <LoginScreen
+        usersList={usersList}
+        onLogin={handleLogin}
+        theme={theme}
+        onToggleTheme={handleToggleTheme}
+      />
+    );
+  }
+
+  return (
+    <div className={`min-h-screen flex flex-col font-sans transition-all duration-200 ${themeClasses}`}>
+      
+      {/* Mobile top bar for Manager mode */}
+      {activeProductView === 'manager' && (
+        <div className={`md:hidden flex items-center justify-between p-3 border-b shrink-0 z-20 ${
+          theme === 'dark' ? 'bg-[#080808] border-[#161616]' : 'bg-gray-50 border-gray-200'
+        }`}>
+          <button
+            onClick={() => setIsMobileMenuOpen(true)}
+            className="p-1.5 rounded-lg border border-transparent hover:bg-gray-500/10 cursor-pointer"
+            title="Menu de navegação"
+          >
+            <Menu className="w-5 h-5 text-[#18F2A4]" />
+          </button>
+          <div className="flex items-center gap-1.5">
+            <Sparkles className="w-4 h-4 text-[#18F2A4]" />
+            <span className="font-extrabold text-xs tracking-tight">Adega<span className="text-[#18F2A4]">OS</span></span>
+          </div>
+          <div className="w-8"></div>
+        </div>
+      )}
+
+      {/* Main Sandbox Area */}
+      <div className="flex-1 flex overflow-hidden relative">
+        
+        {activeProductView === 'manager' ? (
+          /* =====================================
+             1. PRODUCT: ADEGAOS MANAGER
+             ===================================== */
+          <div className="flex flex-1 overflow-hidden h-full relative">
+            
+            {/* Backdrop for mobile sidebar */}
+            {isMobileMenuOpen && (
+              <div 
+                className="fixed inset-0 z-30 bg-black/60 md:hidden"
+                onClick={() => setIsMobileMenuOpen(false)}
+              />
+            )}
+
+            {/* Sidebar navigation */}
+            <aside className={`fixed inset-y-0 left-0 z-40 w-60 transform ${
+              isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
+            } md:relative md:translate-x-0 transition-transform duration-300 ease-in-out border-r flex flex-col justify-between shrink-0 h-full ${
+              theme === 'dark' ? 'bg-[#080808] border-[#161616]' : 'bg-gray-50 border-gray-200'
+            }`}>
+              <div className="flex flex-col gap-1.5 overflow-y-auto flex-1">
+                {/* Brand Header inside Sidebar */}
+                <div className="p-4 flex items-center gap-2 border-b border-gray-800/20" style={{ borderColor: theme === 'dark' ? '#161616' : '#E5E5E5' }}>
+                  <Sparkles className="w-5 h-5 text-[#18F2A4]" />
+                  <span className="font-extrabold text-sm tracking-tight">Adega<span className="text-[#18F2A4]">OS</span></span>
+                </div>
+
+                <div className="p-3 flex flex-col gap-1">
+                  <span className="text-[9px] font-bold text-gray-500 uppercase tracking-widest block mb-2 px-3">Gestão do Negócio</span>
+                  {menuItems.map(item => {
+                    const IconComp = item.icon;
+                    const isActive = managerActiveTab === item.id;
+                    return (
+                      <button
+                        key={item.id}
+                        onClick={() => {
+                          if (item.id === 'salao') {
+                            setActiveProductView('order');
+                          } else {
+                            setManagerActiveTab(item.id);
+                          }
+                          setIsMobileMenuOpen(false);
+                        }}
+                        className={`w-full py-2.5 px-3 rounded-lg text-xs font-semibold flex items-center gap-2.5 transition-all text-left cursor-pointer ${
+                          isActive
+                            ? (theme === 'dark' ? 'bg-[#18F2A4]/10 text-[#18F2A4]' : 'bg-emerald-500/10 text-[#10B981]')
+                            : (theme === 'dark' ? 'text-gray-400 hover:text-white hover:bg-[#111111]' : 'text-gray-600 hover:text-black hover:bg-gray-100')
+                        }`}
+                      >
+                        <IconComp className="w-4 h-4 shrink-0" />
+                        {item.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Sidebar Footer with user identity, Logout & Quick sale trigger */}
+              <div className="p-4 border-t border-[#161616] flex flex-col gap-3" style={{ borderColor: theme === 'dark' ? '#161616' : '#E5E5E5' }}>
+                {/* User identification card */}
+                <div className={`p-2.5 rounded-lg flex items-center justify-between gap-2 border ${
+                  theme === 'dark' ? 'bg-[#111111]/80 border-[#1C1C1C]' : 'bg-gray-100 border-gray-200'
+                }`}>
+                  <div className="flex flex-col text-left overflow-hidden">
+                     <span className="text-xs font-bold truncate leading-tight" style={{ color: theme === 'dark' ? '#FFF' : '#111' }}>{currentUser.name}</span>
+                     <span className="text-[9px] text-gray-500 uppercase font-mono tracking-wider mt-0.5">{currentUser.role}</span>
+                  </div>
+
+                  <button
+                    onClick={handleLogout}
+                    className={`p-1.5 rounded-lg border transition-colors cursor-pointer text-red-500 hover:bg-red-500/10 shrink-0 ${
+                      theme === 'dark' ? 'border-[#1C1C1C] bg-[#111]' : 'border-gray-200 bg-white'
+                    }`}
+                    title="Sair do Sistema"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <button
+                  onClick={() => setIsQuickSaleOpen(!isQuickSaleOpen)}
+                  className={`w-full py-2.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                    theme === 'dark' 
+                      ? 'bg-[#18F2A4] text-black hover:bg-[#12d58f]' 
+                      : 'bg-[#10B981] text-white hover:bg-[#0e9f6e]'
+                  }`}
+                >
+                  <ShoppingCart className="w-4 h-4" />
+                  Venda Rápida PDV
+                </button>
+              </div>
+            </aside>
+
+            {/* Inner Dashboard scroll space */}
+            <main className="flex-1 overflow-y-auto p-6 md:p-8">
+              {managerActiveTab === 'dashboard' && (
+                <ManagerDashboard 
+                  products={products} 
+                  sales={sales} 
+                  financialTransactions={financialTransactions} 
+                  theme={theme}
+                  onGoToTab={(tab) => setManagerActiveTab(tab)}
+                />
+              )}
+              {managerActiveTab === 'produtos' && (
+                <ManagerProducts 
+                  products={products} 
+                  suppliers={suppliers} 
+                  onAddProduct={handleAddProduct}
+                  onUpdateProduct={handleUpdateProduct}
+                  theme={theme}
+                />
+              )}
+              {managerActiveTab === 'estoque' && (
+                <ManagerInventory 
+                  products={products} 
+                  onUpdateFullStock={handleUpdateFullStock} 
+                  theme={theme}
+                />
+              )}
+              {managerActiveTab === 'vendas' && (
+                <ManagerSales 
+                  sales={sales} 
+                  products={products} 
+                  onCancelSale={handleCancelSale} 
+                  theme={theme}
+                />
+              )}
+              {managerActiveTab === 'compras' && (
+                <ManagerPurchases 
+                  suppliers={suppliers} 
+                  products={products} 
+                  onAddPurchaseReceipt={onAddPurchaseReceipt => {
+                    setFinancialTransactions(prev => [
+                      {
+                        id: `tx-${Date.now()}`,
+                        date: onAddPurchaseReceipt.date,
+                        type: 'despesa',
+                        category: 'Fornecedores',
+                        description: `Compra NF #${onAddPurchaseReceipt.invoiceNumber}`,
+                        value: onAddPurchaseReceipt.total,
+                        status: 'pendente',
+                        dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+                      },
+                      ...prev
+                    ]);
+                  }}
+                  onUpdateProductCost={handleUpdateProductCost}
+                  onIncreaseStockBoxes={handleIncreaseStockBoxes}
+                  onAddFinancial={handleAddFinancial}
+                  theme={theme}
+                />
+              )}
+              {managerActiveTab === 'fornecedores' && (
+                <ManagerSuppliers 
+                  suppliers={suppliers} 
+                  onAddSupplier={handleAddSupplier} 
+                  onDeleteSupplier={handleDeleteSupplier} 
+                  theme={theme}
+                />
+              )}
+              {managerActiveTab === 'financeiro' && (
+                <ManagerFinancial 
+                  financialTransactions={financialTransactions} 
+                  sales={sales} 
+                  products={products} 
+                  onConfirmPayment={handleConfirmPayment}
+                  onAddTransaction={handleAddFinancial}
+                  theme={theme}
+                />
+              )}
+              {managerActiveTab === 'relatorios' && (
+                <ManagerReports theme={theme} />
+              )}
+              {managerActiveTab === 'producao' && (
+                <ProductionPanel
+                  tablesComandas={tablesComandas}
+                  products={products}
+                  onUpdateTableItems={handleUpdateTableItems}
+                  theme={theme}
+                  currentUser={currentUser}
+                  onToggleTheme={handleToggleTheme}
+                  onLogout={handleLogout}
+                />
+              )}
+              {managerActiveTab === 'configuracoes' && (
+                <ManagerSettings 
+                  usersList={usersList} 
+                  onToggleUserActive={handleToggleUserActive} 
+                  onAddUser={handleAddUser} 
+                  onDeleteUser={handleDeleteUser}
+                  onUpdateUserRole={handleUpdateUserRole}
+                  theme={theme}
+                  onToggleTheme={handleToggleTheme}
+                />
+              )}
+            </main>
+
+            {/* PDV collapsible quick sale bar */}
+            <QuickSaleSidebar 
+              isOpen={isQuickSaleOpen} 
+              onClose={() => setIsQuickSaleOpen(false)} 
+              products={products} 
+              onUpdateStock={handleUpdateStock} 
+              onAddSale={handleAddSale} 
+              onAddFinancial={handleAddFinancial} 
+              currentUser={currentUser} 
+              theme={theme}
+            />
+          </div>
+        ) : activeProductView === 'production' ? (
+          /* =====================================
+             3. PRODUCT: ADEGAOS PRODUCTION PANEL
+             ===================================== */
+          <div className="flex-1 overflow-y-auto">
+            <ProductionPanel
+              tablesComandas={tablesComandas}
+              products={products}
+              onUpdateTableItems={handleUpdateTableItems}
+              theme={theme}
+              currentUser={currentUser}
+              onToggleTheme={handleToggleTheme}
+              onLogout={handleLogout}
+              onGoToManager={(currentUser.role === 'admin' || currentUser.role === 'manager') ? () => setActiveProductView('manager') : undefined}
+            />
+          </div>
+        ) : (
+          /* =====================================
+             2. PRODUCT: ADEGAOS ORDER (WAITERS)
+             ===================================== */
+          <div className="flex-1 flex flex-col w-full h-full">
+            {/* The mobile applet component frame */}
+            <OrderApp 
+              products={products} 
+              tablesComandas={tablesComandas} 
+              onUpdateTableItems={handleUpdateTableItems} 
+              onUpdateTableStatus={handleUpdateTableStatus} 
+              onAddSale={handleAddSale} 
+              onAddFinancial={handleAddFinancial} 
+              onUpdateStock={handleUpdateStock} 
+              onAddTableComanda={handleAddTableComanda}
+              onRemoveTableComanda={handleRemoveTableComanda}
+              usersList={usersList} 
+              theme={theme}
+              currentUser={currentUser}
+              onToggleTheme={handleToggleTheme}
+              onLogout={handleLogout}
+              onGoToManager={(currentUser.role === 'admin' || currentUser.role === 'manager') ? () => setActiveProductView('manager') : undefined}
+            />
+          </div>
+        )}
+
+      </div>
+    </div>
+  );
+}

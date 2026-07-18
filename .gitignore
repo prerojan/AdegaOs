@@ -1,0 +1,17 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+
+# Google AI Studio & Firebase Local Files
+firebase-applet-config.json
+firebase_applet_config.xml
+.google/
+.cortex/
+.aistudio/
+firebase-debug.log
+.firebase/
