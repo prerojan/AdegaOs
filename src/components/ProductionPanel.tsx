@@ -141,6 +141,8 @@ export default function ProductionPanel({
 
   // Sound Alarm: Trigger a kitchen ticket buzzer when a new order arrives in production queue
   const prevPendingCountRef = useRef<number>(0);
+  const isFirstRenderRef = useRef<boolean>(true);
+  
   const currentPendingCount = useMemo(() => {
     let count = 0;
     activeItems.forEach(item => {
@@ -152,8 +154,15 @@ export default function ProductionPanel({
   }, [activeItems]);
 
   useEffect(() => {
+    // If it is the initial load, simply initialize the ref and don't beep
+    if (isFirstRenderRef.current) {
+      isFirstRenderRef.current = false;
+      prevPendingCountRef.current = currentPendingCount;
+      return;
+    }
+
     // If pending orders count increases, sound kitchen ticket buzzer alert
-    if (currentPendingCount > prevPendingCountRef.current && prevPendingCountRef.current > 0) {
+    if (currentPendingCount > prevPendingCountRef.current) {
       playBeep(440, 'triangle', 0.12);
       setTimeout(() => {
         playBeep(440, 'triangle', 0.12);
@@ -281,14 +290,24 @@ export default function ProductionPanel({
         {/* Sector and Status filters */}
         <div className="flex flex-wrap gap-2.5 items-center">
           {/* Audio alarm beep simulator indicator */}
-          <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] border font-semibold transition-all ${
-            beepSimulated 
-              ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400 scale-105'
-              : 'border-gray-800 bg-transparent text-gray-400'
-          }`}>
+          <button
+            onClick={() => {
+              playBeep(587.33, 'sine', 0.15);
+              setBeepSimulated(true);
+              setTimeout(() => setBeepSimulated(false), 800);
+            }}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] border font-semibold transition-all cursor-pointer ${
+              beepSimulated 
+                ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400 scale-105'
+                : theme === 'dark' 
+                  ? 'border-[#222] bg-black text-gray-400 hover:bg-[#111]' 
+                  : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-100'
+            }`}
+            title="Testar sinalizador sonoro"
+          >
             <Volume2 className={`w-3.5 h-3.5 ${beepSimulated ? 'animate-bounce' : ''}`} />
             <span>Sinalizador Ativo</span>
-          </div>
+          </button>
 
           {/* Private Sector Badge: Completely replaces sector toggle */}
           <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-bold ${

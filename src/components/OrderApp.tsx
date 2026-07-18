@@ -841,107 +841,116 @@ export default function OrderApp({
             </div>
           ) : (
             /* Subscreen 3: Checkout and bill splitting with payments */
-            <div className="p-4 flex flex-col gap-4 flex-1 text-xs overflow-y-auto">
+            <div className="flex flex-col flex-1 h-full overflow-hidden">
               
-              {/* Head */}
-              <div className="flex justify-between items-center border-b pb-2">
-                <button onClick={() => setActiveScreen('order')} className="text-xs text-gray-400 hover:text-white">
-                  ← Voltar
-                </button>
-                <span className="font-bold text-sm">Fechar Conta</span>
-              </div>
-
-              {/* Items recap list */}
-              <div className="p-3 rounded-lg bg-black/25 flex flex-col gap-1.5 border w-full" style={{ borderColor: theme === 'dark' ? '#1C1C1C' : '#E5E5E5' }}>
-                <span className="text-[10px] uppercase font-bold text-gray-500 tracking-wider">Detalhamento Consumido</span>
-                <div className="max-h-64 overflow-y-auto flex flex-col gap-1 pr-1">
-                  {activeTable?.items.map((item, idx) => {
-                    const prod = products.find(p => p.id === item.productId);
-                    return (
-                      <div key={idx} className="flex justify-between items-center py-1.5 border-b border-gray-900/30 gap-4 w-full">
-                        <span className="truncate flex-1 pr-2 text-left" title={prod ? prod.name : 'Produto'} style={{ color: theme === 'dark' ? '#E5E5E5' : '#333' }}>
-                          <span className="font-bold mr-1.5" style={{ color: theme === 'dark' ? '#18F2A4' : '#10B981' }}>{item.quantity}x</span>
-                          {prod ? prod.name : 'Produto'}
-                        </span>
-                        <span className="font-mono text-xs shrink-0 font-semibold" style={{ color: theme === 'dark' ? '#FFF' : '#111' }}>
-                          R$ {((prod ? prod.sellPrice : 0) * item.quantity).toFixed(2)}
-                        </span>
-                      </div>
-                    );
-                  })}
+              {/* Scrollable details container */}
+              <div className="p-4 flex flex-col gap-4 flex-1 text-xs overflow-y-auto">
+                {/* Head */}
+                <div className="flex justify-between items-center border-b pb-2">
+                  <button onClick={() => setActiveScreen('order')} className="text-xs text-gray-400 hover:text-white">
+                    ← Voltar
+                  </button>
+                  <span className="font-bold text-sm">Fechar Conta</span>
                 </div>
-                <div className="flex justify-between items-center font-bold pt-2 border-t border-dashed border-gray-800">
-                  <span>SUBTOTAL DA COMANDA:</span>
-                  <span className="font-mono text-[#18F2A4] text-base">R$ {activeTable?.subtotal.toFixed(2)}</span>
-                </div>
-              </div>
 
-              {/* Bill splitting selector */}
-              <div className="flex flex-col gap-1.5">
-                <span className="text-gray-400 font-semibold">Dividir Conta em Quantas Pessoas?</span>
-                <div className="flex items-center gap-3">
-                  <input
-                    type="number"
-                    min="1"
-                    value={splitCount}
-                    onChange={(e) => setSplitCount(Math.max(1, Number(e.target.value)))}
-                    className="p-2 w-20 text-center rounded border font-mono font-bold text-sm"
-                    style={{ backgroundColor: theme === 'dark' ? '#111' : 'white', borderColor: theme === 'dark' ? '#222' : '#E5E5E5', color: theme === 'dark' ? 'white' : 'black' }}
-                  />
-                  <div className="flex flex-col">
-                    <span className="text-gray-400 text-[10px]">Custo por Pessoa (Estimado):</span>
-                    <span className="font-bold text-[#18F2A4] font-mono text-sm">
-                      R$ {((activeTable?.subtotal || 0) / splitCount).toFixed(2)}
-                    </span>
+                {/* Items recap list */}
+                <div className="p-3 rounded-lg bg-black/25 flex flex-col gap-1.5 border w-full" style={{ borderColor: theme === 'dark' ? '#1C1C1C' : '#E5E5E5' }}>
+                  <span className="text-[10px] uppercase font-bold text-gray-500 tracking-wider">Detalhamento Consumido</span>
+                  <div className="max-h-64 overflow-y-auto flex flex-col gap-1 pr-1">
+                    {activeTable?.items.map((item, idx) => {
+                      const prod = products.find(p => p.id === item.productId);
+                      return (
+                        <div key={idx} className="flex justify-between items-center py-1.5 border-b border-gray-900/30 gap-4 w-full">
+                          <span className="truncate flex-1 pr-2 text-left" title={prod ? prod.name : 'Produto'} style={{ color: theme === 'dark' ? '#E5E5E5' : '#333' }}>
+                            <span className="font-bold mr-1.5" style={{ color: theme === 'dark' ? '#18F2A4' : '#10B981' }}>{item.quantity}x</span>
+                            {prod ? prod.name : 'Produto'}
+                          </span>
+                          <span className="font-mono text-xs shrink-0 font-semibold" style={{ color: theme === 'dark' ? '#FFF' : '#111' }}>
+                            R$ {((prod ? prod.sellPrice : 0) * item.quantity).toFixed(2)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="flex justify-between items-center font-bold pt-2 border-t border-dashed border-gray-800">
+                    <span>SUBTOTAL DA COMANDA:</span>
+                    <span className="font-mono text-[#18F2A4] text-base">R$ {activeTable?.subtotal.toFixed(2)}</span>
                   </div>
                 </div>
-              </div>
 
-              {/* Payments selector */}
-              <div className="flex flex-col gap-2 pt-2 border-t border-dashed" style={{ borderColor: theme === 'dark' ? '#1C1C1C' : '#E5E5E5' }}>
-                <span className="text-gray-400 font-semibold uppercase text-[10px] tracking-wider">Selecione Forma de Pagamento</span>
-                <div className="grid grid-cols-4 gap-1.5">
-                  {(['pix', 'dinheiro', 'debito', 'credito'] as const).map(method => (
-                    <button
-                      key={method}
-                      onClick={() => setPaymentMethod(method)}
-                      className={`py-2 px-1 rounded border font-bold capitalize text-[10px] text-center transition-all ${
-                        paymentMethod === method
-                          ? (theme === 'dark' ? 'bg-[#18F2A4]/15 text-[#18F2A4] border-[#18F2A4]' : 'bg-[#10B981]/15 text-[#10B981] border-[#10B981]')
-                          : (theme === 'dark' ? 'bg-transparent text-gray-400 border-[#222]' : 'bg-white text-gray-600 border-gray-200')
-                      }`}
-                    >
-                      {method}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Maquininha Stone references indicator */}
-              {(paymentMethod === 'credito' || paymentMethod === 'debito') && (
+                {/* Bill splitting selector */}
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-gray-400 font-semibold">Código de Conciliação Stone (NFC / NSU)</label>
-                  <input
-                    type="text"
-                    placeholder="Ex: Ref 004212"
-                    value={stoneReference}
-                    onChange={(e) => setStoneReference(e.target.value)}
-                    className="p-2 rounded border font-mono uppercase"
-                    style={{ backgroundColor: theme === 'dark' ? '#111' : 'white', borderColor: theme === 'dark' ? '#222' : '#E5E5E5', color: theme === 'dark' ? 'white' : 'black' }}
-                  />
+                  <span className="text-gray-400 font-semibold">Dividir Conta em Quantas Pessoas?</span>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="number"
+                      min="1"
+                      value={splitCount}
+                      onChange={(e) => setSplitCount(Math.max(1, Number(e.target.value)))}
+                      className="p-2 w-20 text-center rounded border font-mono font-bold text-sm"
+                      style={{ backgroundColor: theme === 'dark' ? '#111' : 'white', borderColor: theme === 'dark' ? '#222' : '#E5E5E5', color: theme === 'dark' ? 'white' : 'black' }}
+                    />
+                    <div className="flex flex-col">
+                      <span className="text-gray-400 text-[10px]">Custo por Pessoa (Estimado):</span>
+                      <span className="font-bold text-[#18F2A4] font-mono text-sm">
+                        R$ {((activeTable?.subtotal || 0) / splitCount).toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
                 </div>
-              )}
 
-              {/* Pay trigger */}
-              <button
-                onClick={handleProcessPayment}
-                className={`w-full py-2.5 rounded-lg font-semibold text-xs flex items-center justify-center gap-1.5 mt-auto transition-all cursor-pointer ${
-                  theme === 'dark' ? 'bg-[#18F2A4] text-black hover:bg-[#12d58f]' : 'bg-[#10B981] text-white hover:bg-[#0e9f6e]'
-                }`}
-              >
-                <CheckSquare className="w-4 h-4" />
-                Confirmar Recebimento + Liberar Comanda
-              </button>
+                {/* Payments selector */}
+                <div className="flex flex-col gap-2 pt-2 border-t border-dashed" style={{ borderColor: theme === 'dark' ? '#1C1C1C' : '#E5E5E5' }}>
+                  <span className="text-gray-400 font-semibold uppercase text-[10px] tracking-wider">Selecione Forma de Pagamento</span>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {(['pix', 'dinheiro', 'debito', 'credito'] as const).map(method => (
+                      <button
+                        key={method}
+                        onClick={() => setPaymentMethod(method)}
+                        className={`py-2 px-1 rounded border font-bold capitalize text-[10px] text-center transition-all ${
+                          paymentMethod === method
+                            ? (theme === 'dark' ? 'bg-[#18F2A4]/15 text-[#18F2A4] border-[#18F2A4]' : 'bg-[#10B981]/15 text-[#10B981] border-[#10B981]')
+                            : (theme === 'dark' ? 'bg-transparent text-gray-400 border-[#222]' : 'bg-white text-gray-600 border-gray-200')
+                        }`}
+                      >
+                        {method}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Maquininha Stone references indicator */}
+                {(paymentMethod === 'credito' || paymentMethod === 'debito') && (
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-gray-400 font-semibold">Código de Conciliação Stone (NFC / NSU)</label>
+                    <input
+                      type="text"
+                      placeholder="Ex: Ref 004212"
+                      value={stoneReference}
+                      onChange={(e) => setStoneReference(e.target.value)}
+                      className="p-2 rounded border font-mono uppercase"
+                      style={{ backgroundColor: theme === 'dark' ? '#111' : 'white', borderColor: theme === 'dark' ? '#222' : '#E5E5E5', color: theme === 'dark' ? 'white' : 'black' }}
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Fixed bottom footer with checkout action */}
+              <div className={`p-4 border-t shrink-0 ${
+                theme === 'dark' ? 'bg-[#080808] border-[#1C1C1C]' : 'bg-white border-gray-200 shadow-lg'
+              }`}>
+                <button
+                  onClick={handleProcessPayment}
+                  className={`w-full py-3.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg active:scale-95 ${
+                    theme === 'dark' 
+                      ? 'bg-[#18F2A4] text-black hover:bg-[#12d58f] hover:shadow-[#18F2A4]/10' 
+                      : 'bg-[#10B981] text-white hover:bg-[#0e9f6e]'
+                  }`}
+                >
+                  <CheckSquare className="w-4.5 h-4.5" />
+                  Confirmar Recebimento • Liberar Comanda
+                </button>
+              </div>
             </div>
           )}
         </div>

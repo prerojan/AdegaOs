@@ -6,7 +6,8 @@ import {
   getDocs, 
   setDoc, 
   deleteDoc,
-  writeBatch
+  writeBatch,
+  onSnapshot
 } from 'firebase/firestore';
 import { Product, Supplier, Sale, FinancialTransaction, TableComandaState, CashierUser } from '../types';
 import { 
@@ -410,4 +411,156 @@ export const deleteUserFromDb = async (id: string): Promise<void> => {
   const current = getLocalData<CashierUser[]>('adega_users', INITIAL_CASHIER_USERS);
   const updated = current.filter(u => u.id !== id);
   setLocalData('adega_users', updated);
+};
+
+/* ============================================================================
+   7. REAL-TIME SUBSCRIPTION SERVICES (CROSS-TAB + FIRESTORE SYNC)
+   ============================================================================ */
+
+export const subscribeProducts = (callback: (products: Product[]) => void): (() => void) => {
+  if (db) {
+    return onSnapshot(collection(db, 'products'), (snap) => {
+      if (!snap.empty) {
+        callback(snap.docs.map(d => d.data() as Product));
+      }
+    }, (err) => {
+      console.error("Error in products snapshot listener:", err);
+    });
+  } else {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'adega_products') {
+        const list = getLocalData<Product[]>('adega_products', INITIAL_PRODUCTS);
+        callback(list);
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }
+};
+
+export const subscribeSales = (callback: (sales: Sale[]) => void): (() => void) => {
+  if (db) {
+    return onSnapshot(collection(db, 'sales'), (snap) => {
+      if (!snap.empty) {
+        const list = snap.docs.map(d => d.data() as Sale).sort((a, b) => 
+          new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+        );
+        callback(list);
+      }
+    }, (err) => {
+      console.error("Error in sales snapshot listener:", err);
+    });
+  } else {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'adega_sales') {
+        const list = getLocalData<Sale[]>('adega_sales', MOCK_SALES);
+        callback(list);
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }
+};
+
+export const subscribeSuppliers = (callback: (suppliers: Supplier[]) => void): (() => void) => {
+  if (db) {
+    return onSnapshot(collection(db, 'suppliers'), (snap) => {
+      if (!snap.empty) {
+        callback(snap.docs.map(d => d.data() as Supplier));
+      }
+    }, (err) => {
+      console.error("Error in suppliers snapshot listener:", err);
+    });
+  } else {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'adega_suppliers') {
+        const list = getLocalData<Supplier[]>('adega_suppliers', INITIAL_SUPPLIERS);
+        callback(list);
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }
+};
+
+export const subscribeTransactions = (callback: (txs: FinancialTransaction[]) => void): (() => void) => {
+  if (db) {
+    return onSnapshot(collection(db, 'transactions'), (snap) => {
+      if (!snap.empty) {
+        const list = snap.docs.map(d => d.data() as FinancialTransaction).sort((a, b) =>
+          new Date(b.date).getTime() - new Date(a.date).getTime()
+        );
+        callback(list);
+      }
+    }, (err) => {
+      console.error("Error in transactions snapshot listener:", err);
+    });
+  } else {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'adega_transactions') {
+        const list = getLocalData<FinancialTransaction[]>('adega_transactions', MOCK_FINANCIAL_TRANSACTIONS);
+        callback(list);
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }
+};
+
+export const subscribeTablesComandas = (callback: (tables: TableComandaState[]) => void): (() => void) => {
+  if (db) {
+    return onSnapshot(collection(db, 'tables_comandas'), (snap) => {
+      if (!snap.empty) {
+        const list = snap.docs.map(d => d.data() as TableComandaState).sort((a, b) => {
+          if (a.type !== b.type) return a.type === 'mesa' ? -1 : 1;
+          return a.number - b.number;
+        });
+        callback(list);
+      }
+    }, (err) => {
+      console.error("Error in tables_comandas snapshot listener:", err);
+    });
+  } else {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'adega_tables') {
+        const list = getLocalData<TableComandaState[]>('adega_tables', INITIAL_TABLES_COMANDAS);
+        callback(list);
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }
+};
+
+export const subscribeUsers = (callback: (users: CashierUser[]) => void): (() => void) => {
+  if (db) {
+    return onSnapshot(collection(db, 'users'), (snap) => {
+      if (!snap.empty) {
+        callback(snap.docs.map(d => d.data() as CashierUser));
+      }
+    }, (err) => {
+      console.error("Error in users snapshot listener:", err);
+    });
+  } else {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'adega_users') {
+        const list = getLocalData<CashierUser[]>('adega_users', INITIAL_CASHIER_USERS);
+        callback(list);
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }
 };

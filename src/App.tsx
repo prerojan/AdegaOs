@@ -28,7 +28,13 @@ import {
   fetchUsersFromDb,
   saveUserToDb,
   deleteUserFromDb,
-  isFirebaseEnabled
+  isFirebaseEnabled,
+  subscribeProducts,
+  subscribeSales,
+  subscribeSuppliers,
+  subscribeTransactions,
+  subscribeTablesComandas,
+  subscribeUsers
 } from './lib/firebase';
 
 
@@ -67,10 +73,18 @@ export default function App() {
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
 
-  // Load database on mount
+  // Load database on mount and subscribe to real-time updates
   useEffect(() => {
-    async function loadAllData() {
+    let unsubProducts: (() => void) | null = null;
+    let unsubSales: (() => void) | null = null;
+    let unsubSuppliers: (() => void) | null = null;
+    let unsubTransactions: (() => void) | null = null;
+    let unsubTables: (() => void) | null = null;
+    let unsubUsers: (() => void) | null = null;
+
+    async function loadAllDataAndSubscribe() {
       try {
+        // 1. Initial fetch (handles seeding if Firestore is empty)
         const [p, s, sup, tx, tc, u] = await Promise.all([
           fetchProductsFromDb(),
           fetchSalesFromDb(),
@@ -85,13 +99,31 @@ export default function App() {
         setFinancialTransactions(tx);
         setTablesComandas(tc);
         setUsersList(u);
+        setLoading(false);
+
+        // 2. Subscribe to real-time changes
+        unsubProducts = subscribeProducts(setProducts);
+        unsubSales = subscribeSales(setSales);
+        unsubSuppliers = subscribeSuppliers(setSuppliers);
+        unsubTransactions = subscribeTransactions(setFinancialTransactions);
+        unsubTables = subscribeTablesComandas(setTablesComandas);
+        unsubUsers = subscribeUsers(setUsersList);
       } catch (err) {
-        console.error("Error loading initial data:", err);
-      } finally {
+        console.error("Error loading initial data and subscribing:", err);
         setLoading(false);
       }
     }
-    loadAllData();
+
+    loadAllDataAndSubscribe();
+
+    return () => {
+      if (unsubProducts) unsubProducts();
+      if (unsubSales) unsubSales();
+      if (unsubSuppliers) unsubSuppliers();
+      if (unsubTransactions) unsubTransactions();
+      if (unsubTables) unsubTables();
+      if (unsubUsers) unsubUsers();
+    };
   }, []);
 
   const handleLogin = (user: CashierUser) => {

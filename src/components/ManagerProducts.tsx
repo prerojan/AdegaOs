@@ -432,10 +432,10 @@ export default function ManagerProducts({
       {/* Edit/Create Modal overlay */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className={`w-full max-w-xl rounded-xl border flex flex-col shadow-2xl max-h-[90vh] overflow-y-auto ${
+          <div className={`w-full max-w-xl rounded-xl border flex flex-col shadow-2xl max-h-[90vh] overflow-hidden ${
             theme === 'dark' ? 'bg-[#0E0E0E] border-[#1A1A1A] text-white' : 'bg-white border-gray-200 text-[#111111]'
           }`}>
-            <div className={`p-4 border-b flex justify-between items-center ${
+            <div className={`p-4 border-b flex justify-between items-center shrink-0 ${
               theme === 'dark' ? 'border-[#1A1A1A]' : 'border-gray-200'
             }`}>
               <span className="font-semibold text-sm">
@@ -446,7 +446,8 @@ export default function ManagerProducts({
               </button>
             </div>
 
-            <form onSubmit={handleSave} className="p-4 flex flex-col gap-4 text-xs">
+            <form onSubmit={handleSave} className="flex flex-col flex-1 overflow-hidden text-xs">
+              <div className="p-4 flex flex-col gap-4 overflow-y-auto flex-1">
               {/* Product Basic */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1 col-span-2">
@@ -735,12 +736,14 @@ export default function ManagerProducts({
                 </div>
               </div>
 
+              </div>
+
               {/* CTAs */}
-              <div className="flex gap-2 justify-end border-t pt-3" style={{ borderColor: theme === 'dark' ? '#1A1A1A' : '#E5E5E5' }}>
+              <div className="flex gap-2 justify-end border-t p-4 shrink-0" style={{ borderColor: theme === 'dark' ? '#1A1A1A' : '#E5E5E5' }}>
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
-                  className={`px-3 py-2 rounded font-semibold border transition-all ${
+                  className={`px-3 py-2 rounded font-semibold border transition-all cursor-pointer ${
                     theme === 'dark' ? 'bg-transparent border-[#222] text-gray-400 hover:text-white' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-100'
                   }`}
                 >
@@ -748,7 +751,7 @@ export default function ManagerProducts({
                 </button>
                 <button
                   type="submit"
-                  className={`px-4 py-2 rounded font-semibold transition-all ${
+                  className={`px-4 py-2 rounded font-semibold transition-all cursor-pointer ${
                     theme === 'dark' ? 'bg-[#18F2A4] text-black hover:bg-[#12d58f]' : 'bg-[#10B981] text-white hover:bg-[#0e9f6e]'
                   }`}
                 >
