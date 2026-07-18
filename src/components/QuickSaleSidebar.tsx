@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Search, ShoppingCart, Trash2, X, Percent, Check, AlertTriangle, HelpCircle, Archive, Save } from 'lucide-react';
+import { Search, ShoppingCart, Trash2, X, Percent, Check, AlertTriangle, HelpCircle, Archive, Save, ChevronDown, ChevronUp, Folder } from 'lucide-react';
 import { Product, Sale, FinancialTransaction } from '../types';
 
 interface QuickSaleSidebarProps {
@@ -25,6 +25,7 @@ export default function QuickSaleSidebar({
 }: QuickSaleSidebarProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('Todos');
+  const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
   const [cart, setCart] = useState<{ product: Product; quantity: number; notes?: string }[]>([]);
   const [discount, setDiscount] = useState<number>(0);
   const [paymentMethod, setPaymentMethod] = useState<'pix' | 'dinheiro' | 'debito' | 'credito'>('pix');
@@ -240,20 +241,57 @@ export default function QuickSaleSidebar({
         </div>
 
         {/* Categories selector */}
-        <div className="flex gap-1 overflow-x-auto pb-1 no-scrollbar">
-          {categories.map(cat => (
-            <button
-              key={cat}
-              onClick={() => setSelectedCategory(cat)}
-              className={`text-[10px] px-2 py-1 rounded-full whitespace-nowrap transition-all border ${
-                selectedCategory === cat
-                  ? (theme === 'dark' ? 'bg-[#18F2A4] text-black border-[#18F2A4]' : 'bg-[#10B981] text-white border-[#10B981]')
-                  : (theme === 'dark' ? 'bg-[#111111] text-gray-400 border-transparent hover:border-[#222]' : 'bg-white text-gray-600 border-[#E5E5E5] hover:bg-gray-100')
-              }`}
-            >
-              {cat}
-            </button>
-          ))}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setShowCategoryDropdown(!showCategoryDropdown)}
+            className={`w-full flex items-center justify-between text-xs font-medium px-3 py-2 rounded-lg border transition-all ${
+              theme === 'dark'
+                ? 'bg-[#111111] border-[#1A1A1A] text-white hover:border-[#18F2A4]/50'
+                : 'bg-white border-[#E5E5E5] text-gray-700 hover:border-[#10B981]/50'
+            }`}
+          >
+            <div className="flex items-center gap-1.5">
+              <Folder className={`w-3.5 h-3.5 ${theme === 'dark' ? 'text-[#18F2A4]' : 'text-[#10B981]'}`} />
+              <span>Categoria: <strong className={theme === 'dark' ? 'text-[#18F2A4]' : 'text-[#10B981]'}>{selectedCategory}</strong></span>
+            </div>
+            {showCategoryDropdown ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+          </button>
+
+          {showCategoryDropdown && (
+            <>
+              {/* Backdrop to close */}
+              <div 
+                className="fixed inset-0 z-20" 
+                onClick={() => setShowCategoryDropdown(false)}
+              />
+              <div className={`absolute left-0 right-0 mt-1.5 p-1.5 rounded-lg border shadow-xl z-30 max-h-48 overflow-y-auto ${
+                theme === 'dark'
+                  ? 'bg-[#111111] border-[#1A1A1A]'
+                  : 'bg-white border-[#E5E5E5]'
+              }`}>
+                <div className="grid grid-cols-2 gap-1">
+                  {categories.map(cat => (
+                    <button
+                      key={cat}
+                      type="button"
+                      onClick={() => {
+                        setSelectedCategory(cat);
+                        setShowCategoryDropdown(false);
+                      }}
+                      className={`text-left text-xs px-2.5 py-1.5 rounded-md transition-all ${
+                        selectedCategory === cat
+                          ? (theme === 'dark' ? 'bg-[#18F2A4] text-black font-semibold' : 'bg-[#10B981] text-white font-semibold')
+                          : (theme === 'dark' ? 'text-gray-400 hover:bg-[#1C1C1C] hover:text-white' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900')
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Dynamic searchable matching product results */}
