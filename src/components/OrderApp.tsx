@@ -485,7 +485,7 @@ export default function OrderApp({
         {/* Left Side: App Name and interactive user badge */}
         <div className="flex items-center gap-2 shrink-0">
           <Smartphone className="w-4 h-4 text-[#18F2A4]" />
-          <span className="font-bold">AdegaOS Order</span>
+          <span className="font-bold">FluxOS Order</span>
           {authorizedUser && (
             <button
               onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}

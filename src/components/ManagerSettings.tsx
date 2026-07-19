@@ -68,7 +68,7 @@ export default function ManagerSettings({
     return localStorage.getItem('adegaos_header_text') || 'ADEGA CENTRAL PREMIUM\nCNPJ: 12.345.678/0001-99\nOBRIGADO PELA PREFERÊNCIA!';
   });
   const [footerText, setFooterText] = useState<string>(() => {
-    return localStorage.getItem('adegaos_footer_text') || 'Desenvolvido por AdegaOS\n--- CUPOM NÃO FISCAL ---';
+    return localStorage.getItem('adegaos_footer_text') || 'Desenvolvido por FluxOS\n--- CUPOM NÃO FISCAL ---';
   });
 
   // Sector Printer States
@@ -1016,7 +1016,7 @@ export default function ManagerSettings({
                   Acesso de Produção (Modo Frente de Caixa / PDV)
                 </span>
                 <span className="text-[10px] text-gray-500 block mt-0.5">
-                  {isInstallGuideOpen ? 'Clique para fechar o guia de instalação' : 'Clique para abrir o guia de instalação do AdegaOS como App nativo (tela cheia)'}
+                  {isInstallGuideOpen ? 'Clique para fechar o guia de instalação' : 'Clique para abrir o guia de instalação do FluxOS como App nativo (tela cheia)'}
                 </span>
               </div>
             </div>
@@ -1028,7 +1028,7 @@ export default function ManagerSettings({
           {isInstallGuideOpen && (
             <div className="p-4 border-t flex flex-col md:flex-row gap-5 items-start border-dashed" style={{ borderColor: theme === 'dark' ? '#1A1A1A' : '#E5E5E5' }}>
               <div className="flex-1 flex flex-col gap-2">
-                <span className="text-xs font-bold block" style={{ color: theme === 'dark' ? 'white' : '#111' }}>Como Instalar o AdegaOS como App no seu Windows/Mac/Linux</span>
+                <span className="text-xs font-bold block" style={{ color: theme === 'dark' ? 'white' : '#111' }}>Como Instalar o FluxOS como App no seu Windows/Mac/Linux</span>
                 <p className="text-[11px] text-gray-400 leading-relaxed">
                   Para rodar o sistema em tela cheia dedicada e de forma ultra-rápida (sem barra de abas ou navegação do navegador), instale o atalho nativo usando o Google Chrome.
                 </p>
@@ -1043,13 +1043,13 @@ export default function ManagerSettings({
                       }`}
                     >
                       <Download className="w-4 h-4" />
-                      Instalar AdegaOS Oficial (Atalho do Chrome)
+                      Instalar FluxOS Oficial (Atalho do Chrome)
                     </button>
                     <span className="text-[9px] text-emerald-400 font-bold block mt-1">✓ Seu navegador Google Chrome é compatível para instalação direta!</span>
                   </div>
                 ) : isAppInstalled ? (
                   <div className="p-2.5 rounded-lg border bg-emerald-950/15 border-emerald-500/20 text-emerald-400 text-xs font-bold flex items-center gap-2 mt-2">
-                    <span>✓ AdegaOS já está rodando em Modo Standalone / Instalado com sucesso!</span>
+                    <span>✓ FluxOS já está rodando em Modo Standalone / Instalado com sucesso!</span>
                   </div>
                 ) : (
                   <div className="flex flex-col gap-2 mt-2">
@@ -1059,7 +1059,7 @@ export default function ManagerSettings({
                       <li>Vá em <strong>Salvar e Compartilhar</strong> ou <strong>Mais Ferramentas</strong>.</li>
                       <li>Clique em <strong>Criar Atalho...</strong></li>
                       <li>Marque a opção <strong>"Abrir como janela"</strong> (Importante para rodar sem barras do Chrome!).</li>
-                      <li>Clique em <strong>Criar</strong>. Pronto! O ícone do AdegaOS estará na sua Área de Trabalho para uso em produção real.</li>
+                      <li>Clique em <strong>Criar</strong>. Pronto! O ícone do FluxOS estará na sua Área de Trabalho para uso em produção real.</li>
                     </ol>
                   </div>
                 )}

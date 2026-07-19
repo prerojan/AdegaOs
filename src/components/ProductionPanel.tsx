@@ -128,7 +128,7 @@ export default function ProductionPanel({
       // Normal text
       commands += ESC + '!' + '\x00'; 
       commands += `--------------------------------\n`;
-      commands += `PEDIDO DE PRODUCAO - ADEGAOS\n`;
+      commands += `PEDIDO DE PRODUCAO - FLUXOS\n`;
       commands += `MESA: ${receipt.table}\n`;
       commands += `HORA: ${receipt.timestamp}\n`;
       commands += `--------------------------------\n`;
@@ -356,7 +356,7 @@ export default function ProductionPanel({
         }`}>
           <div className="flex items-center gap-2">
             <Layers className="w-4 h-4 text-[#18F2A4]" />
-            <span>Terminal de Produção • AdegaOS</span>
+            <span>Terminal de Produção • FluxOS</span>
           </div>
 
           <div className="flex items-center gap-3">

@@ -5,6 +5,7 @@ import { Product } from '../types';
 interface ManagerInventoryProps {
   products: Product[];
   onUpdateFullStock: (productId: string, boxes: number, units: number) => void;
+  onUpdateProduct: (prod: Product) => void;
   theme: 'dark' | 'light';
 }
 
@@ -19,6 +20,7 @@ interface InventoryLog {
 export default function ManagerInventory({
   products,
   onUpdateFullStock,
+  onUpdateProduct,
   theme
 }: ManagerInventoryProps) {
   const [selectedProductId, setSelectedProductId] = useState<string>(products[0]?.id || '');
@@ -26,6 +28,11 @@ export default function ManagerInventory({
   const [inputUnits, setInputUnits] = useState<number>(0);
   const [barcodeSearch, setBarcodeSearch] = useState<string>('');
   
+  // Batch/Lot manual input states
+  const [batchIdInput, setBatchIdInput] = useState('');
+  const [batchExpiryInput, setBatchExpiryInput] = useState('');
+  const [batchQtyInput, setBatchQtyInput] = useState<number>(0);
+
   // Local log history to simulate real audit trials
   const [inventoryLogs, setInventoryLogs] = useState<InventoryLog[]>([
     { timestamp: new Date(Date.now() - 3600000).toISOString(), productName: 'Cerveja Heineken Long Neck 330ml', type: 'conversao', description: 'Desdobramento de 2 caixas fechadas em 48 unidades avulsas para o freezer rápido', qtyChanged: '-2 cx | +48 un' },
@@ -108,6 +115,87 @@ export default function ManagerInventory({
 
     setInventoryLogs([logMsg, ...inventoryLogs]);
     alert(`Conversão Concluída!\n\n1 Caixa fechada foi aberta e adicionou +${selectedProduct.boxQuantity} unidades avulsas ao estoque físico.`);
+  };
+
+  const handleAddBatch = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedProduct) return;
+    if (!batchIdInput || !batchExpiryInput || batchQtyInput <= 0) {
+      alert('Por favor, preencha todos os campos do lote com valores válidos.');
+      return;
+    }
+    
+    const newBatch = {
+      id: batchIdInput.trim(),
+      expiryDate: batchExpiryInput,
+      initialQuantity: batchQtyInput,
+      currentQuantity: batchQtyInput
+    };
+    
+    const currentBatches = selectedProduct.batches ? [...selectedProduct.batches] : [];
+    
+    // Evitar ID de lote duplicado
+    if (currentBatches.some(b => b.id.toLowerCase() === batchIdInput.trim().toLowerCase())) {
+      alert('Já existe um lote cadastrado com este código.');
+      return;
+    }
+    
+    const updatedBatches = [...currentBatches, newBatch];
+    
+    // Adicionar a quantidade do novo lote ao estoque físico total
+    const finalUnits = selectedProduct.stockUnits + batchQtyInput;
+    
+    const updatedProduct: Product = {
+      ...selectedProduct,
+      stockUnits: finalUnits,
+      batches: updatedBatches
+    };
+    
+    onUpdateProduct(updatedProduct);
+    
+    // Log audit
+    const logMsg: InventoryLog = {
+      timestamp: new Date().toISOString(),
+      productName: selectedProduct.name,
+      type: 'entrada',
+      description: `Entrada de Lote de Validade FIFO [${batchIdInput}] com vencimento em ${batchExpiryInput}`,
+      qtyChanged: `+${batchQtyInput} un`
+    };
+    setInventoryLogs([logMsg, ...inventoryLogs]);
+    
+    // Reset inputs
+    setBatchIdInput('');
+    setBatchExpiryInput('');
+    setBatchQtyInput(0);
+    alert('Lote de validade registrado e acrescido ao estoque com sucesso!');
+  };
+
+  const handleRemoveBatch = (bId: string) => {
+    if (!selectedProduct) return;
+    const bToRemove = selectedProduct.batches?.find(b => b.id === bId);
+    if (!bToRemove) return;
+    
+    const updatedBatches = selectedProduct.batches?.filter(b => b.id !== bId) || [];
+    
+    // Deduzir quantidade remanescente deste lote do estoque físico
+    const finalUnits = Math.max(0, selectedProduct.stockUnits - bToRemove.currentQuantity);
+    
+    const updatedProduct: Product = {
+      ...selectedProduct,
+      stockUnits: finalUnits,
+      batches: updatedBatches
+    };
+    onUpdateProduct(updatedProduct);
+    
+    const logMsg: InventoryLog = {
+      timestamp: new Date().toISOString(),
+      productName: selectedProduct.name,
+      type: 'saida',
+      description: `Exclusão manual de Lote de Validade FIFO [${bId}]`,
+      qtyChanged: `-${bToRemove.currentQuantity} un`
+    };
+    setInventoryLogs([logMsg, ...inventoryLogs]);
+    alert('Lote excluído e saldo ajustado.');
   };
 
   return (
@@ -227,6 +315,113 @@ export default function ManagerInventory({
                   <RefreshCw className="w-3.5 h-3.5" />
                   Abrir / Desdobrar 1 Caixa
                 </button>
+              )}
+
+              {/* Lotes e Validade FIFO */}
+              {!selectedProduct.hasTechnicalSheet && (
+                <div className="flex flex-col gap-3 pt-3 border-t border-[#1A1A1A] text-xs" style={{ borderColor: theme === 'dark' ? '#1A1A1A' : '#E5E5E5' }}>
+                  <span className="font-bold text-[10px] uppercase text-gray-400">Controle de Lotes & Validade (FIFO)</span>
+                  
+                  {/* Batch list */}
+                  {(!selectedProduct.batches || selectedProduct.batches.length === 0) ? (
+                    <div className="text-center py-2 text-[10px] text-gray-500 bg-black/10 rounded">
+                      Sem lotes registrados. Cadastre o primeiro abaixo para controle PEPS/FIFO.
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-1.5 max-h-32 overflow-y-auto pr-1">
+                      {selectedProduct.batches
+                        .slice()
+                        .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
+                        .map((batch) => {
+                          const isExpired = new Date(batch.expiryDate).getTime() < Date.now();
+                          const daysLeft = Math.ceil((new Date(batch.expiryDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+                          
+                          return (
+                            <div key={batch.id} className="p-2 rounded bg-black/20 border border-[#1A1A1A] flex flex-col gap-1 text-[10px]" style={{ backgroundColor: theme === 'dark' ? 'rgba(0,0,0,0.2)' : '#F0F0F0', borderColor: theme === 'dark' ? '#1D1D1D' : '#E5E5E5' }}>
+                              <div className="flex justify-between items-center">
+                                <span className="font-bold font-mono text-sky-400">{batch.id}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveBatch(batch.id)}
+                                  className="text-red-400 hover:text-red-500 text-[9px] font-bold shrink-0 cursor-pointer"
+                                >
+                                  Remover
+                                </button>
+                              </div>
+                              
+                              <div className="flex justify-between items-center text-[9px] text-gray-400">
+                                <span>Validade: <strong className={isExpired ? 'text-red-500' : daysLeft < 30 ? 'text-amber-500' : 'text-emerald-400'}>{batch.expiryDate}</strong></span>
+                                <span>Disp: <strong>{batch.currentQuantity} / {batch.initialQuantity} un</strong></span>
+                              </div>
+                              
+                              {daysLeft > 0 && daysLeft < 30 && (
+                                <span className="text-[8px] text-amber-500 font-bold block leading-tight">Vence em {daysLeft} dias! Giro rápido recomendado (FIFO)</span>
+                              )}
+                              {isExpired && (
+                                <span className="text-[8px] text-red-500 font-bold block leading-tight">LOTE VENCIDO! Descarte recomendado.</span>
+                              )}
+                            </div>
+                          );
+                        })
+                      }
+                    </div>
+                  )}
+                  
+                  {/* Form to add batch */}
+                  <div className="p-2.5 rounded border border-[#1A1A1A] bg-[#000000]/15 flex flex-col gap-2" style={{ borderColor: theme === 'dark' ? '#1A1A1A' : '#E5E5E5' }}>
+                    <span className="font-bold text-[9px] uppercase text-gray-400">Entrada de Novo Lote</span>
+                    
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-[8px] text-gray-500">Cód. Lote</span>
+                        <input
+                          type="text"
+                          placeholder="Ex: LOTE-120"
+                          value={batchIdInput}
+                          onChange={(e) => setBatchIdInput(e.target.value)}
+                          className="p-1 rounded bg-[#080808] border border-[#1C1C1C] text-[10px] focus:outline-none"
+                          style={{ backgroundColor: theme === 'dark' ? '#080808' : 'white', borderColor: theme === 'dark' ? '#1C1C1C' : '#E5E5E5', color: theme === 'dark' ? 'white' : 'black' }}
+                        />
+                      </div>
+                      
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-[8px] text-gray-500">Vencimento</span>
+                        <input
+                          type="date"
+                          value={batchExpiryInput}
+                          onChange={(e) => setBatchExpiryInput(e.target.value)}
+                          className="p-1 rounded bg-[#080808] border border-[#1C1C1C] text-[10px] focus:outline-none font-mono"
+                          style={{ backgroundColor: theme === 'dark' ? '#080808' : 'white', borderColor: theme === 'dark' ? '#1C1C1C' : '#E5E5E5', color: theme === 'dark' ? 'white' : 'black' }}
+                        />
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-12 gap-2 items-center">
+                      <div className="col-span-8 flex flex-col gap-0.5">
+                        <span className="text-[8px] text-gray-500">Qtd (Avulsas)</span>
+                        <input
+                          type="number"
+                          min="1"
+                          placeholder="Qtd em unidades"
+                          value={batchQtyInput || ''}
+                          onChange={(e) => setBatchQtyInput(Number(e.target.value))}
+                          className="p-1 rounded bg-[#080808] border border-[#1C1C1C] text-[10px] focus:outline-none text-center font-mono"
+                          style={{ backgroundColor: theme === 'dark' ? '#080808' : 'white', borderColor: theme === 'dark' ? '#1C1C1C' : '#E5E5E5', color: theme === 'dark' ? 'white' : 'black' }}
+                        />
+                      </div>
+                      
+                      <button
+                        type="button"
+                        onClick={handleAddBatch}
+                        className={`col-span-4 py-1 rounded text-[10px] font-bold transition-all h-[24px] mt-3 flex items-center justify-center cursor-pointer ${
+                          theme === 'dark' ? 'bg-[#18F2A4] text-black hover:bg-[#12d58f]' : 'bg-[#10B981] text-white hover:bg-[#0e9f6e]'
+                        }`}
+                      >
+                        Lançar
+                      </button>
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
           )}

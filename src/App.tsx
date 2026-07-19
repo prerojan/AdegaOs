@@ -52,6 +52,8 @@ import ManagerSettings from './components/ManagerSettings';
 import OrderApp from './components/OrderApp';
 import LoginScreen from './components/LoginScreen';
 import ProductionPanel from './components/ProductionPanel';
+import LandingPage from './components/LandingPage';
+import AdminPanel from './components/AdminPanel';
 
 export default function App() {
   // Global Shared States
@@ -62,6 +64,59 @@ export default function App() {
   const [tablesComandas, setTablesComandas] = useState<TableComandaState[]>([]);
   const [usersList, setUsersList] = useState<CashierUser[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+
+  // Dynamic Curva ABC calculation based on sales history (last 30 days)
+  const productsWithAbc = useMemo(() => {
+    if (!products || products.length === 0) return [];
+    
+    // 1. Calculate sales of each product in the last 30 days
+    const salesByProduct: { [id: string]: number } = {};
+    sales.forEach(sale => {
+      if (sale.status === 'cancelado') return;
+      sale.items.forEach(item => {
+        salesByProduct[item.productId] = (salesByProduct[item.productId] || 0) + (item.quantity * item.unitPrice);
+      });
+    });
+    
+    // 2. Sort active products by total revenue descending
+    const sortedActiveProds = [...products]
+      .filter(p => p.active)
+      .map(p => ({
+        id: p.id,
+        revenue: salesByProduct[p.id] || 0
+      }))
+      .sort((a, b) => b.revenue - a.revenue);
+      
+    const totalRevenue = sortedActiveProds.reduce((acc, curr) => acc + curr.revenue, 0);
+    
+    // 3. Classify:
+    // Curva A: Top 70% of cumulative revenue
+    // Curva B: Next 20% (up to 90%)
+    // Curva C: Last 10% (or products with 0 sales)
+    let cumulative = 0;
+    const abcMap: { [id: string]: 'A' | 'B' | 'C' } = {};
+    
+    sortedActiveProds.forEach(item => {
+      if (totalRevenue === 0) {
+        abcMap[item.id] = 'C';
+        return;
+      }
+      cumulative += item.revenue;
+      const percentage = (cumulative / totalRevenue) * 100;
+      if (percentage <= 70) {
+        abcMap[item.id] = 'A';
+      } else if (percentage <= 90) {
+        abcMap[item.id] = 'B';
+      } else {
+        abcMap[item.id] = 'C';
+      }
+    });
+    
+    return products.map(p => ({
+      ...p,
+      abcClass: abcMap[p.id] || 'C'
+    }));
+  }, [products, sales]);
 
   // Shift & Cash Drawer States
   const [activeShift, setActiveShift] = useState<Shift | null>(() => {
@@ -220,22 +275,43 @@ export default function App() {
   };
 
   // Active user inside the Manager
-  const [currentUser, setCurrentUser] = useState<CashierUser | null>(() => {
-    try {
-      const stored = localStorage.getItem('cashier_session_user');
-      return stored ? JSON.parse(stored) : null;
-    } catch {
-      return null;
-    }
-  });
+  const [currentUser, setCurrentUser] = useState<CashierUser | null>(null);
 
   // Product Shell Layout controls
-  const [activeProductView, setActiveProductView] = useState<'manager' | 'order' | 'production'>('manager');
+  const [activeProductView, setActiveProductView] = useState<'manager' | 'order' | 'production' | 'landing' | 'admin'>('manager');
   const [managerActiveTab, setManagerActiveTab] = useState<string>('dashboard');
   const [isQuickSaleOpen, setIsQuickSaleOpen] = useState<boolean>(false);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
   const [scannedBarcodeTrigger, setScannedBarcodeTrigger] = useState<{ barcode: string; timestamp: number } | null>(null);
+
+  // Monitor URL params, hashes, and hotkeys to allow reviewers/developers to bypass landing pages
+  useEffect(() => {
+    const handleUrlRoute = () => {
+      const search = window.location.search;
+      const hash = window.location.hash;
+      if (search.includes('login') || hash === '#login' || search.includes('system') || hash === '#system') {
+        setActiveProductView('manager');
+      } else if (search.includes('admin') || hash === '#admin') {
+        setActiveProductView('admin');
+      }
+    };
+    handleUrlRoute();
+    window.addEventListener('hashchange', handleUrlRoute);
+
+    const handleGlobalKey = (e: KeyboardEvent) => {
+      if (e.altKey && e.key.toLowerCase() === 'l') {
+        e.preventDefault();
+        setActiveProductView('manager');
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKey);
+
+    return () => {
+      window.removeEventListener('hashchange', handleUrlRoute);
+      window.removeEventListener('keydown', handleGlobalKey);
+    };
+  }, []);
 
   // Load database on mount and subscribe to real-time updates
   useEffect(() => {
@@ -366,20 +442,82 @@ export default function App() {
   // Shared state manipulator functions with persistence triggers
   const handleUpdateStock = (productId: string, qtyToRemove: number) => {
     setProducts(prevProducts => {
+      // Create a map/lookup of the products for easy recipe resolution
+      const productMap = new Map<string, Product>(prevProducts.map(p => [p.id, p]));
+      
+      // Let's keep track of all updates we need to make
+      const updates: { [id: string]: { qtyToDeduct: number } } = {};
+      
+      const queue: { id: string; qty: number }[] = [{ id: productId, qty: qtyToRemove }];
+      
+      while (queue.length > 0) {
+        const item = queue.shift()!;
+        const prod = productMap.get(item.id);
+        if (!prod) continue;
+        
+        // Add to direct updates for this product
+        if (!updates[item.id]) {
+          updates[item.id] = { qtyToDeduct: 0 };
+        }
+        updates[item.id].qtyToDeduct += item.qty;
+        
+        // If it is a combo/has recipe, also queue its ingredients!
+        if (prod.hasTechnicalSheet && prod.recipe) {
+          prod.recipe.forEach(rec => {
+            queue.push({
+              id: rec.ingredientProductId,
+              qty: rec.quantity * item.qty
+            });
+          });
+        }
+      }
+      
+      // Apply the updates to products list
       const updated = prevProducts.map(p => {
-        if (p.id === productId) {
+        const update = updates[p.id];
+        if (update && update.qtyToDeduct > 0) {
+          const deductAmount = update.qtyToDeduct;
+          
+          // 1. Calculate new boxes/units
           let targetBoxes = p.stockBoxes;
-          let targetUnits = p.stockUnits - qtyToRemove;
+          let targetUnits = p.stockUnits - deductAmount;
 
           while (targetUnits < 0 && targetBoxes > 0) {
             targetBoxes -= 1;
             targetUnits += p.boxQuantity;
           }
 
+          // Ensure it doesn't go below 0
+          const finalBoxes = Math.max(0, targetBoxes);
+          const finalUnits = Math.max(0, targetUnits);
+
+          // 2. FIFO Batch deduction if product has batches
+          let updatedBatches = p.batches ? [...p.batches] : undefined;
+          if (updatedBatches && updatedBatches.length > 0) {
+            // Sort batches: oldest expiration date first (FIFO/PEPS)
+            updatedBatches.sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime());
+            
+            let remainingToDeduct = deductAmount;
+            updatedBatches = updatedBatches.map(batch => {
+              if (remainingToDeduct <= 0) return batch;
+              
+              if (batch.currentQuantity > 0) {
+                const deductFromBatch = Math.min(batch.currentQuantity, remainingToDeduct);
+                remainingToDeduct -= deductFromBatch;
+                return {
+                  ...batch,
+                  currentQuantity: parseFloat((batch.currentQuantity - deductFromBatch).toFixed(3))
+                };
+              }
+              return batch;
+            });
+          }
+
           const uProd = {
             ...p,
-            stockBoxes: Math.max(0, targetBoxes),
-            stockUnits: Math.max(0, targetUnits)
+            stockBoxes: finalBoxes,
+            stockUnits: parseFloat(finalUnits.toFixed(3)),
+            batches: updatedBatches
           };
           saveProductToDb(uProd);
           return uProd;
@@ -677,7 +815,7 @@ export default function App() {
       }`}>
         <div className="flex flex-col items-center gap-3">
           <div className="w-10 h-10 border-4 border-emerald-500/30 border-t-emerald-400 rounded-full animate-spin"></div>
-          <span className="text-xs font-mono tracking-widest text-gray-500 uppercase">AdegaOS carregando...</span>
+          <span className="text-xs font-mono tracking-widest text-gray-500 uppercase">FluxOS carregando...</span>
         </div>
       </div>
     );
@@ -686,8 +824,8 @@ export default function App() {
 
   // Color theme selectors
   const themeClasses = theme === 'dark' 
-    ? 'bg-[#000000] text-white scheme-dark' 
-    : 'bg-[#FFFFFF] text-[#111111] scheme-light';
+    ? 'bg-[#000000] text-white scheme-dark theme-dark' 
+    : 'bg-[#FFFFFF] text-[#111111] scheme-light theme-light';
 
   const menuItems = [
     { id: 'dashboard', name: 'Painel Executivo', icon: BarChart3 },
@@ -703,6 +841,35 @@ export default function App() {
     { id: 'configuracoes', name: 'Configurações', icon: Settings },
   ];
 
+  if (activeProductView === 'landing') {
+    return (
+      <LandingPage
+        theme={theme}
+        onEnterSystem={() => {
+          setActiveProductView('manager');
+        }}
+        onEnterAdmin={() => {
+          setActiveProductView('admin');
+        }}
+        onToggleTheme={handleToggleTheme}
+      />
+    );
+  }
+
+  if (activeProductView === 'admin') {
+    return (
+      <AdminPanel
+        theme={theme}
+        usersList={usersList}
+        onAddUser={handleAddUser}
+        onDeleteUser={handleDeleteUser}
+        onBackToLanding={() => {
+          setActiveProductView('landing');
+        }}
+      />
+    );
+  }
+
   if (!currentUser) {
     return (
       <LoginScreen
@@ -710,6 +877,12 @@ export default function App() {
         onLogin={handleLogin}
         theme={theme}
         onToggleTheme={handleToggleTheme}
+        onBackToLanding={() => {
+          setActiveProductView('landing');
+        }}
+        onEnterAdmin={() => {
+          setActiveProductView('admin');
+        }}
       />
     );
   }
@@ -731,7 +904,7 @@ export default function App() {
           </button>
           <div className="flex items-center gap-1.5">
             <Sparkles className="w-4 h-4 text-[#18F2A4]" />
-            <span className="font-extrabold text-xs tracking-tight">Adega<span className="text-[#18F2A4]">OS</span></span>
+            <span className="font-extrabold text-xs tracking-tight">Flux<span className="text-[#18F2A4]">OS</span></span>
           </div>
           <div className="w-8"></div>
         </div>
@@ -742,7 +915,7 @@ export default function App() {
         
         {activeProductView === 'manager' ? (
           /* =====================================
-             1. PRODUCT: ADEGAOS MANAGER
+             1. PRODUCT: FLUXOS MANAGER
              ===================================== */
           <div className="flex flex-1 overflow-hidden h-full relative">
             
@@ -764,7 +937,7 @@ export default function App() {
                 {/* Brand Header inside Sidebar */}
                 <div className="p-4 flex items-center gap-2 border-b border-gray-800/20" style={{ borderColor: theme === 'dark' ? '#161616' : '#E5E5E5' }}>
                   <Sparkles className="w-5 h-5 text-[#18F2A4]" />
-                  <span className="font-extrabold text-sm tracking-tight">Adega<span className="text-[#18F2A4]">OS</span></span>
+                  <span className="font-extrabold text-sm tracking-tight">Flux<span className="text-[#18F2A4]">OS</span></span>
                 </div>
 
                 <div className="p-3 flex flex-col gap-1">
@@ -830,6 +1003,8 @@ export default function App() {
                   <ShoppingCart className="w-4 h-4" />
                   Venda Rápida PDV
                 </button>
+
+
               </div>
             </aside>
 
@@ -837,7 +1012,7 @@ export default function App() {
             <main className="flex-1 overflow-y-auto p-6 md:p-8">
               {managerActiveTab === 'dashboard' && (
                 <ManagerDashboard 
-                  products={products} 
+                  products={productsWithAbc} 
                   sales={sales} 
                   financialTransactions={financialTransactions} 
                   theme={theme}
@@ -846,7 +1021,7 @@ export default function App() {
               )}
               {managerActiveTab === 'produtos' && (
                 <ManagerProducts 
-                  products={products} 
+                  products={productsWithAbc} 
                   suppliers={suppliers} 
                   onAddProduct={handleAddProduct}
                   onUpdateProduct={handleUpdateProduct}
@@ -855,15 +1030,16 @@ export default function App() {
               )}
               {managerActiveTab === 'estoque' && (
                 <ManagerInventory 
-                  products={products} 
+                  products={productsWithAbc} 
                   onUpdateFullStock={handleUpdateFullStock} 
+                  onUpdateProduct={handleUpdateProduct}
                   theme={theme}
                 />
               )}
               {managerActiveTab === 'vendas' && (
                 <ManagerSales 
                   sales={sales} 
-                  products={products} 
+                  products={productsWithAbc} 
                   onCancelSale={handleCancelSale} 
                   theme={theme}
                 />
@@ -871,7 +1047,7 @@ export default function App() {
               {managerActiveTab === 'compras' && (
                 <ManagerPurchases 
                   suppliers={suppliers} 
-                  products={products} 
+                  products={productsWithAbc} 
                   onAddPurchaseReceipt={onAddPurchaseReceipt => {
                     setFinancialTransactions(prev => [
                       {
@@ -905,7 +1081,7 @@ export default function App() {
                 <ManagerFinancial 
                   financialTransactions={financialTransactions} 
                   sales={sales} 
-                  products={products} 
+                  products={productsWithAbc} 
                   onConfirmPayment={handleConfirmPayment}
                   onAddTransaction={handleAddFinancial}
                   theme={theme}
@@ -920,7 +1096,7 @@ export default function App() {
               {managerActiveTab === 'relatorios' && (
                 <ManagerReports 
                   theme={theme} 
-                  products={products}
+                  products={productsWithAbc}
                   sales={sales}
                   financialTransactions={financialTransactions}
                 />
@@ -928,7 +1104,7 @@ export default function App() {
               {managerActiveTab === 'producao' && (
                 <ProductionPanel
                   tablesComandas={tablesComandas}
-                  products={products}
+                  products={productsWithAbc}
                   onUpdateTableItems={handleUpdateTableItems}
                   theme={theme}
                   currentUser={currentUser}
@@ -953,7 +1129,7 @@ export default function App() {
             <QuickSaleSidebar 
               isOpen={isQuickSaleOpen} 
               onClose={() => setIsQuickSaleOpen(false)} 
-              products={products} 
+              products={productsWithAbc} 
               onUpdateStock={handleUpdateStock} 
               onAddSale={handleAddSale} 
               onAddFinancial={handleAddFinancial} 
@@ -971,7 +1147,7 @@ export default function App() {
           <div className="flex-1 overflow-y-auto">
             <ProductionPanel
               tablesComandas={tablesComandas}
-              products={products}
+              products={productsWithAbc}
               onUpdateTableItems={handleUpdateTableItems}
               theme={theme}
               currentUser={currentUser}
@@ -987,7 +1163,7 @@ export default function App() {
           <div className="flex-1 flex flex-col w-full h-full">
             {/* The mobile applet component frame */}
             <OrderApp 
-              products={products} 
+              products={productsWithAbc} 
               tablesComandas={tablesComandas} 
               onUpdateTableItems={handleUpdateTableItems} 
               onUpdateTableStatus={handleUpdateTableStatus} 

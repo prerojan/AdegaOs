@@ -1,3 +1,17 @@
+export interface RecipeItem {
+  ingredientProductId: string;
+  quantity: number; // Quantidade fracionada ou inteira (ex: 1 para fardo/lata, 0.1 para dose de whisky)
+}
+
+export interface ProductBatch {
+  id: string;
+  batchNumber: string; // Número do Lote
+  expiryDate: string; // Data de validade (YYYY-MM-DD)
+  initialQuantity: number; // Quantidade original do lote
+  currentQuantity: number; // Quantidade restante no lote
+  createdAt: string; // ISO String de criação
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -20,6 +34,13 @@ export interface Product {
   ageRestricted: boolean;
   image?: string;
   notes?: string;
+  
+  // Advanced inventory fields
+  hasTechnicalSheet?: boolean; // Se possui Ficha Técnica / Receita
+  recipe?: RecipeItem[]; // Lista de ingredientes do combo/dose
+  batches?: ProductBatch[]; // Lotes vinculados para controle FIFO/PEPS
+  leadTimeDays?: number; // Tempo médio de entrega do fornecedor em dias
+  abcClass?: 'A' | 'B' | 'C'; // Classificação Curva ABC (calculada)
 }
 
 export interface Supplier {
@@ -144,3 +165,17 @@ export interface Shift {
   discrepancy?: number;
   notes?: string;
 }
+
+export interface AdegaBranch {
+  id: string;
+  name: string;
+  location: string;
+  managerName: string;
+  employeesCount: number;
+  productsCount: number;
+  monthlyRevenue: number;
+  monthlyProfit: number;
+  status: 'active' | 'inactive';
+  phone: string;
+}
+

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Truck, Plus, Trash2, CheckCircle, Percent, ClipboardList, Info } from 'lucide-react';
+import { Truck, Plus, Trash2, CheckCircle, Percent, ClipboardList, Info, Zap, AlertTriangle } from 'lucide-react';
 import { Supplier, Product, Purchase, PurchaseItem, FinancialTransaction } from '../types';
 
 interface ManagerPurchasesProps {
@@ -41,6 +41,56 @@ export default function ManagerPurchases({
     if (prod) {
       setCurrentCost(prod.costPrice);
     }
+  };
+
+  const replenishmentSuggestions = useMemo(() => {
+    return products.map(p => {
+      const currentStock = (p.stockBoxes * p.boxQuantity) + p.stockUnits;
+      
+      // Estimated daily consumption based on ABC classification
+      let dailyConsumption = 1; // Default
+      if (p.abcClass === 'A') dailyConsumption = 5;
+      else if (p.abcClass === 'B') dailyConsumption = 2;
+      else if (p.abcClass === 'C') dailyConsumption = 0.5;
+      
+      const leadTime = p.leadTimeDays || 3;
+      // Reorder point = (Consumption * Lead Time) + Min Stock
+      const reorderPoint = Math.ceil((dailyConsumption * leadTime) + p.minStockUnits);
+      
+      const needsReplenishment = currentStock <= reorderPoint;
+      
+      // Suggest quantity to buy to get back to target (minStock * 2 + consumption safety)
+      const targetStock = (p.minStockUnits * 2) + (dailyConsumption * leadTime);
+      const diffUnits = Math.max(0, targetStock - currentStock);
+      const suggestedBoxes = Math.ceil(diffUnits / p.boxQuantity);
+      
+      return {
+        product: p,
+        currentStock,
+        reorderPoint,
+        leadTime,
+        dailyConsumption,
+        needsReplenishment,
+        suggestedBoxes: suggestedBoxes > 0 ? suggestedBoxes : 1,
+        abcClass: p.abcClass || 'C'
+      };
+    }).filter(item => item.needsReplenishment);
+  }, [products]);
+
+  const handleAddSuggestionToInvoice = (productId: string, boxes: number) => {
+    const prod = products.find(p => p.id === productId);
+    if (!prod) return;
+    
+    // Check if already in active invoice
+    const existingIdx = cartItems.findIndex(i => i.productId === productId);
+    if (existingIdx >= 0) {
+      const copy = [...cartItems];
+      copy[existingIdx].boxes += boxes;
+      setCartItems(copy);
+    } else {
+      setCartItems([...cartItems, { productId, boxes, costPrice: prod.costPrice }]);
+    }
+    alert(`Adicionado ao carrinho de compras: ${boxes} cx de ${prod.name}`);
   };
 
   const handleAddItemToInvoice = () => {
@@ -155,6 +205,100 @@ export default function ManagerPurchases({
       <div>
         <h2 className="text-xl font-semibold tracking-tight">Recebimento de Notas (Compras)</h2>
         <p className="text-xs text-gray-400">Lance as compras em fardo fechado recebidas dos fornecedores para reabastecer o estoque e gerar as duplicatas financeiras.</p>
+      </div>
+
+      {/* Sugestões Inteligentes de Reposição Baseadas na Curva ABC e Lead Time */}
+      <div className={`p-5 rounded-xl border flex flex-col gap-4 ${
+        theme === 'dark' ? 'bg-[#111111] border-[#1A1A1A]' : 'bg-white border-gray-200 shadow-sm'
+      }`}>
+        <div className="flex justify-between items-center border-b pb-2.5" style={{ borderColor: theme === 'dark' ? '#1A1A1A' : '#E5E5E5' }}>
+          <div className="flex items-center gap-2">
+            <Zap className="w-4 h-4 text-[#18F2A4]" />
+            <span className={`text-xs uppercase font-extrabold tracking-wider ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+              Sugestões Inteligentes de Reposição (Curva ABC & Lead Time)
+            </span>
+          </div>
+          <span className={`text-[10px] font-bold ${theme === 'dark' ? 'text-[#18F2A4]' : 'text-emerald-700'} bg-[#18F2A4]/10 border border-[#18F2A4]/20 px-2 py-0.5 rounded-full`}>
+            Reabastecimento Automático
+          </span>
+        </div>
+
+        {replenishmentSuggestions.length === 0 ? (
+          <div className="text-center py-6 text-xs text-gray-500 flex flex-col items-center gap-2">
+            <CheckCircle className="w-8 h-8 text-emerald-400" />
+            <span>Todos os itens estão com estoques adequados para o Lead Time estimado. Sem alertas de Curva ABC no momento!</span>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {replenishmentSuggestions.map((item, idx) => {
+              const p = item.product;
+              const ratio = Math.min(100, (item.currentStock / item.reorderPoint) * 100);
+              
+              return (
+                <div key={idx} className={`p-3.5 rounded-xl border flex flex-col justify-between gap-3 text-xs transition-all ${
+                  theme === 'dark' ? 'bg-[#080808] border-[#1A1A1A] hover:bg-[#0E0E0E]' : 'bg-gray-50 border-gray-150 hover:bg-gray-100 shadow-sm'
+                }`}>
+                  <div>
+                    <div className="flex justify-between items-start gap-1.5 mb-1">
+                      <span className="font-bold text-sm leading-tight block truncate" style={{ color: theme === 'dark' ? 'white' : '#111' }}>
+                        {p.name}
+                      </span>
+                      <span className={`px-2 py-0.5 rounded text-[8px] font-extrabold border shrink-0 ${
+                        item.abcClass === 'A'
+                          ? theme === 'dark' ? 'bg-red-950/40 text-red-400 border-red-900/30' : 'bg-red-100 text-red-800 border-red-200'
+                          : item.abcClass === 'B'
+                            ? theme === 'dark' ? 'bg-amber-950/40 text-amber-400 border-amber-900/30' : 'bg-amber-100 text-amber-800 border-amber-200'
+                            : theme === 'dark' ? 'bg-sky-950/40 text-sky-400 border-sky-900/30' : 'bg-sky-100 text-sky-800 border-sky-200'
+                      }`}>
+                        Curva {item.abcClass}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 text-[10px] text-gray-400 mb-2">
+                      <Truck className="w-3.5 h-3.5 text-gray-500" />
+                      <span>Lead Time: <strong>{item.leadTime} dias</strong></span>
+                      <span className="text-gray-600">•</span>
+                      <span>Giro diário: <strong>{item.dailyConsumption} un</strong></span>
+                    </div>
+
+                    {/* Stock Meter */}
+                    <div className="flex flex-col gap-1 mb-2">
+                      <div className="flex justify-between text-[10px] font-mono text-gray-400">
+                        <span>Estoque: <strong>{item.currentStock} un</strong></span>
+                        <span>Ponto Reab.: <strong>{item.reorderPoint} un</strong></span>
+                      </div>
+                      <div className={`w-full h-1.5 rounded-full overflow-hidden ${theme === 'dark' ? 'bg-gray-900' : 'bg-gray-200'}`}>
+                        <div 
+                          className={`h-full rounded-full transition-all ${
+                            ratio < 30 ? 'bg-red-500' : ratio < 70 ? 'bg-amber-500' : 'bg-emerald-500'
+                          }`} 
+                          style={{ width: `${ratio}%` }}
+                        />
+                      </div>
+                    </div>
+                    
+                    <span className="text-[10px] text-gray-500 block leading-tight">
+                      Estoque mínimo atingido. Risco de ruptura considerando tempo de entrega do fornecedor.
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleAddSuggestionToInvoice(p.id, item.suggestedBoxes)}
+                    className={`w-full py-2 rounded-lg font-bold text-[11px] flex items-center justify-center gap-1.5 transition-all cursor-pointer border ${
+                      theme === 'dark' 
+                        ? 'bg-[#18F2A4]/10 text-[#18F2A4] border-[#18F2A4]/20 hover:bg-[#18F2A4]/20' 
+                        : 'bg-[#10B981]/15 text-[#10B981] border-[#10B981]/25 hover:bg-[#10B981]/25'
+                    }`}
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Sugestão: Compra {item.suggestedBoxes} cx
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

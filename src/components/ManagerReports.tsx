@@ -256,7 +256,7 @@ export default function ManagerReports({
         doc.setTextColor(24, 242, 164); // #18F2A4 (Vibrant Mint)
         doc.setFont('Helvetica', 'bold');
         doc.setFontSize(20);
-        doc.text('AdegaOS • Business Intelligence', 15, 15);
+        doc.text('FluxOS • Business Intelligence', 15, 15);
 
         doc.setTextColor(255, 255, 255);
         doc.setFont('Helvetica', 'normal');

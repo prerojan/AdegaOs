@@ -25,3 +25,31 @@
   background: #444444;
 }
 
+/* Ensure range slider tracks have correct backgrounds in light and dark themes */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+}
+
+.theme-dark input[type="range"]::-webkit-slider-runnable-track {
+  background-color: #374151 !important; /* bg-gray-700 */
+  height: 6px;
+  border-radius: 9999px;
+}
+.theme-light input[type="range"]::-webkit-slider-runnable-track {
+  background-color: #cbd5e1 !important; /* bg-slate-300 */
+  height: 6px;
+  border-radius: 9999px;
+}
+.theme-dark input[type="range"]::-moz-range-track {
+  background-color: #374151 !important; /* bg-gray-700 */
+  height: 6px;
+  border-radius: 9999px;
+}
+.theme-light input[type="range"]::-moz-range-track {
+  background-color: #cbd5e1 !important; /* bg-slate-300 */
+  height: 6px;
+  border-radius: 9999px;
+}
+

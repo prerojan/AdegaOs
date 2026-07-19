@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { Plus, Search, Filter, Edit, Copy, Archive, Check, X, Tag, FileSpreadsheet, Percent } from 'lucide-react';
-import { Product, Supplier } from '../types';
+import { Plus, Search, Filter, Edit, Copy, Archive, Check, X, Tag, FileSpreadsheet, Percent, Trash2 } from 'lucide-react';
+import { Product, Supplier, RecipeItem } from '../types';
 
 interface ManagerProductsProps {
   products: Product[];
@@ -41,6 +41,15 @@ export default function ManagerProducts({
   const [ageRestricted, setAgeRestricted] = useState(true);
   const [notes, setNotes] = useState('');
   const [image, setImage] = useState('');
+
+  // Advanced Inventory States
+  const [hasTechnicalSheet, setHasTechnicalSheet] = useState(false);
+  const [recipe, setRecipe] = useState<RecipeItem[]>([]);
+  const [leadTimeDays, setLeadTimeDays] = useState(3);
+  
+  // Recipe building temp fields
+  const [tempIngredientId, setTempIngredientId] = useState('');
+  const [tempQuantity, setTempQuantity] = useState<number>(1);
 
   // Auto-calculated margin
   const margin = useMemo(() => {
@@ -83,6 +92,13 @@ export default function ManagerProducts({
     setAgeRestricted(true);
     setNotes('');
     setImage('');
+    
+    // Reset Advanced
+    setHasTechnicalSheet(false);
+    setRecipe([]);
+    setLeadTimeDays(3);
+    setTempIngredientId('');
+    setTempQuantity(1);
     setShowModal(true);
   };
 
@@ -106,6 +122,13 @@ export default function ManagerProducts({
     setAgeRestricted(prod.ageRestricted);
     setNotes(prod.notes || '');
     setImage(prod.image || '');
+    
+    // Set Advanced
+    setHasTechnicalSheet(prod.hasTechnicalSheet || false);
+    setRecipe(prod.recipe || []);
+    setLeadTimeDays(prod.leadTimeDays || 3);
+    setTempIngredientId('');
+    setTempQuantity(1);
     setShowModal(true);
   };
 
@@ -126,7 +149,7 @@ export default function ManagerProducts({
       ...prod,
       active: !prod.active
     });
-    alert(`Produto ${prod.active ? 'arquivado' : 'reativado'} com sucesso.`);
+    alert(`Produto ${prod.active ? 'arquivar' : 'reativar'} com sucesso.`);
   };
 
   const handleSave = (e: React.FormEvent) => {
@@ -156,7 +179,10 @@ export default function ManagerProducts({
       active,
       ageRestricted,
       notes,
-      image
+      image,
+      hasTechnicalSheet,
+      recipe: hasTechnicalSheet ? recipe : [],
+      leadTimeDays: Number(leadTimeDays)
     };
 
     if (editingProduct) {
@@ -300,9 +326,27 @@ export default function ManagerProducts({
                         </div>
                       )}
                       <div className="flex flex-col gap-1">
-                        <span className="font-bold text-[13px] tracking-tight leading-snug" style={{ color: theme === 'dark' ? '#F3F4F6' : '#1F2937' }}>
-                          {prod.name}
-                        </span>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-bold text-[13px] tracking-tight leading-snug" style={{ color: theme === 'dark' ? '#F3F4F6' : '#1F2937' }}>
+                            {prod.name}
+                          </span>
+                          {prod.abcClass && (
+                            <span className={`px-1.5 py-0.5 text-[8px] font-extrabold rounded ${
+                              prod.abcClass === 'A' 
+                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
+                                : prod.abcClass === 'B' 
+                                ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' 
+                                : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+                            }`}>
+                              Curva {prod.abcClass}
+                            </span>
+                          )}
+                          {prod.hasTechnicalSheet && (
+                            <span className="px-1.5 py-0.5 text-[8px] font-extrabold rounded bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                              Ficha/Combo
+                            </span>
+                          )}
+                        </div>
                         <div className="flex flex-wrap items-center gap-1.5">
                           <span className={`inline-flex items-center text-[9px] font-mono font-medium px-1.5 py-0.5 rounded border ${
                             theme === 'dark' ? 'bg-[#161616] border-[#252525] text-[#18F2A4]' : 'bg-emerald-50 border-emerald-100 text-[#10B981]'
@@ -612,6 +656,147 @@ export default function ManagerProducts({
                     style={{ backgroundColor: theme === 'dark' ? '#111' : 'white', borderColor: theme === 'dark' ? '#222' : '#E5E5E5', color: theme === 'dark' ? 'white' : 'black' }}
                   />
                 </div>
+              </div>
+
+              {/* Advanced Stock & Supplier settings */}
+              <div className="grid grid-cols-2 gap-3 p-3 rounded-lg border border-dashed" style={{ borderColor: theme === 'dark' ? '#222' : '#E5E5E5' }}>
+                <div className="flex flex-col gap-1">
+                  <label className="text-gray-400 font-medium">Tempo de Entrega (Dias) *</label>
+                  <input
+                    type="number"
+                    min="1"
+                    required
+                    value={leadTimeDays}
+                    onChange={(e) => setLeadTimeDays(Number(e.target.value))}
+                    className="p-2 rounded border focus:outline-none text-xs"
+                    style={{ backgroundColor: theme === 'dark' ? '#111' : 'white', borderColor: theme === 'dark' ? '#222' : '#E5E5E5', color: theme === 'dark' ? 'white' : 'black' }}
+                  />
+                  <span className="text-[9px] text-gray-500">Prazo médio para recebimento de reposição.</span>
+                </div>
+                
+                <div className="flex flex-col justify-center">
+                  <span className="text-[10px] text-gray-400 uppercase font-semibold">Classe Curva ABC</span>
+                  <div className="mt-1">
+                    {editingProduct?.abcClass ? (
+                      <span className={`px-2.5 py-1 text-[10px] font-bold rounded-full ${
+                        editingProduct.abcClass === 'A' 
+                          ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
+                          : editingProduct.abcClass === 'B' 
+                          ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' 
+                          : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+                      }`}>
+                        Curva {editingProduct.abcClass} — Giro {editingProduct.abcClass === 'A' ? 'Altíssimo' : editingProduct.abcClass === 'B' ? 'Médio' : 'Baixo'}
+                      </span>
+                    ) : (
+                      <span className="text-gray-500 italic text-[11px]">Calculada pós-vendas</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Ficha Técnica / Combo section */}
+              <div className="flex flex-col gap-2.5 p-3 rounded-lg border" style={{ backgroundColor: theme === 'dark' ? 'rgba(0,0,0,0.2)' : '#FAFAFA', borderColor: theme === 'dark' ? '#1A1A1A' : '#E5E5E5' }}>
+                <label className="flex items-center gap-2 font-semibold text-gray-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={hasTechnicalSheet}
+                    onChange={(e) => setHasTechnicalSheet(e.target.checked)}
+                    className="rounded border-[#222] text-[#18F2A4] bg-transparent"
+                  />
+                  <span style={{ color: theme === 'dark' ? '#FFF' : '#333' }}>Este produto possui Ficha Técnica / Combo (Deduz Frações)</span>
+                </label>
+                
+                {hasTechnicalSheet && (
+                  <div className="flex flex-col gap-3 mt-1.5 pt-2.5 border-t border-dashed" style={{ borderColor: theme === 'dark' ? '#222' : '#E5E5E5' }}>
+                    <span className="font-bold text-[10px] uppercase text-gray-400">Composição da Receita (Ingredientes)</span>
+                    
+                    {/* Add ingredient controls */}
+                    <div className="grid grid-cols-12 gap-2">
+                      <div className="col-span-7 flex flex-col gap-0.5">
+                        <span className="text-[9px] text-gray-500">Selecionar Ingrediente</span>
+                        <select
+                          value={tempIngredientId}
+                          onChange={(e) => setTempIngredientId(e.target.value)}
+                          className="p-1.5 rounded border text-xs focus:outline-none"
+                          style={{ backgroundColor: theme === 'dark' ? '#111' : 'white', borderColor: theme === 'dark' ? '#222' : '#E5E5E5', color: theme === 'dark' ? 'white' : 'black' }}
+                        >
+                          <option value="">Selecione...</option>
+                          {products
+                            .filter(p => p.id !== (editingProduct?.id || '') && !p.hasTechnicalSheet)
+                            .map(p => (
+                              <option key={p.id} value={p.id}>{p.name} ({p.unit})</option>
+                            ))
+                          }
+                        </select>
+                      </div>
+                      
+                      <div className="col-span-3 flex flex-col gap-0.5">
+                        <span className="text-[9px] text-gray-500">Qtd Deduzida</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0.01"
+                          value={tempQuantity}
+                          onChange={(e) => setTempQuantity(Number(e.target.value))}
+                          className="p-1.5 rounded border text-xs focus:outline-none font-mono text-center"
+                          style={{ backgroundColor: theme === 'dark' ? '#111' : 'white', borderColor: theme === 'dark' ? '#222' : '#E5E5E5', color: theme === 'dark' ? 'white' : 'black' }}
+                        />
+                      </div>
+                      
+                      <div className="col-span-2 flex items-end">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!tempIngredientId) return;
+                            const exists = recipe.some(r => r.ingredientProductId === tempIngredientId);
+                            if (exists) {
+                              alert('Este ingrediente já está na receita.');
+                              return;
+                            }
+                            setRecipe([...recipe, { ingredientProductId: tempIngredientId, quantity: tempQuantity }]);
+                            setTempIngredientId('');
+                            setTempQuantity(1);
+                          }}
+                          className={`w-full py-1.5 rounded font-bold text-[11px] transition-all cursor-pointer ${
+                            theme === 'dark' ? 'bg-[#18F2A4] text-black hover:bg-[#12d58f]' : 'bg-[#10B981] text-white hover:bg-[#0e9f6e]'
+                          }`}
+                        >
+                          Add
+                        </button>
+                      </div>
+                    </div>
+                    
+                    {/* List current recipe ingredients */}
+                    {recipe.length === 0 ? (
+                      <div className="text-center py-2 text-[10px] text-gray-500 bg-black/10 rounded">
+                        Nenhum ingrediente adicionado. Monte a receita acima.
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-1.5 max-h-32 overflow-y-auto pr-1">
+                        {recipe.map((rec, rIdx) => {
+                          const ingProd = products.find(p => p.id === rec.ingredientProductId);
+                          return (
+                            <div key={rIdx} className="flex justify-between items-center p-1.5 rounded bg-black/20 border border-[#1A1A1A]" style={{ backgroundColor: theme === 'dark' ? 'rgba(0,0,0,0.2)' : '#F0F0F0', borderColor: theme === 'dark' ? '#1D1D1D' : '#E5E5E5' }}>
+                              <span className="font-medium text-[10px] truncate max-w-[200px]" style={{ color: theme === 'dark' ? '#FFF' : '#333' }}>{ingProd ? ingProd.name : 'Desconhecido'}</span>
+                              <div className="flex items-center gap-3 shrink-0">
+                                <span className="font-mono text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">
+                                  {rec.quantity} {ingProd?.unit || 'UN'}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => setRecipe(recipe.filter((_, i) => i !== rIdx))}
+                                  className="text-red-400 hover:text-red-500 text-[10px] font-bold cursor-pointer"
+                                >
+                                  Remover
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Flags */}
