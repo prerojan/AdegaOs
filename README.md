@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🍷 AdegaOS
+# 🍷 FluxOS
 
 **Sistema de gestão operacional completo para adegas, bares, distribuidoras e conveniências**
 
@@ -20,7 +20,7 @@ Controle de estoque, PDV, comandas/mesas, produção (cozinha/bar), financeiro (
 
 ## 📖 Sobre o projeto
 
-O **AdegaOS** é um sistema operacional de gestão (ERP leve) voltado para o dia a dia de adegas, bares, distribuidoras e conveniências. Ele unifica em uma única aplicação web o que normalmente exigiria várias ferramentas separadas: PDV, controle de estoque em caixas/unidades, gestão de mesas e comandas, painel de produção para cozinha/bar, compras com fornecedores, financeiro com DRE gerencial e relatórios exportáveis.
+O **FluxOS** é um sistema operacional de gestão (ERP leve) voltado para o dia a dia de adegas, bares, distribuidoras e conveniências. Ele unifica em uma única aplicação web o que normalmente exigiria várias ferramentas separadas: PDV, controle de estoque em caixas/unidades, gestão de mesas e comandas, painel de produção para cozinha/bar, compras com fornecedores, financeiro com DRE gerencial e relatórios exportáveis.
 
 A aplicação foi construída com um modelo multi-perfil: cada tipo de usuário (dono, gerente, financeiro, caixa, garçom, cozinha, bar) enxerga apenas a interface relevante para sua função, tudo dentro do mesmo app.
 
