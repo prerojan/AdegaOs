@@ -1,4 +1,4 @@
-const CACHE_NAME = 'adegaos-cache-v1';
+const CACHE_NAME = 'adegaos-cache-v2';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
@@ -30,7 +30,7 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Fetch Event (Standard cache-first/network-fallback hybrid)
+// Fetch Event (Network-First with Cache Fallback to ensure latest real-time updates)
 self.addEventListener('fetch', (event) => {
   // Only intercept HTTP/HTTPS GET requests (prevent caching Firestore/WebSocket traffic directly)
   if (event.request.method !== 'GET' || !event.request.url.startsWith(self.location.origin)) {
@@ -38,23 +38,26 @@ self.addEventListener('fetch', (event) => {
   }
 
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        return cachedResponse;
-      }
-      return fetch(event.request).then((networkResponse) => {
-        if (!networkResponse || networkResponse.status !== 200 || networkResponse.type !== 'basic') {
-          return networkResponse;
+    fetch(event.request)
+      .then((networkResponse) => {
+        // If it's a valid successful response, cache it and return it
+        if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
+          const responseToCache = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, responseToCache);
+          });
         }
-        const responseToCache = networkResponse.clone();
-        caches.open(CACHE_NAME).then((cache) => {
-          cache.put(event.request, responseToCache);
-        });
         return networkResponse;
-      }).catch(() => {
-        // Fallback for offline if not cached
-        return caches.match('/');
-      });
-    })
+      })
+      .catch(() => {
+        // Fallback to cache when offline
+        return caches.match(event.request).then((cachedResponse) => {
+          if (cachedResponse) {
+            return cachedResponse;
+          }
+          // If the page is not cached, fallback to root
+          return caches.match('/');
+        });
+      })
   );
 });
