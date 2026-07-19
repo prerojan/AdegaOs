@@ -2,32 +2,8 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Key, Smartphone, Wifi, WifiOff, RefreshCw, ShoppingCart, Search, Plus, Minus, Check, ArrowRight, User, AlertTriangle, TableProperties, DollarSign, X, CheckSquare, Layers, Sun, Moon, LogOut, Maximize2, Trash2, GlassWater } from 'lucide-react';
 import { Product, TableComandaState, Sale, FinancialTransaction, CashierUser, SyncQueueItem } from '../types';
 import ProductCard from './ProductCard';
-
-// Audio Context beep utility for physical waiters' terminal notifications
-function playBeep(frequency = 587.33, type: OscillatorType = 'sine', duration = 0.3) {
-  try {
-    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioContextClass) return;
-    const ctx = new AudioContextClass();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    
-    osc.type = type;
-    osc.frequency.setValueAtTime(frequency, ctx.currentTime);
-    
-    // Smooth ramp-down (increased volume from 0.15 to 0.9)
-    gain.gain.setValueAtTime(0.9, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
-    
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    
-    osc.start();
-    osc.stop(ctx.currentTime + duration);
-  } catch (e) {
-    console.warn("AudioContext playback prevented by browser: ", e);
-  }
-}
+import { ToastContainer, ToastItem, ToastType, playPremiumSound } from './ToastNotification';
+import { triggerThermalPrint } from '../lib/thermalPrinter';
 
 interface OrderAppProps {
   products: Product[];
@@ -64,6 +40,16 @@ export default function OrderApp({
   onLogout,
   onGoToManager
 }: OrderAppProps) {
+  // Toast list state for animated, non-blocking notifications on this screen
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const addToast = (message: string, type: ToastType) => {
+    const id = `toast-${Date.now()}-${Math.random()}`;
+    setToasts(prev => [...prev, { id, message, type }]);
+  };
+  const removeToast = (id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  };
+
   // Login status
   const [authorizedUser, setAuthorizedUser] = useState<CashierUser | null>(currentUser);
   const [pinInput, setPinInput] = useState('');
@@ -93,32 +79,66 @@ export default function OrderApp({
     }
   }, [currentUser]);
 
-  // Sound Alarm: Trigger a notification beep when any order item status changes to 'pronto'
-  const prevProntoCountRef = useRef<number>(0);
-  const currentProntoCount = useMemo(() => {
-    let count = 0;
+  // Robust Order Ready Detector: detects whenever any item transitions to 'pronto'
+  const readyItemsMap = useMemo(() => {
+    const map: Record<string, { name: string; identifier: string; qty: number }> = {};
     tablesComandas.forEach(table => {
       if (table.items) {
         table.items.forEach(item => {
           if (item.status === 'pronto') {
-            count += item.quantity;
+            const prod = products.find(p => p.id === item.productId);
+            const prodName = prod ? prod.name : 'Produto';
+            const tableIdStr = table.type === 'mesa' ? `Mesa ${table.number}` : `Comanda ${table.number}`;
+            const key = `${table.id}-${item.productId}-${item.notes || ''}`;
+            
+            if (!map[key]) {
+              map[key] = {
+                name: prodName,
+                identifier: tableIdStr,
+                qty: 0
+              };
+            }
+            map[key].qty += item.quantity;
           }
         });
       }
     });
-    return count;
-  }, [tablesComandas]);
+    return map;
+  }, [tablesComandas, products]);
+
+  const prevReadyItemsMapRef = useRef<Record<string, { name: string; identifier: string; qty: number }>>({});
+  const isFirstReadyLoadRef = useRef<boolean>(true);
 
   useEffect(() => {
-    if (currentProntoCount > prevProntoCountRef.current && prevProntoCountRef.current > 0) {
-      // Order ready! Play a pleasant high-pitched double beep chime for waiters
-      playBeep(880, 'sine', 0.1);
-      setTimeout(() => {
-        playBeep(1320, 'sine', 0.15);
-      }, 120);
+    if (isFirstReadyLoadRef.current) {
+      prevReadyItemsMapRef.current = readyItemsMap;
+      isFirstReadyLoadRef.current = false;
+      return;
     }
-    prevProntoCountRef.current = currentProntoCount;
-  }, [currentProntoCount]);
+
+    let newlyReadyAdded = false;
+    let newlyReadyMessage = '';
+
+    Object.keys(readyItemsMap).forEach(key => {
+      const currentItem = readyItemsMap[key];
+      const prevItem = prevReadyItemsMapRef.current[key];
+
+      const currentQty = currentItem.qty;
+      const prevQty = prevItem ? prevItem.qty : 0;
+
+      if (currentQty > prevQty) {
+        newlyReadyAdded = true;
+        newlyReadyMessage = `Pronto: ${currentItem.qty - prevQty}x ${currentItem.name} (${currentItem.identifier})`;
+      }
+    });
+
+    if (newlyReadyAdded && newlyReadyMessage) {
+      // Plays a distinctive high-pitched double-beep chime
+      addToast(newlyReadyMessage, 'ready');
+    }
+
+    prevReadyItemsMapRef.current = readyItemsMap;
+  }, [readyItemsMap]);
 
   // Current navigation
   const [activeScreen, setActiveScreen] = useState<'tables' | 'order' | 'checkout' | 'shift_closing'>('tables');
@@ -137,6 +157,7 @@ export default function OrderApp({
   const [splitCount, setSplitCount] = useState(1);
   const [paymentMethod, setPaymentMethod] = useState<'pix' | 'dinheiro' | 'debito' | 'credito'>('pix');
   const [stoneReference, setStoneReference] = useState('');
+  const [cashReceived, setCashReceived] = useState<number | ''>('');
   const [ageCheckConfirmed, setAgeCheckConfirmed] = useState(false);
 
   // Authenticate staff PIN
@@ -146,7 +167,7 @@ export default function OrderApp({
       setAuthorizedUser(user);
       setPinInput('');
     } else {
-      alert('PIN Inválido ou Usuário Bloqueado. Tente novamente.');
+      addToast('PIN Inválido ou Usuário Bloqueado. Tente novamente.', 'warning');
       setPinInput('');
     }
   };
@@ -257,7 +278,7 @@ export default function OrderApp({
     setOrderCart([]);
     
     // Notify
-    alert('Pedido despachado!');
+    addToast('Pedido enviado com sucesso para a produção!', 'success');
     setActiveScreen('tables');
   };
 
@@ -287,7 +308,7 @@ export default function OrderApp({
         if (prod) {
           const stockTotal = (prod.stockBoxes * prod.boxQuantity) + prod.stockUnits;
           if (stockTotal <= 0) {
-            alert("Quantidade insuficiente em estoque!");
+            addToast("Quantidade insuficiente em estoque!", "warning");
             return;
           }
         }
@@ -362,6 +383,37 @@ export default function OrderApp({
       status: 'pago'
     };
 
+    // Print non-fiscal sales coupon immediately!
+    const receiptData = {
+      number: saleNumber,
+      date: new Date().toLocaleDateString('pt-BR'),
+      time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+      identifier: `${activeTable.type === 'mesa' ? 'Mesa' : 'Comanda'} ${activeTable.number}`,
+      cashierId: authorizedUser?.name || 'Operador',
+      subtotal: totalToPay,
+      discount: 0,
+      total: totalToPay,
+      paymentMethod,
+      paidAmount: paymentMethod === 'dinheiro' && cashReceived !== '' ? Number(cashReceived) : totalToPay,
+      changeAmount: paymentMethod === 'dinheiro' && cashReceived !== '' && Number(cashReceived) > totalToPay ? Number(cashReceived) - totalToPay : 0,
+      items: activeTable.items.map(i => {
+        const prod = products.find(p => p.id === i.productId);
+        return {
+          qty: i.quantity,
+          name: prod ? prod.name : 'Produto',
+          unitPrice: prod ? prod.sellPrice : 0,
+          notes: i.notes
+        };
+      })
+    };
+
+    triggerThermalPrint('sale', receiptData).catch(err => {
+      console.error("Erro na impressão do cupom:", err);
+    });
+
+    // Reset temporary cashier inputs
+    setCashReceived('');
+
     // If simulating OFFLINE, queue transaction instead of flushing immediately!
     if (isOffline) {
       const queuePayload: SyncQueueItem = {
@@ -378,7 +430,7 @@ export default function OrderApp({
       onUpdateTableStatus(selectedTableId, 'livre');
       setSelectedTableId(null);
       setActiveScreen('tables');
-      alert('Modo OFFLINE ativo! Venda salva em cache e enfileirada no dispositivo.');
+      addToast('Modo OFFLINE ativo! Venda salva em cache e Cupom Impresso.', 'warning');
       return;
     }
 
@@ -390,7 +442,7 @@ export default function OrderApp({
 
     setSelectedTableId(null);
     setActiveScreen('tables');
-    alert(`Mesa ${newSale.number} liquidada com sucesso! Valor: R$ ${totalToPay.toFixed(2)}`);
+    addToast(`Mesa/Comanda ${activeTable.number} liquidada! Cupom não fiscal emitido com sucesso.`, 'success');
   };
 
   // Re-sync queue once online
@@ -404,7 +456,7 @@ export default function OrderApp({
     });
 
     setSyncQueue([]);
-    alert('Operações sincronizadas! Todas as vendas retidas localmente em cache foram registradas no caixa central.');
+    addToast('Sincronização concluída! Todas as vendas salvas em cache foram salvas no servidor.', 'success');
   };
 
   const handleToggleNetwork = () => {
@@ -580,7 +632,7 @@ export default function OrderApp({
             <button
               onClick={() => {
                 setAuthorizedUser(usersList[2]); // instant mock bypass so user doesn't get locked out
-                alert('Acesso simulado como João (Garçom). PIN padrão: 3333');
+                addToast('Acesso simulado como João (Garçom). PIN padrão: 3333', 'info');
               }}
               className="text-[9px] text-gray-500 font-bold uppercase transition-colors text-center"
             >
@@ -1038,6 +1090,33 @@ export default function OrderApp({
                     />
                   </div>
                 )}
+
+                {/* Cash received & change calculation */}
+                {paymentMethod === 'dinheiro' && (
+                  <div className="flex flex-col gap-2 p-2.5 rounded-lg border border-dashed mt-2" style={{ borderColor: theme === 'dark' ? '#222' : '#E5E5E5', backgroundColor: theme === 'dark' ? '#080808' : '#F9F9F9' }}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs text-gray-400 font-semibold">Valor Recebido (R$):</span>
+                      <input
+                        type="number"
+                        min={activeTable ? activeTable.items.reduce((acc, i) => acc + ((products.find(p => p.id === i.productId)?.sellPrice || 0) * i.quantity), 0) : 0}
+                        step="0.01"
+                        placeholder="0.00"
+                        value={cashReceived || ''}
+                        onChange={(e) => setCashReceived(Number(e.target.value))}
+                        className="w-24 text-right font-mono text-xs p-1.5 rounded border focus:outline-none"
+                        style={{ backgroundColor: theme === 'dark' ? '#111' : 'white', borderColor: theme === 'dark' ? '#333' : '#CCC', color: theme === 'dark' ? 'white' : 'black' }}
+                      />
+                    </div>
+                    {cashReceived !== '' && Number(cashReceived) >= (activeTable ? activeTable.items.reduce((acc, i) => acc + ((products.find(p => p.id === i.productId)?.sellPrice || 0) * i.quantity), 0) : 0) && (
+                      <div className="flex justify-between text-xs font-bold text-amber-500 pt-1.5 border-t border-dashed border-[#222]/20">
+                        <span>Troco ao Cliente:</span>
+                        <span className="font-mono">
+                          R$ {(Number(cashReceived) - (activeTable ? activeTable.items.reduce((acc, i) => acc + ((products.find(p => p.id === i.productId)?.sellPrice || 0) * i.quantity), 0) : 0)).toFixed(2)}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Fixed bottom footer with checkout action */}
@@ -1125,7 +1204,7 @@ export default function OrderApp({
                   type="button"
                   onClick={() => {
                     if (!newTableNumber) {
-                      alert('Por favor, digite um número.');
+                      addToast('Por favor, digite um número.', 'warning');
                       return;
                     }
                     if (onAddTableComanda) {
@@ -1165,7 +1244,7 @@ export default function OrderApp({
                         type="button"
                         onClick={() => {
                           if (tbl.status !== 'livre') {
-                            alert(`Este terminal está ocupado ou finalizando. Libere-o primeiro antes de remover.`);
+                            addToast(`Este terminal está ocupado ou finalizando. Libere-o primeiro antes de remover.`, 'warning');
                             return;
                           }
                           if (confirm(`Excluir permanentemente a ${tbl.type === 'mesa' ? 'Mesa' : 'Comanda'} ${tbl.number}?`)) {
@@ -1493,6 +1572,8 @@ export default function OrderApp({
         </div>
       )}
 
+      {/* Embedded non-blocking Toast System */}
+      <ToastContainer toasts={toasts} onRemove={removeToast} theme={theme} />
     </div>
   );
 }

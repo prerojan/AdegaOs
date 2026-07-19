@@ -1,6 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Search, ShoppingCart, Trash2, X, Percent, Check, HelpCircle, Archive, Save, ChevronDown, ChevronUp, Folder, GlassWater } from 'lucide-react';
 import { Product, Sale, FinancialTransaction } from '../types';
+import { ToastContainer, ToastItem, ToastType } from './ToastNotification';
+import { triggerThermalPrint } from '../lib/thermalPrinter';
 
 interface QuickSaleSidebarProps {
   isOpen: boolean;
@@ -11,6 +13,9 @@ interface QuickSaleSidebarProps {
   onAddFinancial: (tx: FinancialTransaction) => void;
   currentUser: any;
   theme: 'dark' | 'light';
+  scannedBarcodeTrigger?: { barcode: string; timestamp: number } | null;
+  activeShift?: any;
+  onOpenShift?: (openedBy: string, initialBalance: number) => void;
 }
 
 export default function QuickSaleSidebar({
@@ -21,7 +26,10 @@ export default function QuickSaleSidebar({
   onAddSale,
   onAddFinancial,
   currentUser,
-  theme
+  theme,
+  scannedBarcodeTrigger,
+  activeShift,
+  onOpenShift
 }: QuickSaleSidebarProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('Todos');
@@ -32,6 +40,28 @@ export default function QuickSaleSidebar({
   const [showAgeVerification, setShowAgeVerification] = useState(false);
   const [ageVerified, setAgeVerified] = useState(false);
   const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
+  const [cashReceived, setCashReceived] = useState<number | ''>('');
+
+  // Toasts state for professional feedback
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const addToast = (message: string, type: ToastType) => {
+    const id = `toast-${Date.now()}-${Math.random()}`;
+    setToasts(prev => [...prev, { id, message, type }]);
+  };
+  const removeToast = (id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  };
+
+  // Handle scanned barcode auto-add
+  useEffect(() => {
+    if (scannedBarcodeTrigger && scannedBarcodeTrigger.barcode) {
+      const targetBarcode = scannedBarcodeTrigger.barcode;
+      const foundProduct = products.find(p => p.barcode === targetBarcode || p.id === targetBarcode);
+      if (foundProduct && foundProduct.active) {
+        addToCart(foundProduct);
+      }
+    }
+  }, [scannedBarcodeTrigger, products]);
 
   // Get categories
   const categories = useMemo(() => {
@@ -55,7 +85,7 @@ export default function QuickSaleSidebar({
 
     const currentQtyInCart = existingIndex >= 0 ? cart[existingIndex].quantity : 0;
     if (currentQtyInCart >= totalUnitsInStock) {
-      alert(`Quantidade máxima em estoque atingida (${totalUnitsInStock} un)`);
+      addToast(`Quantidade máxima em estoque atingida (${totalUnitsInStock} un)`, 'warning');
       return;
     }
 
@@ -77,7 +107,7 @@ export default function QuickSaleSidebar({
     if (newQty <= 0) {
       newCart.splice(index, 1);
     } else if (newQty > totalUnitsInStock) {
-      alert(`Quantidade máxima em estoque atingida (${totalUnitsInStock} un)`);
+      addToast(`Quantidade máxima em estoque atingida (${totalUnitsInStock} un)`, 'warning');
       return;
     } else {
       item.quantity = newQty;
@@ -151,13 +181,41 @@ export default function QuickSaleSidebar({
     };
     onAddFinancial(newTx);
 
+    // Print Non-Fiscal Coupon
+    const receiptData = {
+      number: saleNumber,
+      date: new Date().toLocaleDateString('pt-BR'),
+      time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+      identifier: `BALCÃO #${saleNumber}`,
+      cashierId: currentUser?.name || 'Operador Caixa',
+      subtotal,
+      discount,
+      total,
+      paymentMethod,
+      paidAmount: paymentMethod === 'dinheiro' && cashReceived !== '' ? Number(cashReceived) : total,
+      changeAmount: paymentMethod === 'dinheiro' && cashReceived !== '' && Number(cashReceived) > total ? Number(cashReceived) - total : 0,
+      items: cart.map(item => ({
+        qty: item.quantity,
+        name: item.product.name,
+        unitPrice: item.product.sellPrice,
+        notes: item.notes
+      }))
+    };
+
+    triggerThermalPrint('sale', receiptData).catch(err => {
+      console.error("Erro na impressão de venda balcão:", err);
+    });
+
+    // Reset temporary cashier inputs
+    setCashReceived('');
+
     // Reset checkout state
     setCart([]);
     setDiscount(0);
     setAgeVerified(false);
     
     // Simulate receipt generation
-    alert(`Venda #${saleNumber} concluída com sucesso! Valor: R$ ${total.toFixed(2)}`);
+    addToast(`Venda #${saleNumber} concluída! Cupom não fiscal emitido com sucesso.`, 'success');
   };
 
   const handleSaveDraft = () => {
@@ -186,7 +244,7 @@ export default function QuickSaleSidebar({
     onAddSale(newSale);
     setCart([]);
     setDiscount(0);
-    alert(`Rascunho #${saleNumber} salvo com sucesso!`);
+    addToast(`Rascunho #${saleNumber} salvo com sucesso!`, 'info');
   };
 
   if (!isOpen) return null;
@@ -474,7 +532,28 @@ export default function QuickSaleSidebar({
               </button>
             ))}
           </div>
-               {/* Price Breakdown */}
+        </div>
+
+        {/* Cash received and change (Troco) calculation */}
+        {paymentMethod === 'dinheiro' && cart.length > 0 && (
+          <div className="flex flex-col gap-2 p-2 rounded-lg border border-dashed" style={{ borderColor: theme === 'dark' ? '#222' : '#E5E5E5', backgroundColor: theme === 'dark' ? '#0A0A0A' : '#FAFAFA' }}>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs text-gray-400 font-semibold">Valor Recebido (R$):</span>
+              <input
+                type="number"
+                min={total}
+                step="0.01"
+                placeholder="0.00"
+                value={cashReceived || ''}
+                onChange={(e) => setCashReceived(Number(e.target.value))}
+                className="w-20 text-right font-mono text-xs p-1.5 rounded border focus:outline-none"
+                style={{ backgroundColor: theme === 'dark' ? '#111' : 'white', borderColor: theme === 'dark' ? '#222' : '#CCC', color: theme === 'dark' ? 'white' : 'black' }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Price Breakdown */}
         <div className="flex flex-col gap-1 py-1 text-xs">
           <div className="flex justify-between text-gray-400">
             <span>Subtotal:</span>
@@ -492,41 +571,69 @@ export default function QuickSaleSidebar({
               R$ {total.toFixed(2)}
             </span>
           </div>
+          {paymentMethod === 'dinheiro' && cashReceived !== '' && Number(cashReceived) >= total && (
+            <div className="flex justify-between font-bold text-xs text-amber-500 pt-1 border-t border-dotted border-[#222]/20">
+              <span>Troco ao Cliente:</span>
+              <span className="font-mono">R$ {(Number(cashReceived) - total).toFixed(2)}</span>
+            </div>
+          )}
         </div>
 
         {/* CTA Buttons */}
-        <div className="grid grid-cols-2 gap-2 mt-1">
-          <button
-            disabled={cart.length === 0}
-            onClick={handleSaveDraft}
-            className={`py-2 px-2.5 rounded-lg border flex items-center justify-center gap-1.5 text-xs font-semibold transition-all cursor-pointer ${
-              cart.length === 0
-                ? 'opacity-40 cursor-not-allowed'
-                : theme === 'dark'
-                  ? 'bg-transparent border-[#222] text-gray-300 hover:bg-[#111]'
-                  : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-            }`}
-          >
-            <Save className="w-3.5 h-3.5" />
-            Salvar Rascunho
-          </button>
+        {!activeShift ? (
+          <div className="flex flex-col gap-2 p-3 rounded-lg border border-red-500/30 bg-red-500/10 text-red-400 text-xs text-center mt-1">
+            <span className="font-bold">⚠️ Turno de Caixa Fechado</span>
+            <span>Abra o caixa na aba 'Setor Financeiro &gt; Controle de Turnos' ou clique abaixo para iniciar o expediente.</span>
+            {onOpenShift && (
+              <button
+                onClick={() => {
+                  onOpenShift('Operador Geral', 100);
+                  alert("Caixa aberto com sucesso (Operador Geral, Troco inicial R$ 100.00)");
+                }}
+                className={`py-1.5 px-3 rounded font-bold text-[10px] uppercase tracking-wider self-center transition-all cursor-pointer ${
+                  theme === 'dark' ? 'bg-[#18F2A4] text-black hover:bg-[#12d58f]' : 'bg-[#10B981] text-white hover:bg-[#0e9f6e]'
+                }`}
+              >
+                Abrir Caixa com R$ 100
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-2 mt-1">
+            <button
+              disabled={cart.length === 0}
+              onClick={handleSaveDraft}
+              className={`py-2 px-2.5 rounded-lg border flex items-center justify-center gap-1.5 text-xs font-semibold transition-all cursor-pointer ${
+                cart.length === 0
+                  ? 'opacity-40 cursor-not-allowed'
+                  : theme === 'dark'
+                    ? 'bg-transparent border-[#222] text-gray-300 hover:bg-[#111]'
+                    : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              <Save className="w-3.5 h-3.5" />
+              Salvar Rascunho
+            </button>
 
-          <button
-            disabled={cart.length === 0}
-            onClick={handleCheckout}
-            className={`py-2 px-2.5 rounded-lg flex items-center justify-center gap-1.5 text-xs font-semibold transition-all cursor-pointer ${
-              cart.length === 0
-                ? 'opacity-40 cursor-not-allowed'
-                : theme === 'dark'
-                  ? 'bg-[#18F2A4] text-black hover:bg-[#12d58f] active:scale-95'
-                  : 'bg-[#10B981] text-white hover:bg-[#0e9f6e] active:scale-95'
-            }`}
-          >
-            <Check className="w-3.5 h-3.5" />
-            Finalizar Venda
-          </button>
-        </div>       </div>
+            <button
+              disabled={cart.length === 0}
+              onClick={handleCheckout}
+              className={`py-2 px-2.5 rounded-lg flex items-center justify-center gap-1.5 text-xs font-semibold transition-all cursor-pointer ${
+                cart.length === 0
+                  ? 'opacity-40 cursor-not-allowed'
+                  : theme === 'dark'
+                    ? 'bg-[#18F2A4] text-black hover:bg-[#12d58f] active:scale-95'
+                    : 'bg-[#10B981] text-white hover:bg-[#0e9f6e] active:scale-95'
+              }`}
+            >
+              <Check className="w-3.5 h-3.5" />
+              Finalizar Venda
+            </button>
+          </div>
+        )}
       </div>
+      {/* Embedded non-blocking Toast System */}
+      <ToastContainer toasts={toasts} onRemove={removeToast} theme={theme} />
     </div>
   );
 }
