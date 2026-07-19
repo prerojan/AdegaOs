@@ -5,7 +5,7 @@ import {
   ChefHat, LogOut, Menu
 } from 'lucide-react';
 
-import { Product, Supplier, Sale, FinancialTransaction, TableComandaState, CashierUser } from './types';
+import { Product, Supplier, Sale, FinancialTransaction, TableComandaState, CashierUser, Shift } from './types';
 import { 
   INITIAL_PRODUCTS, MOCK_SALES, INITIAL_SUPPLIERS, 
   INITIAL_TABLES_COMANDAS, INITIAL_CASHIER_USERS 
@@ -63,8 +63,171 @@ export default function App() {
   const [usersList, setUsersList] = useState<CashierUser[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
 
+  // Shift & Cash Drawer States
+  const [activeShift, setActiveShift] = useState<Shift | null>(() => {
+    try {
+      const stored = localStorage.getItem('adegaos_active_shift');
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const [shiftHistory, setShiftHistory] = useState<Shift[]>(() => {
+    try {
+      const stored = localStorage.getItem('adegaos_shift_history');
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    if (activeShift) {
+      localStorage.setItem('adegaos_active_shift', JSON.stringify(activeShift));
+    } else {
+      localStorage.removeItem('adegaos_active_shift');
+    }
+  }, [activeShift]);
+
+  useEffect(() => {
+    localStorage.setItem('adegaos_shift_history', JSON.stringify(shiftHistory));
+  }, [shiftHistory]);
+
+  const handleOpenShift = (openedBy: string, initialBalance: number) => {
+    const newShift: Shift = {
+      id: `shift-${Date.now()}`,
+      isOpen: true,
+      openTime: new Date().toISOString(),
+      openedBy,
+      initialBalance,
+      cashSales: 0,
+      otherSales: { pix: 0, card: 0, debt: 0 },
+      sangrias: [],
+      suprimentos: []
+    };
+    setActiveShift(newShift);
+
+    // Register opening inflow transaction
+    const openingTx: FinancialTransaction = {
+      id: `tx-${Date.now()}`,
+      date: new Date().toISOString().split('T')[0],
+      type: 'receita',
+      category: 'Outros',
+      description: `Abertura de Caixa (Fundo de Troco) - Operador: ${openedBy}`,
+      value: initialBalance,
+      paymentMethod: 'dinheiro',
+      status: 'pago'
+    };
+    handleAddFinancial(openingTx);
+  };
+
+  const handleSangria = (amount: number, reason: string) => {
+    if (!activeShift) return;
+    const newSangria = {
+      id: `sangria-${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      amount,
+      reason
+    };
+    setActiveShift(prev => {
+      if (!prev) return null;
+      return {
+        ...prev,
+        sangrias: [...prev.sangrias, newSangria]
+      };
+    });
+
+    // Register outflow transaction in financials
+    const sangriaTx: FinancialTransaction = {
+      id: `tx-${Date.now()}`,
+      date: new Date().toISOString().split('T')[0],
+      type: 'despesa',
+      category: 'Despesas Variáveis',
+      description: `Sangria: ${reason}`,
+      value: amount,
+      paymentMethod: 'dinheiro',
+      status: 'pago'
+    };
+    handleAddFinancial(sangriaTx);
+  };
+
+  const handleSuprimento = (amount: number, reason: string) => {
+    if (!activeShift) return;
+    const newSuprimento = {
+      id: `suprimento-${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      amount,
+      reason
+    };
+    setActiveShift(prev => {
+      if (!prev) return null;
+      return {
+        ...prev,
+        suprimentos: [...prev.suprimentos, newSuprimento]
+      };
+    });
+
+    // Register inflow transaction in financials
+    const suprimentoTx: FinancialTransaction = {
+      id: `tx-${Date.now()}`,
+      date: new Date().toISOString().split('T')[0],
+      type: 'receita',
+      category: 'Outros',
+      description: `Suprimento: ${reason}`,
+      value: amount,
+      paymentMethod: 'dinheiro',
+      status: 'pago'
+    };
+    handleAddFinancial(suprimentoTx);
+  };
+
+  const handleCloseShift = (countedAmount: number, notes: string) => {
+    if (!activeShift) return;
+
+    const totalSangrias = activeShift.sangrias.reduce((acc, s) => acc + s.amount, 0);
+    const totalSuprimentos = activeShift.suprimentos.reduce((acc, s) => acc + s.amount, 0);
+    const expectedCash = activeShift.initialBalance + activeShift.cashSales + totalSuprimentos - totalSangrias;
+    const discrepancy = countedAmount - expectedCash;
+
+    const closedShift: Shift = {
+      ...activeShift,
+      isOpen: false,
+      closeTime: new Date().toISOString(),
+      closingCashCounted: countedAmount,
+      discrepancy,
+      notes
+    };
+
+    setShiftHistory(prev => [closedShift, ...prev]);
+    setActiveShift(null);
+
+    // If there's discrepancy, record in financials to keep it aligned!
+    if (Math.abs(discrepancy) >= 0.01) {
+      const isSobra = discrepancy > 0;
+      const adjustmentTx: FinancialTransaction = {
+        id: `tx-${Date.now()}`,
+        date: new Date().toISOString().split('T')[0],
+        type: isSobra ? 'receita' : 'despesa',
+        category: isSobra ? 'Outros' : 'Despesas Variáveis',
+        description: `Ajuste de Diferença de Caixa: ${isSobra ? 'Sobra' : 'Falta'} no Fechamento. Obs: ${notes || 'Nenhuma'}`,
+        value: Math.abs(discrepancy),
+        paymentMethod: 'dinheiro',
+        status: 'pago'
+      };
+      handleAddFinancial(adjustmentTx);
+    }
+  };
+
   // Active user inside the Manager
-  const [currentUser, setCurrentUser] = useState<CashierUser | null>(null);
+  const [currentUser, setCurrentUser] = useState<CashierUser | null>(() => {
+    try {
+      const stored = localStorage.getItem('cashier_session_user');
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
+  });
 
   // Product Shell Layout controls
   const [activeProductView, setActiveProductView] = useState<'manager' | 'order' | 'production'>('manager');
@@ -72,6 +235,7 @@ export default function App() {
   const [isQuickSaleOpen, setIsQuickSaleOpen] = useState<boolean>(false);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
+  const [scannedBarcodeTrigger, setScannedBarcodeTrigger] = useState<{ barcode: string; timestamp: number } | null>(null);
 
   // Load database on mount and subscribe to real-time updates
   useEffect(() => {
@@ -126,8 +290,60 @@ export default function App() {
     };
   }, []);
 
+  // Global Barcode Scanner keyboard listener
+  useEffect(() => {
+    if (!currentUser) return;
+
+    let buffer = '';
+    let lastKeyTime = Date.now();
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const currentTime = Date.now();
+      const timeDiff = currentTime - lastKeyTime;
+      lastKeyTime = currentTime;
+
+      // Enter usually marks the end of a barcode scan
+      if (e.key === 'Enter') {
+        if (buffer.length >= 2) {
+          const barcode = buffer.trim();
+          const matched = products.find(p => p.barcode === barcode || p.id === barcode);
+          if (matched && matched.active) {
+            e.preventDefault();
+            setIsQuickSaleOpen(true);
+            setScannedBarcodeTrigger({ barcode, timestamp: Date.now() });
+          }
+        }
+        buffer = '';
+        return;
+      }
+
+      // Ignore single modifier keys
+      if (e.key.length > 1) {
+        return;
+      }
+
+      // Buffer normal character input. If the gap between keystrokes is large and user is in an input field, reset the buffer
+      const isInputFocused = document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA';
+      if (timeDiff > 120 && isInputFocused) {
+        buffer = e.key;
+      } else {
+        buffer += e.key;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [currentUser, products]);
+
   const handleLogin = (user: CashierUser) => {
     setCurrentUser(user);
+    try {
+      localStorage.setItem('cashier_session_user', JSON.stringify(user));
+    } catch (e) {
+      console.error('Error saving session:', e);
+    }
     if (user.role === 'kitchen' || user.role === 'bar') {
       setActiveProductView('production');
     } else if (user.role === 'waiter') {
@@ -140,6 +356,11 @@ export default function App() {
 
   const handleLogout = () => {
     setCurrentUser(null);
+    try {
+      localStorage.removeItem('cashier_session_user');
+    } catch (e) {
+      console.error('Error clearing session:', e);
+    }
   };
 
   // Shared state manipulator functions with persistence triggers
@@ -187,6 +408,49 @@ export default function App() {
   const handleAddSale = (sale: Sale) => {
     setSales(prev => [sale, ...prev]);
     saveSaleToDb(sale);
+
+    // Sync with active shift
+    if (activeShift && activeShift.isOpen) {
+      setActiveShift(prev => {
+        if (!prev) return null;
+        const value = sale.total;
+        let updatedCash = prev.cashSales;
+        let updatedOther = { ...prev.otherSales };
+
+        if (sale.paymentMethod === 'dinheiro') {
+          updatedCash += value;
+        } else if (sale.paymentMethod === 'pix') {
+          updatedOther.pix += value;
+        } else if (['debito', 'credito'].includes(sale.paymentMethod)) {
+          updatedOther.card += value;
+        } else if (sale.paymentMethod === 'fiado') {
+          updatedOther.debt += value;
+        } else if (sale.paymentMethod === 'dividido' && sale.paymentSplit) {
+          sale.paymentSplit.forEach(sp => {
+            if (sp.method === 'dinheiro') {
+              updatedCash += sp.value;
+            } else if (sp.method === 'pix') {
+              updatedOther.pix += sp.value;
+            } else if (['debito', 'credito'].includes(sp.method)) {
+              updatedOther.card += sp.value;
+            } else if (sp.method === 'fiado') {
+              updatedOther.debt += sp.value;
+            }
+          });
+        }
+
+        return {
+          ...prev,
+          cashSales: updatedCash,
+          otherSales: updatedOther
+        };
+      });
+    }
+  };
+
+  const handleUpdateSale = (updatedSale: Sale) => {
+    setSales(prev => prev.map(s => s.id === updatedSale.id ? updatedSale : s));
+    saveSaleToDb(updatedSale);
   };
 
   const handleAddFinancial = (tx: FinancialTransaction) => {
@@ -645,10 +909,21 @@ export default function App() {
                   onConfirmPayment={handleConfirmPayment}
                   onAddTransaction={handleAddFinancial}
                   theme={theme}
+                  activeShift={activeShift}
+                  onOpenShift={handleOpenShift}
+                  onCloseShift={handleCloseShift}
+                  onSangria={handleSangria}
+                  onSuprimento={handleSuprimento}
+                  shiftHistory={shiftHistory}
                 />
               )}
               {managerActiveTab === 'relatorios' && (
-                <ManagerReports theme={theme} />
+                <ManagerReports 
+                  theme={theme} 
+                  products={products}
+                  sales={sales}
+                  financialTransactions={financialTransactions}
+                />
               )}
               {managerActiveTab === 'producao' && (
                 <ProductionPanel
@@ -684,6 +959,9 @@ export default function App() {
               onAddFinancial={handleAddFinancial} 
               currentUser={currentUser} 
               theme={theme}
+              scannedBarcodeTrigger={scannedBarcodeTrigger}
+              activeShift={activeShift}
+              onOpenShift={handleOpenShift}
             />
           </div>
         ) : activeProductView === 'production' ? (

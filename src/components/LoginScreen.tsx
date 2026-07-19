@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Key, Mail, Lock, Sparkles, Sun, Moon, ArrowRight, ShieldCheck, HelpCircle } from 'lucide-react';
 import { CashierUser } from '../types';
 
@@ -20,6 +20,54 @@ export default function LoginScreen({
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+
+  // Physical keyboard / Numpad listener for PIN mode
+  useEffect(() => {
+    if (loginMode !== 'pin') return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Safely check if focused element is a text input (avoid breaking input typing elsewhere, if any)
+      if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') {
+        return;
+      }
+
+      if (e.key >= '0' && e.key <= '9') {
+        e.preventDefault();
+        setErrorMsg('');
+        setPinInput(prev => {
+          if (prev.length < 4) {
+            const newVal = prev + e.key;
+            if (newVal.length === 4) {
+              // Auto-authenticate when 4 digits are completed
+              setTimeout(() => {
+                const found = usersList.find(u => u.pin === newVal && u.active);
+                if (found) {
+                  onLogin(found);
+                  setPinInput('');
+                } else {
+                  setErrorMsg('PIN inválido ou funcionário inativo');
+                  setPinInput('');
+                }
+              }, 200);
+            }
+            return newVal;
+          }
+          return prev;
+        });
+      } else if (e.key === 'Backspace') {
+        e.preventDefault();
+        setPinInput(prev => prev.slice(0, -1));
+      } else if (e.key === 'Escape' || e.key === 'Delete') {
+        e.preventDefault();
+        setPinInput('');
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [loginMode, usersList, onLogin]);
 
   // Auto-fill demo credentials helper
   const handleDemoCredentials = (role: 'manager' | 'waiter' | 'kitchen' | 'bar') => {

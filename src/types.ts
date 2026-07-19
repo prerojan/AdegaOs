@@ -75,6 +75,11 @@ export interface Sale {
   cancelReason?: string;
   cashierId: string; // PIN or User ID
   waiterName?: string;
+  deliveryAddress?: string;
+  deliveryFee?: number;
+  deliveryDriverName?: string;
+  deliveryStatus?: 'pendente' | 'preparo' | 'pronto' | 'saiu' | 'entregue' | 'cancelado';
+  customerPhone?: string;
 }
 
 export interface FinancialTransaction {
@@ -122,4 +127,20 @@ export interface TableComandaState {
     statusHistory: { status: string; timestamp: string; userId: string }[];
   }[];
   subtotal: number;
+}
+
+export interface Shift {
+  id: string;
+  isOpen: boolean;
+  openTime: string; // ISO string
+  closeTime?: string; // ISO string
+  openedBy: string; // operator name
+  initialBalance: number; // fundo de troco
+  cashSales: number; // expected cash from sales
+  otherSales: { pix: number; card: number; debt: number };
+  sangrias: { id: string; timestamp: string; amount: number; reason: string }[];
+  suprimentos: { id: string; timestamp: string; amount: number; reason: string }[];
+  closingCashCounted?: number;
+  discrepancy?: number;
+  notes?: string;
 }

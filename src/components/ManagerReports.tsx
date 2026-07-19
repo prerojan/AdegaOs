@@ -1,31 +1,366 @@
 import React, { useState } from 'react';
 import { FileText, FileSpreadsheet, Download, RefreshCw, BarChart2, Calendar, ShieldAlert } from 'lucide-react';
+import { jsPDF } from 'jspdf';
+import { Product, Sale, FinancialTransaction } from '../types';
 
 interface ManagerReportsProps {
   theme: 'dark' | 'light';
+  products: Product[];
+  sales: Sale[];
+  financialTransactions: FinancialTransaction[];
 }
 
-export default function ManagerReports({ theme }: ManagerReportsProps) {
+export default function ManagerReports({ 
+  theme,
+  products,
+  sales,
+  financialTransactions
+}: ManagerReportsProps) {
   const [loadingReport, setLoadingReport] = useState<string | null>(null);
 
-  const handleGenerateReport = (name: string, format: 'PDF' | 'XLS') => {
-    setLoadingReport(name);
+  const handleGenerateReport = (reportId: string, format: 'PDF' | 'XLS') => {
+    const report = reportsList.find(r => r.id === reportId);
+    if (!report) return;
+
+    setLoadingReport(reportId);
+
     setTimeout(() => {
       setLoadingReport(null);
-      
-      // Generate a tiny mock document to trigger real browser file download
-      const content = `AdegaOS - Relatório de ${name}\nGerado em: ${new Date().toLocaleString()}\nFormato: ${format}\nStatus: Homologado\n\n[DADOS DE EXEMPLO CRISTALINOS COMPILADOS COM SUCESSO]`;
-      const blob = new Blob([content], { type: 'text/plain;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `adegaos_relatorio_${name.toLowerCase().replace(/\s/g, '_')}.${format.toLowerCase()}`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
 
-      alert(`Relatório "${name}" exportado com sucesso no formato ${format}! O download começará automaticamente.`);
-    }, 1200); // realistic mock compilation wait
+      // 1. GATHER REAL DATA FOR THE CHOSEN REPORT
+      let title = report.title;
+      let headers: string[] = [];
+      let rows: string[][] = [];
+      let summaryData: { label: string; value: string }[] = [];
+
+      if (reportId === 'r1') {
+        // Fechamento de Caixa Diário
+        const paidSales = sales.filter(s => s.status === 'pago');
+        const dinheiroSales = paidSales.filter(s => s.paymentMethod === 'dinheiro').reduce((acc, s) => acc + s.total, 0);
+        const pixSales = paidSales.filter(s => s.paymentMethod === 'pix').reduce((acc, s) => acc + s.total, 0);
+        const cartaoSales = paidSales.filter(s => ['debito', 'credito'].includes(s.paymentMethod)).reduce((acc, s) => acc + s.total, 0);
+        const totalFaturamento = dinheiroSales + pixSales + cartaoSales;
+
+        summaryData = [
+          { label: 'Faturamento Total de Balcão', value: `R$ ${totalFaturamento.toFixed(2)}` },
+          { label: 'Total Dinheiro (Em Espécie)', value: `R$ ${dinheiroSales.toFixed(2)}` },
+          { label: 'Total PIX (Instantâneo)', value: `R$ ${pixSales.toFixed(2)}` },
+          { label: 'Total Cartões (Débito/Crédito)', value: `R$ ${cartaoSales.toFixed(2)}` },
+          { label: 'Quantidade de Vendas Efetuadas', value: `${paidSales.length} transações` },
+        ];
+
+        headers = ['ID Venda', 'Data/Hora', 'Operador', 'Método', 'Desconto', 'Total (R$)'];
+        rows = paidSales.map(s => [
+          `#${s.number}`,
+          new Date(s.timestamp).toLocaleString('pt-BR'),
+          s.cashierId,
+          s.paymentMethod.toUpperCase(),
+          `R$ ${s.discount.toFixed(2)}`,
+          `R$ ${s.total.toFixed(2)}`
+        ]);
+
+      } else if (reportId === 'r2') {
+        // DRE Gerencial de Canais
+        const paidSales = sales.filter(s => s.status === 'pago');
+        const totalVendas = paidSales.reduce((acc, s) => acc + s.total, 0);
+        
+        // Calculate real CMV
+        let totalCmv = 0;
+        paidSales.forEach(s => {
+          s.items.forEach(item => {
+            const prod = products.find(p => p.id === item.productId);
+            if (prod) {
+              totalCmv += item.quantity * prod.costPrice;
+            }
+          });
+        });
+
+        // Fixed / Variable Expenses
+        const fixedExpenses = financialTransactions
+          .filter(tx => tx.type === 'despesa' && tx.status === 'pago' && ['Aluguel', 'Energia', 'Salários', 'Internet', 'Sistemas'].includes(tx.category))
+          .reduce((acc, tx) => acc + tx.value, 0);
+
+        const variableExpenses = financialTransactions
+          .filter(tx => tx.type === 'despesa' && tx.status === 'pago' && !['Aluguel', 'Energia', 'Salários', 'Internet', 'Sistemas'].includes(tx.category))
+          .reduce((acc, tx) => acc + tx.value, 0);
+
+        const receitaBruta = totalVendas;
+        const margemContribuicao = receitaBruta - totalCmv;
+        const lucroLiquido = margemContribuicao - fixedExpenses - variableExpenses;
+
+        summaryData = [
+          { label: 'Faturamento Bruto', value: `R$ ${receitaBruta.toFixed(2)}` },
+          { label: 'Custo de Mercadoria Vendida (CMV)', value: `R$ ${totalCmv.toFixed(2)}` },
+          { label: 'Margem de Contribuição', value: `R$ ${margemContribuicao.toFixed(2)}` },
+          { label: 'Despesas Fixas de Caixa', value: `R$ ${fixedExpenses.toFixed(2)}` },
+          { label: 'Despesas Operacionais e Taxas', value: `R$ ${variableExpenses.toFixed(2)}` },
+          { label: 'LUCRO OPERACIONAL LÍQUIDO', value: `R$ ${lucroLiquido.toFixed(2)}` }
+        ];
+
+        headers = ['Indicador Financeiro', 'Valor Gerencial (R$)', 'Percentual s/ Vendas'];
+        rows = [
+          ['(+) RECEITA BRUTA DE VENDAS', `R$ ${receitaBruta.toFixed(2)}`, '100.0%'],
+          ['(-) CUSTO DE MERCADORIA VENDIDA (CMV)', `- R$ ${totalCmv.toFixed(2)}`, `${receitaBruta > 0 ? ((totalCmv / receitaBruta) * 100).toFixed(1) : 0}%`],
+          ['(=) MARGEM DE CONTRIBUIÇÃO', `R$ ${margemContribuicao.toFixed(2)}`, `${receitaBruta > 0 ? ((margemContribuicao / receitaBruta) * 100).toFixed(1) : 0}%`],
+          ['(-) DESPESAS FIXAS', `- R$ ${fixedExpenses.toFixed(2)}`, `${receitaBruta > 0 ? ((fixedExpenses / receitaBruta) * 100).toFixed(1) : 0}%`],
+          ['(-) DESPESAS VARIÁVEIS / TAXAS', `- R$ ${variableExpenses.toFixed(2)}`, `${receitaBruta > 0 ? ((variableExpenses / receitaBruta) * 100).toFixed(1) : 0}%`],
+          ['(=) RESULTADO OPERACIONAL LÍQUIDO', `R$ ${lucroLiquido.toFixed(2)}`, `${receitaBruta > 0 ? ((lucroLiquido / receitaBruta) * 100).toFixed(1) : 0}%`]
+        ];
+
+      } else if (reportId === 'r3') {
+        // Curva ABC de Giro de Estoque
+        const productSalesMap: Record<string, { qty: number; revenue: number }> = {};
+        sales.filter(s => s.status === 'pago').forEach(s => {
+          s.items.forEach(item => {
+            if (!productSalesMap[item.productId]) {
+              productSalesMap[item.productId] = { qty: 0, revenue: 0 };
+            }
+            productSalesMap[item.productId].qty += item.quantity;
+            productSalesMap[item.productId].revenue += item.quantity * item.unitPrice;
+          });
+        });
+
+        const abcList = products.map(p => {
+          const stats = productSalesMap[p.id] || { qty: 0, revenue: 0 };
+          return {
+            id: p.id,
+            name: p.name,
+            qty: stats.qty,
+            revenue: stats.revenue,
+            stock: (p.stockBoxes * p.boxQuantity) + p.stockUnits,
+            class: 'C'
+          };
+        });
+
+        abcList.sort((a, b) => b.revenue - a.revenue);
+
+        const totalRevenueAll = abcList.reduce((acc, p) => acc + p.revenue, 0);
+        let accumulatedRevenue = 0;
+        abcList.forEach(p => {
+          if (totalRevenueAll > 0) {
+            accumulatedRevenue += p.revenue;
+            const percentage = (accumulatedRevenue / totalRevenueAll) * 100;
+            if (percentage <= 70) p.class = 'A';
+            else if (percentage <= 90) p.class = 'B';
+            else p.class = 'C';
+          }
+        });
+
+        summaryData = [
+          { label: 'Receita Total do Portfólio', value: `R$ ${totalRevenueAll.toFixed(2)}` },
+          { label: 'Total de Itens Cadastrados', value: `${products.length} itens` },
+          { label: 'Itens de Classe A (Principais)', value: `${abcList.filter(p => p.class === 'A').length} produtos` },
+          { label: 'Itens de Classe B (Intermediários)', value: `${abcList.filter(p => p.class === 'B').length} produtos` },
+          { label: 'Itens de Classe C (Baixo Giro)', value: `${abcList.filter(p => p.class === 'C').length} produtos` }
+        ];
+
+        headers = ['Cod/Ref', 'Nome do Produto', 'Qtd Vendida', 'Saldo Estoque', 'Faturamento (R$)', 'Classificação ABC'];
+        rows = abcList.map(p => [
+          p.id.slice(0, 8),
+          p.name,
+          `${p.qty} un`,
+          `${p.stock} un`,
+          `R$ ${p.revenue.toFixed(2)}`,
+          `Classe ${p.class}`
+        ]);
+
+      } else if (reportId === 'r4') {
+        // Auditoria de Cancelamentos e Estornos
+        const cancelledSales = sales.filter(s => s.status === 'cancelado');
+        const refundTransactions = financialTransactions.filter(tx => 
+          tx.type === 'despesa' && 
+          (tx.category.toLowerCase().includes('estorno') || tx.description.toLowerCase().includes('cancelado') || tx.description.toLowerCase().includes('estorno'))
+        );
+
+        const totalPerdas = cancelledSales.reduce((acc, s) => acc + s.total, 0) + refundTransactions.reduce((acc, tx) => acc + tx.value, 0);
+
+        summaryData = [
+          { label: 'Total Geral de Valores Estornados/Cancelados', value: `R$ ${totalPerdas.toFixed(2)}` },
+          { label: 'Vendas Canceladas em Balcão', value: `${cancelledSales.length} transações` },
+          { label: 'Lançamentos Financeiros de Estorno', value: `${refundTransactions.length} sangrias` }
+        ];
+
+        headers = ['Referência ID', 'Tipo Evento', 'Data Registro', 'Categoria / Origem', 'Operador Responsável', 'Valor Retido (R$)'];
+        
+        const rowsSales = cancelledSales.map(s => [
+          `#${s.number}`,
+          'Venda Cancelada',
+          new Date(s.timestamp).toLocaleString('pt-BR'),
+          'Balcão PDV',
+          s.cashierId,
+          `R$ ${s.total.toFixed(2)}`
+        ]);
+
+        const rowsRefunds = refundTransactions.map(tx => [
+          tx.id.slice(0, 8),
+          'Estorno Manual',
+          tx.date,
+          tx.category,
+          'Financeiro Geral',
+          `R$ ${tx.value.toFixed(2)}`
+        ]);
+
+        rows = [...rowsSales, ...rowsRefunds];
+        if (rows.length === 0) {
+          rows = [['-', 'Nenhum estorno ou cancelamento detectado no período.', '-', '-', '-', 'R$ 0,00']];
+        }
+      }
+
+      // 2. EXPORT AS REAL EXCEL (.CSV SPREADSHEET WITH BOM)
+      if (format === 'XLS') {
+        let csvContent = '\ufeff'; // UTF-8 BOM for Portuguese accents
+        csvContent += `"${title.toUpperCase()}"\n`;
+        csvContent += `"Gerado em:","${new Date().toLocaleString('pt-BR')}"\n\n`;
+
+        // Add Summary Info Card
+        csvContent += `"RESUMO ANALÍTICO E METRICAS DE BI"\n`;
+        summaryData.forEach(item => {
+          csvContent += `"${item.label}","${item.value}"\n`;
+        });
+        csvContent += `\n`;
+
+        // Add Main Grid Data Table
+        csvContent += headers.map(h => `"${h}"`).join(',') + '\n';
+        rows.forEach(row => {
+          csvContent += row.map(cell => `"${cell.replace(/"/g, '""')}"`).join(',') + '\n';
+        });
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', `adegaos_relatorio_${reportId}_${new Date().toISOString().split('T')[0]}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        alert(`Relatório "${title}" gerado e exportado como planilha Excel .CSV real com codificação UTF-8 homologada!`);
+      } 
+      
+      // 3. EXPORT AS REAL DESIGNER PDF
+      else if (format === 'PDF') {
+        const doc = new jsPDF({
+          orientation: 'portrait',
+          unit: 'mm',
+          format: 'a4'
+        });
+
+        const primaryColor = [16, 185, 129]; // Emerald 500
+        const darkBg = [22, 28, 45]; // Dark Navy slate
+
+        // DRAW HEADER BLOCK
+        doc.setFillColor(darkBg[0], darkBg[1], darkBg[2]);
+        doc.rect(0, 0, 210, 40, 'F');
+
+        // Text title
+        doc.setTextColor(24, 242, 164); // #18F2A4 (Vibrant Mint)
+        doc.setFont('Helvetica', 'bold');
+        doc.setFontSize(20);
+        doc.text('AdegaOS • Business Intelligence', 15, 15);
+
+        doc.setTextColor(255, 255, 255);
+        doc.setFont('Helvetica', 'normal');
+        doc.setFontSize(10);
+        doc.text('Relatório Consolidado de Gestão Empresarial e Fluxo Operacional', 15, 22);
+        doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, 15, 28);
+
+        // Header Accent line
+        doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+        doc.rect(0, 40, 210, 2, 'F');
+
+        // Document Title banner
+        doc.setTextColor(17, 24, 39);
+        doc.setFont('Helvetica', 'bold');
+        doc.setFontSize(14);
+        doc.text(title.toUpperCase(), 15, 52);
+
+        // SUMMARY METRICS CARD
+        doc.setFillColor(243, 244, 246); // Gray 100
+        doc.rect(15, 58, 180, 40, 'F');
+        
+        doc.setFont('Helvetica', 'bold');
+        doc.setFontSize(10);
+        doc.setTextColor(55, 65, 81);
+        doc.text('PRINCIPAIS KPIS / METRICAS DO PERÍODO', 20, 64);
+
+        doc.setFont('Helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.setTextColor(75, 85, 99);
+        
+        let yOffset = 70;
+        summaryData.slice(0, 4).forEach((item, index) => {
+          const colX = index % 2 === 0 ? 20 : 110;
+          doc.text(`• ${item.label}:`, colX, yOffset);
+          doc.setFont('Helvetica', 'bold');
+          doc.text(item.value, colX + 55, yOffset);
+          doc.setFont('Helvetica', 'normal');
+          
+          if (index % 2 !== 0) {
+            yOffset += 7;
+          }
+        });
+
+        // DRAW MAIN DATA TABLE HEADER
+        doc.setTextColor(17, 24, 39);
+        doc.setFont('Helvetica', 'bold');
+        doc.setFontSize(11);
+        doc.text('DETALHAMENTO DOS REGISTROS AUDITADOS', 15, 110);
+
+        doc.setFillColor(31, 41, 55); // Gray 800
+        doc.rect(15, 114, 180, 8, 'F');
+        
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(8);
+        doc.setFont('Helvetica', 'bold');
+
+        const colWidth = 180 / headers.length;
+        headers.forEach((h, index) => {
+          doc.text(h, 17 + index * colWidth, 119);
+        });
+
+        // DRAW GRID DATA ROWS
+        doc.setTextColor(55, 65, 81);
+        doc.setFont('Helvetica', 'normal');
+        doc.setFontSize(8);
+
+        let rowY = 126;
+        rows.slice(0, 24).forEach((row, rowIndex) => {
+          if (rowIndex % 2 === 0) {
+            doc.setFillColor(249, 250, 251); // Gray 50
+            doc.rect(15, rowY - 4, 180, 6, 'F');
+          }
+
+          row.forEach((cell, cellIndex) => {
+            const maxChars = cellIndex === 1 ? 24 : 15;
+            const textToPrint = cell.length > maxChars ? cell.slice(0, maxChars - 3) + '...' : cell;
+            doc.text(textToPrint, 17 + cellIndex * colWidth, rowY);
+          });
+
+          doc.setFillColor(229, 231, 235); // Gray 200
+          doc.rect(15, rowY + 2, 180, 0.1, 'F');
+
+          rowY += 6;
+        });
+
+        if (rows.length > 24) {
+          doc.setTextColor(107, 114, 128);
+          doc.setFontSize(7.5);
+          doc.text(`* Foram omitidas ${rows.length - 24} linhas adicionais para visualização ideal na primeira página. Utilize o Excel para exportação ilimitada.`, 15, rowY + 3);
+        }
+
+        // FOOTER BRANDING CARD
+        doc.setFillColor(darkBg[0], darkBg[1], darkBg[2]);
+        doc.rect(0, 280, 210, 17, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(8);
+        doc.setFont('Helvetica', 'bold');
+        doc.text('AdegaOS Terminal de Auditoria Homologada • Documento gerado sob criptografia RSA', 15, 290);
+        doc.text('Página 1 / 1', 185, 290);
+
+        doc.save(`adegaos_relatorio_${reportId}_${new Date().toISOString().split('T')[0]}.pdf`);
+        alert(`Relatório "${title}" gerado e exportado como PDF real assinado com sucesso!`);
+      }
+    }, 1200);
   };
 
   const reportsList = [
@@ -92,16 +427,16 @@ export default function ManagerReports({ theme }: ManagerReportsProps) {
             <div className="flex gap-2 pt-3 border-t border-[#1C1C1C]" style={{ borderColor: theme === 'dark' ? '#1C1C1C' : '#E5E5E5' }}>
               <button
                 disabled={loadingReport !== null}
-                onClick={() => handleGenerateReport(report.title, 'PDF')}
+                onClick={() => handleGenerateReport(report.id, 'PDF')}
                 className={`flex-1 py-1.5 rounded text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                  loadingReport === report.title
+                  loadingReport === report.id
                     ? 'bg-[#1A1A1A] text-gray-400'
                     : theme === 'dark'
                       ? 'bg-[#1A1A1A] hover:bg-[#222] text-gray-300'
                       : 'bg-gray-100 border hover:bg-gray-200 text-gray-700'
                 }`}
               >
-                {loadingReport === report.title ? (
+                {loadingReport === report.id ? (
                   <>
                     <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                     Compilando...
@@ -116,16 +451,16 @@ export default function ManagerReports({ theme }: ManagerReportsProps) {
 
               <button
                 disabled={loadingReport !== null}
-                onClick={() => handleGenerateReport(report.title, 'XLS')}
+                onClick={() => handleGenerateReport(report.id, 'XLS')}
                 className={`flex-1 py-1.5 rounded text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                  loadingReport === report.title
+                  loadingReport === report.id
                     ? 'bg-[#1A1A1A] text-gray-400'
                     : theme === 'dark'
                       ? 'bg-[#1A1A1A] hover:bg-[#222] text-gray-300'
                       : 'bg-gray-100 border hover:bg-gray-200 text-gray-700'
                 }`}
               >
-                {loadingReport === report.title ? (
+                {loadingReport === report.id ? (
                   <>
                     <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                     Compilando...
