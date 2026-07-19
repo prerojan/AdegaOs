@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Key, Smartphone, Wifi, WifiOff, RefreshCw, ShoppingCart, Search, Plus, Minus, Check, ArrowRight, User, AlertTriangle, TableProperties, DollarSign, X, CheckSquare, Layers, Sun, Moon, LogOut } from 'lucide-react';
+import { Key, Smartphone, Wifi, WifiOff, RefreshCw, ShoppingCart, Search, Plus, Minus, Check, ArrowRight, User, AlertTriangle, TableProperties, DollarSign, X, CheckSquare, Layers, Sun, Moon, LogOut, Maximize2, Trash2, GlassWater } from 'lucide-react';
 import { Product, TableComandaState, Sale, FinancialTransaction, CashierUser, SyncQueueItem } from '../types';
 import ProductCard from './ProductCard';
 
@@ -15,8 +15,8 @@ function playBeep(frequency = 587.33, type: OscillatorType = 'sine', duration = 
     osc.type = type;
     osc.frequency.setValueAtTime(frequency, ctx.currentTime);
     
-    // Smooth ramp-down
-    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    // Smooth ramp-down (increased volume from 0.15 to 0.9)
+    gain.gain.setValueAtTime(0.9, ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
     
     osc.connect(gain);
@@ -74,6 +74,9 @@ export default function OrderApp({
 
   // User details horizontal sliding menu state
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+
+  // Cart Modal expanded view state
+  const [isCartModalOpen, setIsCartModalOpen] = useState(false);
 
   // Category list toggle state
   const [isCategoriesOpen, setIsCategoriesOpen] = useState(false);
@@ -233,16 +236,6 @@ export default function OrderApp({
     if (orderCart.length === 0) return;
     if (!selectedTableId || !activeTable) return;
 
-    // Check age limits
-    const hasAlcohol = orderCart.some(i => i.product.ageRestricted);
-    if (hasAlcohol && !ageCheckConfirmed) {
-      alert('ATENÇÃO: Este pedido contém bebidas alcoólicas. Confirme se o cliente possui +18 anos antes de enviar ao Bar.');
-      setAgeCheckConfirmed(true);
-      return;
-    }
-
-    const isAlcoholVerified = !hasAlcohol || ageCheckConfirmed;
-
     // Append to existing table items
     const updatedItems = [...(activeTable.items || [])];
 
@@ -262,11 +255,69 @@ export default function OrderApp({
 
     onUpdateTableItems(selectedTableId, updatedItems);
     setOrderCart([]);
-    setAgeCheckConfirmed(false);
     
     // Notify
     alert('Pedido despachado!');
     setActiveScreen('tables');
+  };
+
+  // Alter confirmed consumed item quantity or delete
+  const handleAlterConsumedItemQty = (productId: string, delta: number) => {
+    if (!selectedTableId || !activeTable) return;
+
+    const updatedItems = [...(activeTable.items || [])];
+    const itemIndex = updatedItems.findIndex(i => i.productId === productId);
+    if (itemIndex === -1) return;
+
+    const item = updatedItems[itemIndex];
+    const newQty = item.quantity + delta;
+
+    if (newQty <= 0) {
+      if (confirm("Deseja realmente remover este item já consumido da mesa?")) {
+        // Return stock back (negative quantity restores stock!)
+        onUpdateStock(productId, -item.quantity);
+        updatedItems.splice(itemIndex, 1);
+      } else {
+        return;
+      }
+    } else {
+      // Check stock if increasing quantity
+      if (delta > 0) {
+        const prod = products.find(p => p.id === productId);
+        if (prod) {
+          const stockTotal = (prod.stockBoxes * prod.boxQuantity) + prod.stockUnits;
+          if (stockTotal <= 0) {
+            alert("Quantidade insuficiente em estoque!");
+            return;
+          }
+        }
+      }
+
+      // Adjust stock
+      onUpdateStock(productId, delta);
+      updatedItems[itemIndex] = {
+        ...item,
+        quantity: newQty
+      };
+    }
+
+    onUpdateTableItems(selectedTableId, updatedItems);
+  };
+
+  // Remove confirmed consumed item completely
+  const handleRemoveConsumedItem = (productId: string) => {
+    if (!selectedTableId || !activeTable) return;
+
+    if (confirm("Deseja cancelar e remover este item da mesa?")) {
+      const updatedItems = [...(activeTable.items || [])];
+      const itemIndex = updatedItems.findIndex(i => i.productId === productId);
+      if (itemIndex !== -1) {
+        const item = updatedItems[itemIndex];
+        onUpdateStock(productId, -item.quantity); // restore stock
+        updatedItems.splice(itemIndex, 1);
+        onUpdateTableItems(selectedTableId, updatedItems);
+      }
+    }
   };
 
   // Process checkout payments and wipe comanda table back to free
@@ -634,29 +685,32 @@ export default function OrderApp({
                 <div className="flex justify-between items-center">
                   <button
                     onClick={() => setActiveScreen('tables')}
-                    className="text-xs font-semibold text-gray-400 hover:text-white cursor-pointer"
+                    className="text-xs font-semibold text-gray-400 hover:text-white cursor-pointer shrink-0"
                   >
                     ← Voltar p/ Salão
                   </button>
-                  <span className="text-xs font-bold uppercase text-[#18F2A4]">
+                  
+                  <span className="text-xs font-black uppercase text-[#18F2A4]">
                     {activeTable?.type === 'mesa' ? 'Mesa' : 'Comanda'} {activeTable?.number}
                   </span>
 
                   {/* Closing button if comanda is occupied */}
-                  {activeTable && activeTable.items.length > 0 && (
+                  {activeTable && activeTable.items.length > 0 ? (
                     <button
                       onClick={() => setActiveScreen('checkout')}
-                      className={`px-2 py-0.5 text-[10px] font-bold rounded cursor-pointer ${
-                        theme === 'dark' ? 'bg-[#18F2A4] text-black' : 'bg-[#10B981] text-white'
+                      className={`px-2.5 py-1 text-[11px] font-bold rounded-lg cursor-pointer transition-all shrink-0 ${
+                        theme === 'dark' ? 'bg-[#18F2A4] text-black hover:bg-[#12d58f]' : 'bg-[#10B981] text-white hover:bg-[#0e9f6e]'
                       }`}
                     >
                       Fechar Conta
                     </button>
+                  ) : (
+                    <div className="w-16 shrink-0"></div>
                   )}
                 </div>
 
                 {/* Option to assign table name to prevent customer confusion */}
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 mt-1">
                   <span className={`text-[10px] font-semibold shrink-0 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>Identificação:</span>
                   <input
                     type="text"
@@ -758,9 +812,25 @@ export default function OrderApp({
                         boxSizing: 'border-box'
                       }}
                     >
-                      <div className="grid grid-cols-12 items-center gap-2 w-full">
+                      <div className="flex items-center gap-2 w-full">
+                        {/* Thumbnail image */}
+                        <div className="w-8 h-8 rounded bg-gray-900 shrink-0 overflow-hidden border flex items-center justify-center" style={{ borderColor: theme === 'dark' ? '#222' : '#E5E5E5' }}>
+                          {item.product.image ? (
+                            <img 
+                              src={item.product.image} 
+                              alt={item.product.name} 
+                              referrerPolicy="no-referrer"
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <div className="text-gray-500">
+                              <GlassWater className="w-4 h-4" />
+                            </div>
+                          )}
+                        </div>
+
                         {/* Name with text-overflow ellipsis */}
-                        <div className="col-span-7 min-w-0 pr-2 text-left">
+                        <div className="flex-1 min-w-0 pr-2 text-left">
                           <span 
                             className="font-bold text-[13px] tracking-tight truncate block" 
                             title={item.product.name} 
@@ -769,8 +839,9 @@ export default function OrderApp({
                             {item.product.name}
                           </span>
                         </div>
+                        
                         {/* Fixed control buttons at 44x44px for professional touch target size */}
-                        <div className="col-span-5 flex items-center justify-end gap-2 shrink-0">
+                        <div className="flex items-center justify-end gap-2 shrink-0">
                           <button 
                             type="button"
                             onClick={() => updateBasketQuantity(idx, -1)} 
@@ -821,21 +892,37 @@ export default function OrderApp({
                   )}
                 </div>
 
-                {/* Dispatch Trigger */}
-                <button
-                  disabled={orderCart.length === 0}
-                  onClick={handleDispatchOrder}
-                  className={`w-full py-2.5 rounded-lg font-semibold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                    orderCart.length === 0
-                      ? 'opacity-40 cursor-not-allowed'
-                      : theme === 'dark'
-                        ? 'bg-[#18F2A4] text-black hover:bg-[#12d58f]'
-                        : 'bg-[#10B981] text-white hover:bg-[#0e9f6e]'
-                  }`}
-                >
-                  <Check className="w-4 h-4" />
-                  Enviar p/ Fila do Bar (+ Produção)
-                </button>
+                {/* Dispatch Trigger Split Buttons */}
+                <div className="flex gap-2 w-full">
+                  <button
+                    type="button"
+                    onClick={() => setIsCartModalOpen(true)}
+                    className={`flex-1 py-2.5 rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer border ${
+                      theme === 'dark'
+                        ? 'bg-transparent border-[#1C1C1C] text-gray-300 hover:bg-[#111] hover:border-[#18F2A4]/50'
+                        : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-[#10B981]/50'
+                    }`}
+                  >
+                    <ShoppingCart className={`w-3.5 h-3.5 ${theme === 'dark' ? 'text-[#18F2A4]' : 'text-emerald-500'}`} />
+                    <span>Ver Consumo/Carrinho</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={orderCart.length === 0}
+                    onClick={handleDispatchOrder}
+                    className={`flex-1 py-2.5 rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                      orderCart.length === 0
+                        ? 'opacity-40 cursor-not-allowed'
+                        : theme === 'dark'
+                          ? 'bg-[#18F2A4] text-black hover:bg-[#12d58f]'
+                          : 'bg-[#10B981] text-white hover:bg-[#0e9f6e]'
+                    }`}
+                  >
+                    <Check className="w-4 h-4" />
+                    <span>Enviar p/ Fila do Bar</span>
+                  </button>
+                </div>
               </div>
 
             </div>
@@ -861,10 +948,28 @@ export default function OrderApp({
                       const prod = products.find(p => p.id === item.productId);
                       return (
                         <div key={idx} className="flex justify-between items-center py-1.5 border-b border-gray-900/30 gap-4 w-full">
-                          <span className="truncate flex-1 pr-2 text-left" title={prod ? prod.name : 'Produto'} style={{ color: theme === 'dark' ? '#E5E5E5' : '#333' }}>
-                            <span className="font-bold mr-1.5" style={{ color: theme === 'dark' ? '#18F2A4' : '#10B981' }}>{item.quantity}x</span>
-                            {prod ? prod.name : 'Produto'}
-                          </span>
+                          <div className="flex items-center gap-2 flex-1 min-w-0">
+                            {/* Thumbnail image */}
+                            <div className="w-8 h-8 rounded bg-gray-900 shrink-0 overflow-hidden border flex items-center justify-center" style={{ borderColor: theme === 'dark' ? '#222' : '#E5E5E5' }}>
+                              {prod?.image ? (
+                                <img 
+                                  src={prod.image} 
+                                  alt={prod.name} 
+                                  referrerPolicy="no-referrer"
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <div className="text-gray-500">
+                                  <GlassWater className="w-4 h-4" />
+                                </div>
+                              )}
+                            </div>
+
+                            <span className="truncate flex-1 pr-2 text-left" title={prod ? prod.name : 'Produto'} style={{ color: theme === 'dark' ? '#E5E5E5' : '#333' }}>
+                              <span className="font-bold mr-1.5" style={{ color: theme === 'dark' ? '#18F2A4' : '#10B981' }}>{item.quantity}x</span>
+                              {prod ? prod.name : 'Produto'}
+                            </span>
+                          </div>
                           <span className="font-mono text-xs shrink-0 font-semibold" style={{ color: theme === 'dark' ? '#FFF' : '#111' }}>
                             R$ {((prod ? prod.sellPrice : 0) * item.quantity).toFixed(2)}
                           </span>
@@ -1087,6 +1192,303 @@ export default function OrderApp({
             >
               Fechar Painel
             </button>
+          </div>
+        </div>
+      )}
+      {/* Expanded Cart and Consumed Items Detail Modal */}
+      {isCartModalOpen && activeTable && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          {/* Backdrop */}
+          <div 
+            className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+            onClick={() => setIsCartModalOpen(false)}
+          />
+          
+          {/* Modal Content */}
+          <div className={`relative w-full max-w-2xl max-h-[85vh] rounded-2xl border shadow-2xl flex flex-col overflow-hidden transition-all animate-in fade-in zoom-in-95 duration-200 ${
+            theme === 'dark' ? 'bg-[#0A0A0A] border-[#1C1C1C] text-white' : 'bg-white border-gray-200 text-gray-950'
+          }`}>
+            {/* Header */}
+            <div className={`p-4 border-b flex justify-between items-center shrink-0 ${
+              theme === 'dark' ? 'border-[#1C1C1C]' : 'border-gray-200'
+            }`}>
+              <div className="flex flex-col">
+                <h3 className="font-bold text-base flex items-center gap-2">
+                  <ShoppingCart className="w-4 h-4 text-[#18F2A4]" />
+                  Carrinho & Consumo: {activeTable.type === 'mesa' ? 'Mesa' : 'Comanda'} {activeTable.number}
+                </h3>
+                <p className="text-[11px] text-gray-400">Visualize, adicione notas ou altere as quantidades dos itens consumidos e pendentes.</p>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setIsCartModalOpen(false)}
+                className={`w-8 h-8 rounded-full border flex items-center justify-center transition-all cursor-pointer ${
+                  theme === 'dark' ? 'bg-[#151515] border-[#222] hover:bg-[#222] text-white' : 'bg-gray-100 border-gray-200 hover:bg-gray-200 text-gray-700'
+                }`}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Scrollable Body */}
+            <div className="p-4 flex flex-col gap-6 overflow-y-auto flex-1">
+              
+              {/* Section 1: Fila de Lançamento (Draft Items) */}
+              <div>
+                <span className="text-[11px] uppercase tracking-wider font-extrabold text-[#18F2A4] block mb-3">
+                  🚀 Fila de Lançamento (Novos Pedidos)
+                </span>
+                
+                {orderCart.length === 0 ? (
+                  <div className={`p-4 text-center rounded-xl border text-xs text-gray-400 ${
+                    theme === 'dark' ? 'bg-[#111111]/50 border-[#1C1C1C]' : 'bg-gray-50 border-gray-100'
+                  }`}>
+                    Sem itens novos para lançar nesta fila. Adicione produtos no catálogo.
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-3">
+                    {orderCart.map((item, idx) => (
+                      <div 
+                        key={idx} 
+                        className={`p-3 rounded-xl border flex flex-col sm:flex-row justify-between sm:items-center gap-3 ${
+                          theme === 'dark' ? 'bg-[#111] border-[#1C1C1C]' : 'bg-gray-50 border-gray-100'
+                        }`}
+                      >
+                        {/* Product Info with Image */}
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-lg bg-gray-950 shrink-0 overflow-hidden border flex items-center justify-center" style={{ borderColor: theme === 'dark' ? '#222' : '#E5E5E5' }}>
+                            {item.product.image ? (
+                              <img 
+                                src={item.product.image} 
+                                alt={item.product.name} 
+                                referrerPolicy="no-referrer"
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <div className="text-gray-500">
+                                <GlassWater className="w-4 h-4" />
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="font-bold text-sm block" style={{ color: theme === 'dark' ? '#E5E5E5' : '#111' }}>
+                              {item.product.name}
+                            </span>
+                            <span className="text-xs text-emerald-500 font-bold font-mono">
+                              R$ {item.product.sellPrice.toFixed(2)}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Adjusters & Notes */}
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-3 shrink-0">
+                          {/* Note Field */}
+                          <input
+                            type="text"
+                            placeholder="Obs..."
+                            value={item.notes}
+                            onChange={(e) => updateBasketNotes(idx, e.target.value)}
+                            className="text-xs px-2.5 py-1.5 rounded-lg border focus:outline-none focus:border-emerald-500 w-full sm:w-40"
+                            style={{
+                              backgroundColor: theme === 'dark' ? '#000' : '#FFF',
+                              borderColor: theme === 'dark' ? '#222' : '#E5E5E5',
+                              color: theme === 'dark' ? '#FFF' : '#000'
+                            }}
+                          />
+
+                          {/* Qty adjusters */}
+                          <div className="flex items-center gap-2 justify-end">
+                            <button 
+                              type="button"
+                              onClick={() => updateBasketQuantity(idx, -1)} 
+                              className={`w-9 h-9 flex items-center justify-center rounded-lg border text-sm font-black active:scale-90 cursor-pointer ${
+                                theme === 'dark' ? 'bg-[#1a1a1a] border-[#222] hover:bg-[#252525]' : 'bg-white border-gray-200 hover:bg-gray-100'
+                              }`}
+                            >
+                              -
+                            </button>
+                            <span className="font-mono font-bold w-6 text-center text-sm">{item.quantity}</span>
+                            <button 
+                              type="button"
+                              onClick={() => updateBasketQuantity(idx, 1)} 
+                              className={`w-9 h-9 flex items-center justify-center rounded-lg border text-sm font-black active:scale-90 cursor-pointer ${
+                                theme === 'dark' ? 'bg-[#1a1a1a] border-[#222] hover:bg-[#252525]' : 'bg-white border-gray-200 hover:bg-gray-100'
+                              }`}
+                            >
+                              +
+                            </button>
+                            
+                            <button 
+                              type="button"
+                              onClick={() => {
+                                const newCart = [...orderCart];
+                                newCart.splice(idx, 1);
+                                setOrderCart(newCart);
+                              }} 
+                              className="w-9 h-9 flex items-center justify-center rounded-lg border border-red-900/30 bg-red-950/20 text-red-400 hover:bg-red-950/40 ml-2 cursor-pointer"
+                              title="Remover item da fila"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Section 2: Itens já Consumidos (Confirmed Items) */}
+              <div>
+                <span className="text-[11px] uppercase tracking-wider font-extrabold text-gray-400 block mb-3">
+                  🍻 Itens já Confirmados e Consumidos
+                </span>
+                
+                {!activeTable.items || activeTable.items.length === 0 ? (
+                  <div className={`p-4 text-center rounded-xl border text-xs text-gray-500 ${
+                    theme === 'dark' ? 'bg-[#111111]/30 border-[#1C1C1C]' : 'bg-gray-50 border-gray-100'
+                  }`}>
+                    Nenhum item consumido ainda nesta mesa/comanda.
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-2.5">
+                    {activeTable.items.map((item, idx) => {
+                      const prod = products.find(p => p.id === item.productId);
+                      if (!prod) return null;
+                      return (
+                        <div 
+                          key={idx} 
+                          className={`p-3 rounded-xl border flex flex-col sm:flex-row justify-between sm:items-center gap-3 ${
+                            theme === 'dark' ? 'bg-[#111]/30 border-[#1C1C1C]' : 'bg-white border-gray-100'
+                          }`}
+                        >
+                          {/* Product Details with Image & Status Badge */}
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-lg bg-gray-950 shrink-0 overflow-hidden border flex items-center justify-center" style={{ borderColor: theme === 'dark' ? '#222' : '#E5E5E5' }}>
+                              {prod.image ? (
+                                <img 
+                                  src={prod.image} 
+                                  alt={prod.name} 
+                                  referrerPolicy="no-referrer"
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <div className="text-gray-500">
+                                  <GlassWater className="w-4 h-4" />
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex flex-col">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-sm" style={{ color: theme === 'dark' ? '#FFF' : '#111' }}>
+                                  {prod.name}
+                                </span>
+                                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider ${
+                                  item.status === 'entregue'
+                                    ? 'bg-emerald-950/30 text-emerald-400 border border-emerald-900/30'
+                                    : item.status === 'pronto'
+                                      ? 'bg-blue-950/30 text-blue-400 border border-blue-900/30'
+                                      : item.status === 'preparo'
+                                        ? 'bg-amber-950/30 text-amber-400 border border-amber-900/30'
+                                        : 'bg-gray-900/30 text-gray-400 border border-gray-800/30'
+                                }`}>
+                                  {item.status}
+                                </span>
+                              </div>
+                              <span className="text-xs text-gray-400">
+                                {item.notes ? `Obs: "${item.notes}"` : 'Sem observações'}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Alteration Controls (Quantity adjusters + Trash to clear) */}
+                          <div className="flex items-center gap-2 justify-end shrink-0">
+                            <span className="text-xs font-mono font-bold text-gray-400 mr-2">
+                              R$ {((prod.sellPrice) * item.quantity).toFixed(2)}
+                            </span>
+                            
+                            <button 
+                              type="button"
+                              onClick={() => handleAlterConsumedItemQty(prod.id, -1)} 
+                              className={`w-9 h-9 flex items-center justify-center rounded-lg border text-sm font-black active:scale-90 cursor-pointer ${
+                                theme === 'dark' ? 'bg-[#1a1a1a] border-[#222] hover:bg-[#252525] text-white' : 'bg-white border-gray-200 hover:bg-gray-100'
+                              }`}
+                              title="Reduzir quantidade"
+                            >
+                              -
+                            </button>
+                            <span className="font-mono font-bold w-6 text-center text-sm">{item.quantity}</span>
+                            <button 
+                              type="button"
+                              onClick={() => handleAlterConsumedItemQty(prod.id, 1)} 
+                              className={`w-9 h-9 flex items-center justify-center rounded-lg border text-sm font-black active:scale-90 cursor-pointer ${
+                                theme === 'dark' ? 'bg-[#1a1a1a] border-[#222] hover:bg-[#252525] text-white' : 'bg-white border-gray-200 hover:bg-gray-100'
+                              }`}
+                              title="Adicionar quantidade"
+                            >
+                              +
+                            </button>
+
+                            <button 
+                              type="button"
+                              onClick={() => handleRemoveConsumedItem(prod.id)} 
+                              className="w-9 h-9 flex items-center justify-center rounded-lg border border-red-900/30 bg-red-950/10 text-red-400 hover:bg-red-950/30 ml-2 cursor-pointer"
+                              title="Cancelar/remover este item"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+            </div>
+
+            {/* Footer */}
+            <div className={`p-4 border-t flex flex-col sm:flex-row justify-between items-center gap-3 shrink-0 ${
+              theme === 'dark' ? 'bg-[#0F0F0F] border-[#1C1C1C]' : 'bg-gray-50 border-gray-200'
+            }`}>
+              <div className="text-left w-full sm:w-auto">
+                <span className="text-xs text-gray-400">Total Acumulado (Lançamentos + Consumo):</span>
+                <div className="font-mono text-base font-black text-emerald-500">
+                  R$ {((activeTable.items?.reduce((acc, item) => {
+                    const p = products.find(prod => prod.id === item.productId);
+                    return acc + (p ? p.sellPrice * item.quantity : 0);
+                  }, 0) || 0) + basketSubtotal).toFixed(2)}
+                </div>
+              </div>
+
+              <div className="flex gap-2 w-full sm:w-auto justify-end">
+                <button
+                  type="button"
+                  onClick={() => setIsCartModalOpen(false)}
+                  className={`px-4 py-2 text-xs font-semibold rounded-lg border transition-all cursor-pointer ${
+                    theme === 'dark' ? 'bg-transparent border-[#222] text-gray-300 hover:bg-[#111]' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  Continuar Escolhendo
+                </button>
+                {orderCart.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleDispatchOrder();
+                      setIsCartModalOpen(false);
+                    }}
+                    className={`px-4 py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                      theme === 'dark' ? 'bg-[#18F2A4] text-black hover:bg-[#12d58f]' : 'bg-[#10B981] text-white hover:bg-[#0e9f6e]'
+                    }`}
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    Enviar p/ Fila do Bar
+                  </button>
+                )}
+              </div>
+            </div>
+
           </div>
         </div>
       )}
