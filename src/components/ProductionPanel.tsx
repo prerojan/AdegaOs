@@ -14,8 +14,8 @@ function playBeep(frequency = 587.33, type: OscillatorType = 'sine', duration = 
     osc.type = type;
     osc.frequency.setValueAtTime(frequency, ctx.currentTime);
     
-    // Smooth ramp-down
-    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    // Smooth ramp-down (increased volume from 0.15 to 0.9)
+    gain.gain.setValueAtTime(0.9, ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
     
     osc.connect(gain);
