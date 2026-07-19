@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Search, ShoppingCart, Trash2, X, Percent, Check, AlertTriangle, HelpCircle, Archive, Save, ChevronDown, ChevronUp, Folder } from 'lucide-react';
+import { Search, ShoppingCart, Trash2, X, Percent, Check, HelpCircle, Archive, Save, ChevronDown, ChevronUp, Folder, GlassWater } from 'lucide-react';
 import { Product, Sale, FinancialTransaction } from '../types';
 
 interface QuickSaleSidebarProps {
@@ -106,11 +106,6 @@ export default function QuickSaleSidebar({
 
   const handleCheckout = () => {
     if (cart.length === 0) return;
-
-    if (hasAgeRestrictedItem && !ageVerified) {
-      setShowAgeVerification(true);
-      return;
-    }
 
     // Process checkout
     const saleId = `sale-${Date.now()}`;
@@ -295,7 +290,7 @@ export default function QuickSaleSidebar({
         </div>
 
         {/* Dynamic searchable matching product results */}
-        <div className="grid grid-cols-2 gap-1.5 max-h-36 overflow-y-auto pr-1">
+        <div className="grid grid-cols-2 gap-1.5 max-h-40 overflow-y-auto pr-1">
           {filteredProducts.map(prod => {
             const stockTotal = (prod.stockBoxes * prod.boxQuantity) + prod.stockUnits;
             const isOutOfStock = stockTotal <= 0;
@@ -304,7 +299,7 @@ export default function QuickSaleSidebar({
                 key={prod.id}
                 disabled={isOutOfStock}
                 onClick={() => addToCart(prod)}
-                className={`p-2 rounded-lg border text-left flex flex-col transition-all relative overflow-hidden group ${
+                className={`p-1.5 rounded-lg border text-left flex gap-1.5 transition-all relative overflow-hidden group items-center ${
                   isOutOfStock ? 'opacity-40 cursor-not-allowed' : ''
                 } ${
                   theme === 'dark' 
@@ -312,21 +307,39 @@ export default function QuickSaleSidebar({
                     : 'bg-white border-[#E5E5E5] hover:border-[#10B981]/30'
                 }`}
               >
-                <div className="flex justify-between items-start gap-1">
-                  <span className="font-medium text-[11px] leading-tight line-clamp-2">{prod.name}</span>
-                  {prod.ageRestricted && (
-                    <span className={`text-[9px] font-extrabold px-1.5 rounded-sm scale-90 shrink-0 border ${
-                      theme === 'dark'
-                        ? 'bg-red-950/40 text-red-400 border-red-900/30'
-                        : 'bg-red-100 text-red-900 border-red-200'
-                    }`}>18+</span>
+                {/* Mini Image thumbnail */}
+                <div className="w-8 h-8 rounded bg-gray-900 shrink-0 overflow-hidden border self-center flex items-center justify-center" style={{ borderColor: theme === 'dark' ? '#222' : '#E5E5E5' }}>
+                  {prod.image ? (
+                    <img 
+                      src={prod.image} 
+                      alt={prod.name} 
+                      referrerPolicy="no-referrer"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="text-gray-500">
+                      <GlassWater className="w-3.5 h-3.5" />
+                    </div>
                   )}
                 </div>
-                <div className="mt-1.5 flex justify-between items-baseline">
-                  <span className={`text-[11px] font-bold ${theme === 'dark' ? 'text-[#18F2A4]' : 'text-[#10B981]'}`}>
-                    R$ {prod.sellPrice.toFixed(2)}
-                  </span>
-                  <span className="text-[9px] text-gray-400">Est: {stockTotal} un</span>
+
+                <div className="flex-1 min-w-0 flex flex-col justify-between h-8">
+                  <div className="flex justify-between items-start gap-1">
+                    <span className="font-semibold text-[10px] leading-tight truncate block flex-1" title={prod.name}>{prod.name}</span>
+                    {prod.ageRestricted && (
+                      <span className={`text-[8px] font-extrabold px-1 rounded-sm scale-90 shrink-0 border ${
+                        theme === 'dark'
+                          ? 'bg-red-950/40 text-red-400 border-red-900/30'
+                          : 'bg-red-100 text-red-900 border-red-200'
+                      }`}>18+</span>
+                    )}
+                  </div>
+                  <div className="flex justify-between items-baseline mt-auto">
+                    <span className={`text-[10px] font-bold font-mono ${theme === 'dark' ? 'text-[#18F2A4]' : 'text-[#10B981]'}`}>
+                      R$ {prod.sellPrice.toFixed(2)}
+                    </span>
+                    <span className="text-[8px] text-gray-400">Est: {stockTotal}</span>
+                  </div>
                 </div>
               </button>
             );
@@ -360,7 +373,24 @@ export default function QuickSaleSidebar({
                 }`}
               >
                 <div className="flex justify-between items-start gap-2">
-                  <span className="text-[11px] font-medium leading-tight">{item.product.name}</span>
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    {/* Thumbnail image */}
+                    <div className="w-8 h-8 rounded bg-gray-900 shrink-0 overflow-hidden border flex items-center justify-center" style={{ borderColor: theme === 'dark' ? '#222' : '#E5E5E5' }}>
+                      {item.product.image ? (
+                        <img 
+                          src={item.product.image} 
+                          alt={item.product.name} 
+                          referrerPolicy="no-referrer"
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="text-gray-500">
+                          <GlassWater className="w-4 h-4" />
+                        </div>
+                      )}
+                    </div>
+                    <span className="text-[11px] font-bold leading-tight truncate flex-1" title={item.product.name}>{item.product.name}</span>
+                  </div>
                   <button 
                     onClick={() => removeFromCart(index)} 
                     className="text-gray-400 hover:text-red-500 transition-colors shrink-0"
@@ -444,9 +474,7 @@ export default function QuickSaleSidebar({
               </button>
             ))}
           </div>
-        </div>
-
-        {/* Price Breakdown */}
+               {/* Price Breakdown */}
         <div className="flex flex-col gap-1 py-1 text-xs">
           <div className="flex justify-between text-gray-400">
             <span>Subtotal:</span>
@@ -466,46 +494,6 @@ export default function QuickSaleSidebar({
           </div>
         </div>
 
-        {/* Age Restriction Verification Popup */}
-        {showAgeVerification && (
-          <div className={`p-2.5 rounded-lg border flex flex-col gap-2 ${
-            theme === 'dark' ? 'bg-amber-950/20 border-amber-500/50 text-amber-200' : 'bg-amber-50 border-amber-300 text-amber-800'
-          }`}>
-            <div className="flex gap-2 items-start">
-              <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-              <div className="text-[11px] leading-tight">
-                <span className="font-bold">Verificação de Idade Obrigatória!</span><br />
-                Este carrinho contém produtos restritos (+18). Solicite documento do cliente e confirme.
-              </div>
-            </div>
-            <div className="flex gap-1.5 justify-end">
-              <button
-                onClick={() => {
-                  setShowAgeVerification(false);
-                  setCart([]);
-                }}
-                className={`px-2 py-1 rounded text-[10px] font-medium border transition-all ${
-                  theme === 'dark' ? 'bg-transparent border-red-500/30 text-red-400 hover:bg-red-950/30' : 'bg-white border-red-300 text-red-600 hover:bg-red-50'
-                }`}
-              >
-                Cancelar Venda
-              </button>
-              <button
-                onClick={() => {
-                  setAgeVerified(true);
-                  setShowAgeVerification(false);
-                  alert("Idade verificada com sucesso! Prossiga com o checkout.");
-                }}
-                className={`px-2.5 py-1 rounded text-[10px] font-medium transition-all ${
-                  theme === 'dark' ? 'bg-amber-500 text-black hover:bg-amber-400' : 'bg-amber-600 text-white hover:bg-amber-700'
-                }`}
-              >
-                Sim, documento verificado
-              </button>
-            </div>
-          </div>
-        )}
-
         {/* CTA Buttons */}
         <div className="grid grid-cols-2 gap-2 mt-1">
           <button
@@ -524,7 +512,7 @@ export default function QuickSaleSidebar({
           </button>
 
           <button
-            disabled={cart.length === 0 || (hasAgeRestrictedItem && showAgeVerification)}
+            disabled={cart.length === 0}
             onClick={handleCheckout}
             className={`py-2 px-2.5 rounded-lg flex items-center justify-center gap-1.5 text-xs font-semibold transition-all cursor-pointer ${
               cart.length === 0
@@ -537,7 +525,7 @@ export default function QuickSaleSidebar({
             <Check className="w-3.5 h-3.5" />
             Finalizar Venda
           </button>
-        </div>
+        </div>       </div>
       </div>
     </div>
   );
