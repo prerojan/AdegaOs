@@ -50,4 +50,12 @@
       "purpose": "monochrome"
     }
   ]
+}    },
+    {
+      "src": "/logo-bw.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "monochrome"
+    }
+  ]
 }
