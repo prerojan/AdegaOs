@@ -1,21 +1,28 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { Search, ShoppingCart, Trash2, X, Percent, Check, HelpCircle, Archive, Save, ChevronDown, ChevronUp, Folder, GlassWater } from 'lucide-react';
-import { Product, Sale, FinancialTransaction } from '../types';
-import { ToastContainer, ToastItem, ToastType } from './ToastNotification';
+import React, { useState, useEffect, useMemo } from 'react';
+import { X, Search, ShoppingCart, Trash2, Plus, Minus, CreditCard, DollarSign, Wallet, FileText, CheckCircle, Percent } from 'lucide-react';
+import { Product, Sale, FinancialTransaction, CashierUser, Shift } from '../types';
+import { playPremiumSound } from './ToastNotification';
 import { triggerThermalPrint } from '../lib/thermalPrinter';
+
+const alert = (window as any).alert;
 
 interface QuickSaleSidebarProps {
   isOpen: boolean;
   onClose: () => void;
   products: Product[];
-  onUpdateStock: (productId: string, qtyToRemove: number) => void;
+  onUpdateStock: (productId: string, boxes: number, units: number) => void;
   onAddSale: (sale: Sale) => void;
   onAddFinancial: (tx: FinancialTransaction) => void;
-  currentUser: any;
+  currentUser: CashierUser | null;
   theme: 'dark' | 'light';
-  scannedBarcodeTrigger?: { barcode: string; timestamp: number } | null;
-  activeShift?: any;
+  scannedBarcodeTrigger: { barcode: string; timestamp: number } | null;
+  activeShift: Shift | null;
   onOpenShift?: (openedBy: string, initialBalance: number) => void;
+}
+
+interface CartItem {
+  product: Product;
+  quantity: number;
 }
 
 export default function QuickSaleSidebar({
@@ -28,612 +35,457 @@ export default function QuickSaleSidebar({
   currentUser,
   theme,
   scannedBarcodeTrigger,
-  activeShift,
-  onOpenShift
+  activeShift
 }: QuickSaleSidebarProps) {
+  const isDark = theme === 'dark';
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<string>('Todos');
-  const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
-  const [cart, setCart] = useState<{ product: Product; quantity: number; notes?: string }[]>([]);
-  const [discount, setDiscount] = useState<number>(0);
-  const [paymentMethod, setPaymentMethod] = useState<'pix' | 'dinheiro' | 'debito' | 'credito'>('pix');
-  const [showAgeVerification, setShowAgeVerification] = useState(false);
-  const [ageVerified, setAgeVerified] = useState(false);
-  const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
-  const [cashReceived, setCashReceived] = useState<number | ''>('');
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [paymentMethod, setPaymentMethod] = useState<'dinheiro' | 'pix' | 'debito' | 'credito'>('pix');
+  const [discountAmount, setDiscountAmount] = useState<number>(0);
+  const [cashReceived, setCashReceived] = useState<string>('');
 
-  // Toasts state for professional feedback
-  const [toasts, setToasts] = useState<ToastItem[]>([]);
-  const addToast = (message: string, type: ToastType) => {
-    const id = `toast-${Date.now()}-${Math.random()}`;
-    setToasts(prev => [...prev, { id, message, type }]);
-  };
-  const removeToast = (id: string) => {
-    setToasts(prev => prev.filter(t => t.id !== id));
-  };
-
-  // Handle scanned barcode auto-add
+  // Auto-respond to scanned barcode triggers
   useEffect(() => {
-    if (scannedBarcodeTrigger && scannedBarcodeTrigger.barcode) {
-      const targetBarcode = scannedBarcodeTrigger.barcode;
-      const foundProduct = products.find(p => p.barcode === targetBarcode || p.id === targetBarcode);
-      if (foundProduct && foundProduct.active) {
-        addToCart(foundProduct);
+    if (scannedBarcodeTrigger?.barcode && isOpen) {
+      const prod = products.find(p => p.barcode === scannedBarcodeTrigger.barcode || p.id === scannedBarcodeTrigger.barcode);
+      if (prod && prod.active) {
+        addToCart(prod);
       }
     }
-  }, [scannedBarcodeTrigger, products]);
+  }, [scannedBarcodeTrigger]);
 
-  // Get categories
-  const categories = useMemo(() => {
-    const list = new Set(products.map(p => p.category));
-    return ['Todos', ...Array.from(list)];
-  }, [products]);
-
-  // Filter products for quick selection
   const filteredProducts = useMemo(() => {
-    return products.filter(p => {
-      const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                            p.barcode.includes(searchTerm);
-      const matchesCategory = selectedCategory === 'Todos' || p.category === selectedCategory;
-      return p.active && matchesSearch && matchesCategory;
-    }).slice(0, 8); // show only top 8 for UI compactness
-  }, [products, searchTerm, selectedCategory]);
+    if (!searchTerm.trim()) return [];
+    return products.filter(p => 
+      p.active && 
+      (p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+       p.barcode.includes(searchTerm) || 
+       p.sku.toLowerCase().includes(searchTerm.toLowerCase()))
+    ).slice(0, 5);
+  }, [searchTerm, products]);
 
   const addToCart = (product: Product) => {
-    const existingIndex = cart.findIndex(item => item.product.id === product.id);
-    const totalUnitsInStock = (product.stockBoxes * product.boxQuantity) + product.stockUnits;
-
-    const currentQtyInCart = existingIndex >= 0 ? cart[existingIndex].quantity : 0;
-    if (currentQtyInCart >= totalUnitsInStock) {
-      addToast(`Quantidade máxima em estoque atingida (${totalUnitsInStock} un)`, 'warning');
+    const totalUnits = (product.stockBoxes * product.boxQuantity) + product.stockUnits;
+    if (totalUnits <= 0) {
+      alert(`Produto ${product.name} esgotado no estoque!`, 'warning');
       return;
     }
 
-    if (existingIndex >= 0) {
-      const newCart = [...cart];
-      newCart[existingIndex].quantity += 1;
-      setCart(newCart);
-    } else {
-      setCart([...cart, { product, quantity: 1 }]);
-    }
+    setCart(prev => {
+      const idx = prev.findIndex(item => item.product.id === product.id);
+      if (idx >= 0) {
+        const currentQty = prev[idx].quantity;
+        if (currentQty >= totalUnits) {
+          alert(`Estoque insuficiente! Disponível: ${totalUnits} unidades.`, 'warning');
+          return prev;
+        }
+        const updated = [...prev];
+        updated[idx] = { ...updated[idx], quantity: currentQty + 1 };
+        return updated;
+      }
+      return [...prev, { product, quantity: 1 }];
+    });
+    setSearchTerm('');
+    playPremiumSound('bell');
   };
 
-  const updateQuantity = (index: number, delta: number) => {
-    const newCart = [...cart];
-    const item = newCart[index];
-    const totalUnitsInStock = (item.product.stockBoxes * item.product.boxQuantity) + item.product.stockUnits;
+  const updateCartQty = (productId: string, delta: number) => {
+    setCart(prev => {
+      const idx = prev.findIndex(item => item.product.id === productId);
+      if (idx < 0) return prev;
+      
+      const prod = prev[idx].product;
+      const totalUnits = (prod.stockBoxes * prod.boxQuantity) + prod.stockUnits;
+      const newQty = prev[idx].quantity + delta;
 
-    const newQty = item.quantity + delta;
-    if (newQty <= 0) {
-      newCart.splice(index, 1);
-    } else if (newQty > totalUnitsInStock) {
-      addToast(`Quantidade máxima em estoque atingida (${totalUnitsInStock} un)`, 'warning');
-      return;
-    } else {
-      item.quantity = newQty;
-    }
-    setCart(newCart);
+      if (newQty <= 0) {
+        return prev.filter(item => item.product.id !== productId);
+      }
+
+      if (newQty > totalUnits) {
+        alert(`Estoque insuficiente! Disponível: ${totalUnits} unidades.`, 'warning');
+        return prev;
+      }
+
+      const updated = [...prev];
+      updated[idx] = { ...updated[idx], quantity: newQty };
+      return updated;
+    });
   };
 
-  const removeFromCart = (index: number) => {
-    const newCart = [...cart];
-    newCart.splice(index, 1);
-    setCart(newCart);
+  const removeFromCart = (productId: string) => {
+    setCart(prev => prev.filter(item => item.product.id !== productId));
   };
 
-  const subtotal = useMemo(() => {
+  const cartSubtotal = useMemo(() => {
     return cart.reduce((acc, item) => acc + (item.product.sellPrice * item.quantity), 0);
   }, [cart]);
 
-  const total = useMemo(() => {
-    return Math.max(0, subtotal - discount);
-  }, [subtotal, discount]);
+  const cartTotal = useMemo(() => {
+    return Math.max(0, cartSubtotal - discountAmount);
+  }, [cartSubtotal, discountAmount]);
 
-  // Check if cart contains age restricted items
-  const hasAgeRestrictedItem = useMemo(() => {
-    return cart.some(item => item.product.ageRestricted);
-  }, [cart]);
+  const changeDue = useMemo(() => {
+    if (paymentMethod !== 'dinheiro') return 0;
+    const received = parseFloat(cashReceived);
+    if (isNaN(received) || received < cartTotal) return 0;
+    return received - cartTotal;
+  }, [cashReceived, cartTotal, paymentMethod]);
 
   const handleCheckout = () => {
-    if (cart.length === 0) return;
+    if (cart.length === 0) {
+      alert('Seu carrinho está vazio.', 'warning');
+      return;
+    }
 
-    // Process checkout
-    const saleId = `sale-${Date.now()}`;
-    const saleNumber = String(Math.floor(1000 + Math.random() * 9000));
+    if (!activeShift) {
+      alert('Por favor, abra um turno no menu financeiro antes de realizar vendas!', 'error');
+      return;
+    }
 
-    // Deduct stock
-    cart.forEach(item => {
-      onUpdateStock(item.product.id, item.quantity);
-    });
+    if (paymentMethod === 'dinheiro') {
+      const received = parseFloat(cashReceived);
+      if (isNaN(received) || received < cartTotal) {
+        alert('Valor recebido em dinheiro é insuficiente.', 'warning');
+        return;
+      }
+    }
 
+    // 1. Create Sale Object
+    const saleId = `v-${Date.now()}`;
     const newSale: Sale = {
       id: saleId,
-      number: saleNumber,
+      status: 'pago',
+      paymentMethod,
+      total: cartTotal,
+      discount: discountAmount,
       timestamp: new Date().toISOString(),
-      type: 'balcao',
-      identifier: `Balcão #${saleNumber}`,
+      clientName: 'Consumidor Final (PDV)',
+      openedBy: currentUser?.name || 'Operador',
       items: cart.map(item => ({
         productId: item.product.id,
         quantity: item.quantity,
         unitPrice: item.product.sellPrice,
-        notes: item.notes
-      })),
-      subtotal,
-      discount,
-      total,
-      paymentMethod,
-      status: 'pago',
-      cashierId: currentUser?.id || 'u1',
-    };
-
-    onAddSale(newSale);
-
-    // Create financial recipe transaction
-    const newTx: FinancialTransaction = {
-      id: `tx-${Date.now()}`,
-      date: new Date().toISOString().split('T')[0],
-      type: 'receita',
-      category: 'Vendas',
-      description: `Venda de Balcão #${saleNumber}`,
-      value: total,
-      paymentMethod,
-      status: 'pago'
-    };
-    onAddFinancial(newTx);
-
-    // Print Non-Fiscal Coupon
-    const receiptData = {
-      number: saleNumber,
-      date: new Date().toLocaleDateString('pt-BR'),
-      time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-      identifier: `BALCÃO #${saleNumber}`,
-      cashierId: currentUser?.name || 'Operador Caixa',
-      subtotal,
-      discount,
-      total,
-      paymentMethod,
-      paidAmount: paymentMethod === 'dinheiro' && cashReceived !== '' ? Number(cashReceived) : total,
-      changeAmount: paymentMethod === 'dinheiro' && cashReceived !== '' && Number(cashReceived) > total ? Number(cashReceived) - total : 0,
-      items: cart.map(item => ({
-        qty: item.quantity,
-        name: item.product.name,
-        unitPrice: item.product.sellPrice,
-        notes: item.notes
+        status: 'entregue',
+        timestamp: new Date().toISOString()
       }))
     };
 
-    triggerThermalPrint('sale', receiptData).catch(err => {
-      console.error("Erro na impressão de venda balcão:", err);
-    });
-
-    // Reset temporary cashier inputs
-    setCashReceived('');
-
-    // Reset checkout state
-    setCart([]);
-    setDiscount(0);
-    setAgeVerified(false);
-    
-    // Simulate receipt generation
-    addToast(`Venda #${saleNumber} concluída! Cupom não fiscal emitido com sucesso.`, 'success');
-  };
-
-  const handleSaveDraft = () => {
-    if (cart.length === 0) return;
-
-    const saleNumber = String(Math.floor(1000 + Math.random() * 9000));
-    const newSale: Sale = {
-      id: `sale-${Date.now()}`,
-      number: saleNumber,
+    // 2. Create Financial Transaction Object
+    const newTx: FinancialTransaction = {
+      id: `tx-${Date.now()}`,
+      type: 'receita',
+      status: 'pago',
+      category: 'Vendas',
+      value: cartTotal,
+      description: `Venda Direta PDV #${saleId.slice(-6)}`,
       timestamp: new Date().toISOString(),
-      type: 'balcao',
-      identifier: `Rascunho Balcão #${saleNumber}`,
-      items: cart.map(item => ({
-        productId: item.product.id,
-        quantity: item.quantity,
-        unitPrice: item.product.sellPrice
-      })),
-      subtotal,
-      discount,
-      total,
-      paymentMethod,
-      status: 'aberto',
-      cashierId: currentUser?.id || 'u1'
+      date: new Date().toISOString().split('T')[0],
+      paymentMethod
     };
 
+    // 3. Dispatch changes
     onAddSale(newSale);
+    onAddFinancial(newTx);
+
+    // 4. Update product stocks (subtract items sold)
+    cart.forEach(item => {
+      // Direct adjustment in product list
+      onUpdateStock(item.product.id, 0, -item.quantity);
+    });
+
+    // 5. Trigger printer simulation
+    triggerThermalPrint({
+      type: 'sale',
+      title: `Cupom de Venda #${saleId.slice(-6)}`,
+      data: { sale: newSale, transaction: newTx }
+    });
+
+    // 6. Reset Form
     setCart([]);
-    setDiscount(0);
-    addToast(`Rascunho #${saleNumber} salvo com sucesso!`, 'info');
+    setDiscountAmount(0);
+    setCashReceived('');
+    playPremiumSound('success');
+    alert('Venda registrada com sucesso! Cupom enviado para impressão.', 'success');
+    onClose();
   };
 
   if (!isOpen) return null;
 
   return (
-    <div className={`w-96 border-l shrink-0 flex flex-col h-full z-10 ${
-      theme === 'dark' 
-        ? 'bg-[#080808] border-[#1A1A1A] text-white' 
-        : 'bg-[#FAFAFA] border-[#E5E5E5] text-[#111111]'
-    }`}>
-      {/* Header */}
-      <div className={`p-4 border-b flex justify-between items-center ${
-        theme === 'dark' ? 'border-[#1A1A1A]' : 'border-[#E5E5E5]'
-      }`}>
-        <div className="flex items-center gap-2">
-          <ShoppingCart className="w-5 h-5 text-[#18F2A4]" />
-          <span className="font-semibold text-sm">Venda Rápida (Balcão)</span>
-        </div>
-        <button 
-          onClick={onClose} 
-          className={`p-1 rounded-md transition-colors ${
-            theme === 'dark' ? 'hover:bg-[#111111]' : 'hover:bg-[#F0F0F0]'
-          }`}
-        >
-          <X className="w-4 h-4" />
-        </button>
-      </div>
+    <div className="fixed inset-0 z-50 flex justify-end">
+      {/* Backdrop */}
+      <div 
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        onClick={onClose}
+      />
 
-      {/* Product Finder Panel */}
-      <div className="p-3 flex flex-col gap-2">
-        <div className={`relative flex items-center rounded-lg border px-3 py-1.5 ${
-          theme === 'dark' ? 'bg-[#111111] border-[#1A1A1A]' : 'bg-white border-[#E5E5E5]'
+      {/* Drawer */}
+      <div 
+        className={`w-full max-w-md h-full relative z-10 flex flex-col justify-between border-l transition-all duration-300 animate-slide-left ${
+          isDark ? 'bg-[#0B0B0B] border-[#1C1C1C]' : 'bg-gray-50 border-gray-200'
+        }`}
+      >
+        {/* Header */}
+        <div className={`p-4 border-b flex justify-between items-center ${
+          isDark ? 'border-[#1C1C1C]' : 'border-gray-200'
         }`}>
-          <Search className="w-4 h-4 text-gray-400 mr-2" />
-          <input
-            type="text"
-            placeholder="Buscar nome ou código de barras..."
-            className="w-full text-xs bg-transparent focus:outline-none"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-          {searchTerm && (
-            <button onClick={() => setSearchTerm('')} className="text-gray-400">
-              <X className="w-3.5 h-3.5" />
-            </button>
-          )}
-        </div>
-
-        {/* Categories selector */}
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => setShowCategoryDropdown(!showCategoryDropdown)}
-            className={`w-full flex items-center justify-between text-xs font-medium px-3 py-2 rounded-lg border transition-all ${
-              theme === 'dark'
-                ? 'bg-[#111111] border-[#1A1A1A] text-white hover:border-[#18F2A4]/50'
-                : 'bg-white border-[#E5E5E5] text-gray-700 hover:border-[#10B981]/50'
-            }`}
+          <div className="flex items-center gap-2.5">
+            <ShoppingCart className={`w-5 h-5 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`} />
+            <h2 className={`text-sm font-bold tracking-tight uppercase ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>
+              Venda Rápida (PDV)
+            </h2>
+          </div>
+          <button 
+            onClick={onClose} 
+            className="p-1.5 rounded-lg hover:bg-black/10 text-gray-500 hover:text-gray-300 cursor-pointer"
           >
-            <div className="flex items-center gap-1.5">
-              <Folder className={`w-3.5 h-3.5 ${theme === 'dark' ? 'text-[#18F2A4]' : 'text-[#10B981]'}`} />
-              <span>Categoria: <strong className={theme === 'dark' ? 'text-[#18F2A4]' : 'text-[#10B981]'}>{selectedCategory}</strong></span>
-            </div>
-            {showCategoryDropdown ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+            <X className="w-4 h-4" />
           </button>
-
-          {showCategoryDropdown && (
-            <>
-              {/* Backdrop to close */}
-              <div 
-                className="fixed inset-0 z-20" 
-                onClick={() => setShowCategoryDropdown(false)}
-              />
-              <div className={`absolute left-0 right-0 mt-1.5 p-1.5 rounded-lg border shadow-xl z-30 max-h-48 overflow-y-auto ${
-                theme === 'dark'
-                  ? 'bg-[#111111] border-[#1A1A1A]'
-                  : 'bg-white border-[#E5E5E5]'
-              }`}>
-                <div className="grid grid-cols-2 gap-1">
-                  {categories.map(cat => (
-                    <button
-                      key={cat}
-                      type="button"
-                      onClick={() => {
-                        setSelectedCategory(cat);
-                        setShowCategoryDropdown(false);
-                      }}
-                      className={`text-left text-xs px-2.5 py-1.5 rounded-md transition-all ${
-                        selectedCategory === cat
-                          ? (theme === 'dark' ? 'bg-[#18F2A4] text-black font-semibold' : 'bg-[#10B981] text-white font-semibold')
-                          : (theme === 'dark' ? 'text-gray-400 hover:bg-[#1C1C1C] hover:text-white' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900')
-                      }`}
-                    >
-                      {cat}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </>
-          )}
         </div>
 
-        {/* Dynamic searchable matching product results */}
-        <div className="grid grid-cols-2 gap-1.5 max-h-40 overflow-y-auto pr-1">
-          {filteredProducts.map(prod => {
-            const stockTotal = (prod.stockBoxes * prod.boxQuantity) + prod.stockUnits;
-            const isOutOfStock = stockTotal <= 0;
-            return (
-              <button
-                key={prod.id}
-                disabled={isOutOfStock}
-                onClick={() => addToCart(prod)}
-                className={`p-1.5 rounded-lg border text-left flex gap-1.5 transition-all relative overflow-hidden group items-center ${
-                  isOutOfStock ? 'opacity-40 cursor-not-allowed' : ''
-                } ${
-                  theme === 'dark' 
-                    ? 'bg-[#111111] border-[#1A1A1A] hover:border-[#18F2A4]/30' 
-                    : 'bg-white border-[#E5E5E5] hover:border-[#10B981]/30'
-                }`}
-              >
-                {/* Mini Image thumbnail */}
-                <div className="w-8 h-8 rounded bg-gray-900 shrink-0 overflow-hidden border self-center flex items-center justify-center" style={{ borderColor: theme === 'dark' ? '#222' : '#E5E5E5' }}>
-                  {prod.image ? (
-                    <img 
-                      src={prod.image} 
-                      alt={prod.name} 
-                      referrerPolicy="no-referrer"
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div className="text-gray-500">
-                      <GlassWater className="w-3.5 h-3.5" />
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex-1 min-w-0 flex flex-col justify-between h-8">
-                  <div className="flex justify-between items-start gap-1">
-                    <span className="font-semibold text-[10px] leading-tight truncate block flex-1" title={prod.name}>{prod.name}</span>
-                    {prod.ageRestricted && (
-                      <span className={`text-[8px] font-extrabold px-1 rounded-sm scale-90 shrink-0 border ${
-                        theme === 'dark'
-                          ? 'bg-red-950/40 text-red-400 border-red-900/30'
-                          : 'bg-red-100 text-red-900 border-red-200'
-                      }`}>18+</span>
-                    )}
-                  </div>
-                  <div className="flex justify-between items-baseline mt-auto">
-                    <span className={`text-[10px] font-bold font-mono ${theme === 'dark' ? 'text-[#18F2A4]' : 'text-[#10B981]'}`}>
-                      R$ {prod.sellPrice.toFixed(2)}
-                    </span>
-                    <span className="text-[8px] text-gray-400">Est: {stockTotal}</span>
-                  </div>
-                </div>
-              </button>
-            );
-          })}
-          {filteredProducts.length === 0 && (
-            <div className="col-span-2 text-center py-4 text-[11px] text-gray-500">
-              Nenhum produto ativo encontrado.
+        {/* Search & Cart List */}
+        <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
+          {/* Active Shift Banner Warning */}
+          {!activeShift && (
+            <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl flex gap-2 items-start text-red-400">
+              <span className="text-xs font-medium">Caixa Fechado. É necessário abrir o caixa antes de operar.</span>
             </div>
           )}
-        </div>
-      </div>
 
-      {/* Cart Area */}
-      <div className={`flex-1 overflow-y-auto px-4 py-2 border-t ${
-        theme === 'dark' ? 'border-[#1A1A1A]' : 'border-[#E5E5E5]'
-      }`}>
-        <span className="text-[10px] uppercase tracking-wider text-gray-400 font-bold block mb-2">Carrinho</span>
-        
-        {cart.length === 0 ? (
-          <div className="h-40 flex flex-col justify-center items-center text-center gap-2">
-            <ShoppingCart className="w-8 h-8 text-gray-600 stroke-[1.5]" />
-            <span className="text-xs text-gray-500">Carrinho vazio.<br />Selecione produtos acima.</span>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-2.5">
-            {cart.map((item, index) => (
-              <div 
-                key={index} 
-                className={`p-2 rounded-lg border flex flex-col gap-1.5 ${
-                  theme === 'dark' ? 'bg-[#111111]/50 border-[#1A1A1A]' : 'bg-gray-50 border-[#E5E5E5]'
-                }`}
-              >
-                <div className="flex justify-between items-start gap-2">
-                  <div className="flex items-center gap-2 flex-1 min-w-0">
-                    {/* Thumbnail image */}
-                    <div className="w-8 h-8 rounded bg-gray-900 shrink-0 overflow-hidden border flex items-center justify-center" style={{ borderColor: theme === 'dark' ? '#222' : '#E5E5E5' }}>
-                      {item.product.image ? (
-                        <img 
-                          src={item.product.image} 
-                          alt={item.product.name} 
-                          referrerPolicy="no-referrer"
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <div className="text-gray-500">
-                          <GlassWater className="w-4 h-4" />
-                        </div>
-                      )}
-                    </div>
-                    <span className="text-[11px] font-bold leading-tight truncate flex-1" title={item.product.name}>{item.product.name}</span>
-                  </div>
-                  <button 
-                    onClick={() => removeFromCart(index)} 
-                    className="text-gray-400 hover:text-red-500 transition-colors shrink-0"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-
-                <div className="flex justify-between items-center">
-                  <div className="flex items-center gap-1.5">
-                    <button 
-                      onClick={() => updateQuantity(index, -1)}
-                      className={`w-5 py-0.5 rounded text-xs text-center border transition-all ${
-                        theme === 'dark' ? 'border-[#222] hover:bg-[#222]' : 'border-gray-200 hover:bg-gray-100'
-                      }`}
-                    >
-                      -
-                    </button>
-                    <span className="font-mono text-xs w-6 text-center">{item.quantity}</span>
-                    <button 
-                      onClick={() => updateQuantity(index, 1)}
-                      className={`w-5 py-0.5 rounded text-xs text-center border transition-all ${
-                        theme === 'dark' ? 'border-[#222] hover:bg-[#222]' : 'border-gray-200 hover:bg-gray-100'
-                      }`}
-                    >
-                      +
-                    </button>
-                  </div>
-                  <span className="text-xs font-bold font-mono">
-                    R$ {(item.product.sellPrice * item.quantity).toFixed(2)}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Checkout Actions & Summary */}
-      <div className={`p-4 border-t flex flex-col gap-3 ${
-        theme === 'dark' ? 'bg-[#080808] border-[#1A1A1A]' : 'bg-white border-[#E5E5E5]'
-      }`}>
-        {/* Discount controller */}
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5 text-xs text-gray-400">
-            <Percent className="w-3.5 h-3.5 text-[#18F2A4]" />
-            <span>Desconto (R$):</span>
-          </div>
-          <input
-            type="number"
-            disabled={cart.length === 0}
-            min="0"
-            max={subtotal}
-            placeholder="0.00"
-            value={discount || ''}
-            onChange={(e) => setDiscount(Math.min(subtotal, Number(e.target.value)))}
-            className={`w-20 text-right text-xs font-mono px-1.5 py-1 rounded border focus:outline-none ${
-              theme === 'dark' 
-                ? 'bg-[#111111] border-[#222] text-white focus:border-[#18F2A4]' 
-                : 'bg-white border-gray-200 text-[#111111] focus:border-[#10B981]'
-            }`}
-          />
-        </div>
-
-        {/* Payment options */}
-        <div className="flex flex-col gap-1.5">
-          <span className="text-[10px] uppercase text-gray-400 font-bold tracking-wider">Forma de Pagamento</span>
-          <div className="grid grid-cols-4 gap-1">
-            {(['pix', 'dinheiro', 'debito', 'credito'] as const).map(method => (
-              <button
-                key={method}
-                disabled={cart.length === 0}
-                onClick={() => setPaymentMethod(method)}
-                className={`text-[10px] font-medium py-1.5 px-1 rounded border capitalize transition-all ${
-                  paymentMethod === method
-                    ? (theme === 'dark' ? 'bg-[#18F2A4]/10 text-[#18F2A4] border-[#18F2A4]' : 'bg-[#10B981]/10 text-[#10B981] border-[#10B981]')
-                    : (theme === 'dark' ? 'bg-[#111111] text-gray-400 border-transparent hover:border-[#222]' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100')
-                }`}
-              >
-                {method}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Cash received and change (Troco) calculation */}
-        {paymentMethod === 'dinheiro' && cart.length > 0 && (
-          <div className="flex flex-col gap-2 p-2 rounded-lg border border-dashed" style={{ borderColor: theme === 'dark' ? '#222' : '#E5E5E5', backgroundColor: theme === 'dark' ? '#0A0A0A' : '#FAFAFA' }}>
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs text-gray-400 font-semibold">Valor Recebido (R$):</span>
-              <input
-                type="number"
-                min={total}
-                step="0.01"
-                placeholder="0.00"
-                value={cashReceived || ''}
-                onChange={(e) => setCashReceived(Number(e.target.value))}
-                className="w-20 text-right font-mono text-xs p-1.5 rounded border focus:outline-none"
-                style={{ backgroundColor: theme === 'dark' ? '#111' : 'white', borderColor: theme === 'dark' ? '#222' : '#CCC', color: theme === 'dark' ? 'white' : 'black' }}
-              />
-            </div>
-          </div>
-        )}
-
-        {/* Price Breakdown */}
-        <div className="flex flex-col gap-1 py-1 text-xs">
-          <div className="flex justify-between text-gray-400">
-            <span>Subtotal:</span>
-            <span className="font-mono">R$ {subtotal.toFixed(2)}</span>
-          </div>
-          {discount > 0 && (
-            <div className="flex justify-between text-red-500 font-medium">
-              <span>Desconto:</span>
-              <span className="font-mono">- R$ {discount.toFixed(2)}</span>
-            </div>
-          )}
-          <div className="flex justify-between font-bold text-sm pt-1 border-t border-dashed border-[#222]">
-            <span>Total Geral:</span>
-            <span className={`font-mono ${theme === 'dark' ? 'text-[#18F2A4]' : 'text-[#10B981]'}`}>
-              R$ {total.toFixed(2)}
+          {/* Search Box */}
+          <div className="relative">
+            <span className="absolute inset-y-0 left-0 flex items-center pl-3">
+              <Search className="w-4 h-4 text-gray-500" />
             </span>
-          </div>
-          {paymentMethod === 'dinheiro' && cashReceived !== '' && Number(cashReceived) >= total && (
-            <div className="flex justify-between font-bold text-xs text-amber-500 pt-1 border-t border-dotted border-[#222]/20">
-              <span>Troco ao Cliente:</span>
-              <span className="font-mono">R$ {(Number(cashReceived) - total).toFixed(2)}</span>
-            </div>
-          )}
-        </div>
+            <input
+              type="text"
+              placeholder="Digite o nome, código ou SKU..."
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              className={`w-full pl-9 pr-3 py-2 text-xs rounded-xl border outline-none font-sans transition-all ${
+                isDark 
+                  ? 'bg-black/40 border-[#1C1C1C] text-gray-200 focus:border-emerald-500/50 focus:bg-black/60' 
+                  : 'bg-white border-gray-200 text-gray-800 focus:border-emerald-500/50 focus:bg-white'
+              }`}
+            />
 
-        {/* CTA Buttons */}
-        {!activeShift ? (
-          <div className="flex flex-col gap-2 p-3 rounded-lg border border-red-500/30 bg-red-500/10 text-red-400 text-xs text-center mt-1">
-            <span className="font-bold">⚠️ Turno de Caixa Fechado</span>
-            <span>Abra o caixa na aba 'Setor Financeiro &gt; Controle de Turnos' ou clique abaixo para iniciar o expediente.</span>
-            {onOpenShift && (
-              <button
-                onClick={() => {
-                  onOpenShift('Operador Geral', 100);
-                  alert("Caixa aberto com sucesso (Operador Geral, Troco inicial R$ 100.00)");
-                }}
-                className={`py-1.5 px-3 rounded font-bold text-[10px] uppercase tracking-wider self-center transition-all cursor-pointer ${
-                  theme === 'dark' ? 'bg-[#18F2A4] text-black hover:bg-[#12d58f]' : 'bg-[#10B981] text-white hover:bg-[#0e9f6e]'
-                }`}
-              >
-                Abrir Caixa com R$ 100
-              </button>
+            {/* Quick search suggestions */}
+            {searchTerm && (
+              <div className={`absolute top-full left-0 right-0 z-20 mt-1.5 border rounded-xl overflow-hidden shadow-2xl ${
+                isDark ? 'bg-[#121212] border-[#222]' : 'bg-white border-gray-200'
+              }`}>
+                {filteredProducts.length === 0 ? (
+                  <div className="p-3 text-center text-xs text-gray-500 font-sans">
+                    Nenhum produto cadastrado ativo encontrado.
+                  </div>
+                ) : (
+                  filteredProducts.map(prod => (
+                    <div 
+                      key={prod.id}
+                      onClick={() => addToCart(prod)}
+                      className={`p-2.5 flex justify-between items-center cursor-pointer transition-all border-b last:border-b-0 ${
+                        isDark ? 'hover:bg-emerald-500/10 border-[#1C1C1C]' : 'hover:bg-emerald-50 border-gray-100'
+                      }`}
+                    >
+                      <div>
+                        <p className={`text-xs font-semibold ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>{prod.name}</p>
+                        <p className="text-[10px] text-gray-500 font-mono uppercase">{prod.category} • SKU {prod.sku}</p>
+                      </div>
+                      <span className={`text-xs font-mono font-bold ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>
+                        R$ {prod.sellPrice.toFixed(2)}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
             )}
           </div>
-        ) : (
-          <div className="grid grid-cols-2 gap-2 mt-1">
-            <button
-              disabled={cart.length === 0}
-              onClick={handleSaveDraft}
-              className={`py-2 px-2.5 rounded-lg border flex items-center justify-center gap-1.5 text-xs font-semibold transition-all cursor-pointer ${
-                cart.length === 0
-                  ? 'opacity-40 cursor-not-allowed'
-                  : theme === 'dark'
-                    ? 'bg-transparent border-[#222] text-gray-300 hover:bg-[#111]'
-                    : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-              }`}
-            >
-              <Save className="w-3.5 h-3.5" />
-              Salvar Rascunho
-            </button>
 
+          {/* Cart Items Title */}
+          <div>
+            <h3 className={`text-[10px] font-bold tracking-wider uppercase mb-2 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+              Itens no Carrinho ({cart.length})
+            </h3>
+
+            {cart.length === 0 ? (
+              <div className={`p-8 text-center rounded-xl border border-dashed flex flex-col items-center justify-center ${
+                isDark ? 'bg-black/10 border-[#1C1C1C]' : 'bg-white border-gray-200'
+              }`}>
+                <ShoppingCart className="w-6 h-6 text-gray-500 mb-2" />
+                <p className="text-xs text-gray-500 font-sans font-medium">O carrinho está vazio.</p>
+                <p className="text-[10px] text-gray-500/70 font-sans mt-0.5">Use a barra de pesquisa acima ou escaneie os produtos.</p>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {cart.map(item => (
+                  <div 
+                    key={item.product.id}
+                    className={`p-3 rounded-xl border flex justify-between items-center ${
+                      isDark ? 'bg-black/30 border-[#1C1C1C]' : 'bg-white border-gray-100'
+                    }`}
+                  >
+                    <div className="flex-1 min-w-0 pr-3">
+                      <p className={`text-xs font-semibold truncate ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>
+                        {item.product.name}
+                      </p>
+                      <span className={`text-[10px] font-mono font-bold ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                        R$ {item.product.sellPrice.toFixed(2)} / un
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      {/* Qty Controls */}
+                      <div className="flex items-center gap-1">
+                        <button 
+                          onClick={() => updateCartQty(item.product.id, -1)}
+                          className={`p-1 rounded bg-black/10 text-gray-500 hover:text-gray-300 cursor-pointer`}
+                        >
+                          <Minus className="w-3 h-3" />
+                        </button>
+                        <span className={`w-6 text-center font-mono text-xs font-bold ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>
+                          {item.quantity}
+                        </span>
+                        <button 
+                          onClick={() => updateCartQty(item.product.id, 1)}
+                          className={`p-1 rounded bg-black/10 text-gray-500 hover:text-gray-300 cursor-pointer`}
+                        >
+                          <Plus className="w-3 h-3" />
+                        </button>
+                      </div>
+
+                      {/* Line total & Delete */}
+                      <div className="text-right min-w-[70px]">
+                        <p className={`text-xs font-mono font-bold ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>
+                          R$ {(item.product.sellPrice * item.quantity).toFixed(2)}
+                        </p>
+                      </div>
+
+                      <button 
+                        onClick={() => removeFromCart(item.product.id)}
+                        className="p-1 text-red-400 hover:text-red-500 cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Footer Payment & Checkout */}
+        {cart.length > 0 && (
+          <div className={`p-4 border-t flex flex-col gap-4 ${
+            isDark ? 'bg-black/50 border-[#1C1C1C]' : 'bg-white border-gray-200'
+          }`}>
+            {/* Discount box */}
+            <div className="flex justify-between items-center gap-3">
+              <span className={`text-xs font-semibold flex items-center gap-1.5 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                <Percent className="w-3.5 h-3.5 text-amber-500" /> Desconto (R$)
+              </span>
+              <input 
+                type="number" 
+                min={0}
+                max={cartSubtotal}
+                value={discountAmount || ''}
+                onChange={e => setDiscountAmount(Math.max(0, parseFloat(e.target.value) || 0))}
+                placeholder="0.00"
+                className={`w-24 text-right px-2 py-1 text-xs font-mono rounded border outline-none ${
+                  isDark ? 'bg-black/60 border-[#1C1C1C] text-gray-200' : 'bg-white border-gray-200 text-gray-800'
+                }`}
+              />
+            </div>
+
+            {/* Payment Method Selector */}
+            <div>
+              <span className={`text-[10px] font-bold tracking-wider uppercase block mb-2 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                Meio de Pagamento
+              </span>
+              <div className="grid grid-cols-4 gap-1.5">
+                {[
+                  { id: 'pix', label: 'PIX', icon: <Wallet className="w-3.5 h-3.5" /> },
+                  { id: 'dinheiro', label: 'Dinheiro', icon: <DollarSign className="w-3.5 h-3.5" /> },
+                  { id: 'debito', label: 'Débito', icon: <CreditCard className="w-3.5 h-3.5" /> },
+                  { id: 'credito', label: 'Crédito', icon: <CreditCard className="w-3.5 h-3.5" /> }
+                ].map(method => (
+                  <button
+                    key={method.id}
+                    onClick={() => setPaymentMethod(method.id as any)}
+                    className={`p-2 rounded-xl border flex flex-col items-center justify-center gap-1 text-[10px] font-bold tracking-tight transition-all cursor-pointer ${
+                      paymentMethod === method.id 
+                        ? (isDark ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'bg-emerald-50 border-emerald-500 text-emerald-700')
+                        : (isDark ? 'bg-black/20 border-[#1C1C1C] text-gray-400 hover:bg-black/40' : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100')
+                    }`}
+                  >
+                    {method.icon}
+                    {method.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* In case of cash received */}
+            {paymentMethod === 'dinheiro' && (
+              <div className="flex flex-col gap-2 p-2.5 rounded-xl bg-black/10 border border-dashed" style={{ borderColor: isDark ? '#1C1C1C' : '#E5E5E5' }}>
+                <div className="flex justify-between items-center">
+                  <span className={`text-[10px] font-bold ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>VALOR RECEBIDO:</span>
+                  <input
+                    type="number"
+                    placeholder="0.00"
+                    value={cashReceived}
+                    onChange={e => setCashReceived(e.target.value)}
+                    className={`w-28 text-right px-2 py-1 text-xs font-mono font-bold rounded border outline-none ${
+                      isDark ? 'bg-black/60 border-[#1C1C1C] text-emerald-400' : 'bg-white border-gray-200 text-emerald-700'
+                    }`}
+                  />
+                </div>
+                {changeDue > 0 && (
+                  <div className="flex justify-between items-center pt-1.5 border-t border-dashed border-gray-700/30">
+                    <span className="text-[10px] font-bold text-amber-500">TROCO DO CLIENTE:</span>
+                    <span className="text-xs font-mono font-bold text-amber-400">R$ {changeDue.toFixed(2)}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Totals */}
+            <div className="flex flex-col gap-1.5">
+              <div className="flex justify-between items-center text-xs">
+                <span className={isDark ? 'text-gray-500' : 'text-gray-400'}>Subtotal</span>
+                <span className={`font-mono ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>R$ {cartSubtotal.toFixed(2)}</span>
+              </div>
+              {discountAmount > 0 && (
+                <div className="flex justify-between items-center text-xs text-amber-500">
+                  <span>Desconto</span>
+                  <span className="font-mono">- R$ {discountAmount.toFixed(2)}</span>
+                </div>
+              )}
+              <div className="flex justify-between items-center pt-2 border-t" style={{ borderColor: isDark ? '#1C1C1C' : '#F0F0F0' }}>
+                <span className={`text-xs font-bold uppercase ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Total Geral</span>
+                <span className={`text-sm font-mono font-bold ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>
+                  R$ {cartTotal.toFixed(2)}
+                </span>
+              </div>
+            </div>
+
+            {/* Checkout Button */}
             <button
-              disabled={cart.length === 0}
               onClick={handleCheckout}
-              className={`py-2 px-2.5 rounded-lg flex items-center justify-center gap-1.5 text-xs font-semibold transition-all cursor-pointer ${
-                cart.length === 0
-                  ? 'opacity-40 cursor-not-allowed'
-                  : theme === 'dark'
-                    ? 'bg-[#18F2A4] text-black hover:bg-[#12d58f] active:scale-95'
-                    : 'bg-[#10B981] text-white hover:bg-[#0e9f6e] active:scale-95'
+              disabled={!activeShift}
+              className={`w-full py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                !activeShift
+                  ? 'bg-gray-700 text-gray-500 cursor-not-allowed opacity-50'
+                  : 'bg-emerald-500 text-black hover:bg-emerald-400 active:scale-[0.99]'
               }`}
             >
-              <Check className="w-3.5 h-3.5" />
-              Finalizar Venda
+              <CheckCircle className="w-4 h-4" />
+              Concluir Venda e Emitir Cupom
             </button>
           </div>
         )}
       </div>
-      {/* Embedded non-blocking Toast System */}
-      <ToastContainer toasts={toasts} onRemove={removeToast} theme={theme} />
     </div>
   );
 }

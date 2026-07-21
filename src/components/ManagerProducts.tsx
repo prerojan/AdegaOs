@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Plus, Search, Filter, Edit, Copy, Archive, Check, X, Tag, FileSpreadsheet, Percent, Trash2 } from 'lucide-react';
+import { Plus, Search, Filter, Edit, Copy, Archive, Check, X, Tag, FileSpreadsheet, Percent, Trash2, ShieldCheck, SlidersHorizontal, Edit2 } from 'lucide-react';
 import { Product, Supplier, RecipeItem } from '../types';
 
 interface ManagerProductsProps {
@@ -8,6 +8,10 @@ interface ManagerProductsProps {
   onAddProduct: (prod: Product) => void;
   onUpdateProduct: (prod: Product) => void;
   theme: 'dark' | 'light';
+  categories: string[];
+  onAddCategory: (cat: string) => void;
+  onRenameCategory: (oldVal: string, newVal: string) => void;
+  onDeleteCategory: (cat: string) => void;
 }
 
 export default function ManagerProducts({
@@ -15,18 +19,33 @@ export default function ManagerProducts({
   suppliers,
   onAddProduct,
   onUpdateProduct,
-  theme
+  theme,
+  categories,
+  onAddCategory,
+  onRenameCategory,
+  onDeleteCategory
 }: ManagerProductsProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('Todos');
   const [showModal, setShowModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
 
+  // Category Configuration Modal State
+  const [showCategoryConfigModal, setShowCategoryConfigModal] = useState(false);
+  const [newCatNameInput, setNewCatNameInput] = useState('');
+  const [editingCatName, setEditingCatName] = useState<string | null>(null);
+  const [editCatNameInput, setEditCatNameInput] = useState('');
+
+  // High-Level Search and Filters States
+  const [stockStatusFilter, setStockStatusFilter] = useState<'Todos' | 'Critico' | 'Normal' | 'SemEstoque'>('Todos');
+  const [abcClassFilter, setAbcClassFilter] = useState<'Todos' | 'A' | 'B' | 'C'>('Todos');
+  const [activeFilter, setActiveFilter] = useState<'Todos' | 'Ativos' | 'Arquivados'>('Ativos');
+
   // Form State
   const [name, setName] = useState('');
   const [barcode, setBarcode] = useState('');
   const [sku, setSku] = useState('');
-  const [category, setCategory] = useState('Cervejas');
+  const [category, setCategory] = useState(categories[0] || 'Cervejas');
   const [brand, setBrand] = useState('');
   const [supplierId, setSupplierId] = useState('');
   const [costPrice, setCostPrice] = useState(0);
@@ -57,20 +76,44 @@ export default function ManagerProducts({
     return parseFloat((((sellPrice - costPrice) / sellPrice) * 100).toFixed(2));
   }, [costPrice, sellPrice]);
 
-  const categories = useMemo(() => {
-    const list = new Set(products.map(p => p.category));
-    return ['Todos', ...Array.from(list)];
-  }, [products]);
-
   const filteredProducts = useMemo(() => {
     return products.filter(p => {
+      // 1. Search term match (Name / SKU / Barcode)
       const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                             p.barcode.includes(searchTerm) ||
                             p.sku.toLowerCase().includes(searchTerm.toLowerCase());
+      
+      // 2. Category match
       const matchesCategory = selectedCategory === 'Todos' || p.category === selectedCategory;
-      return matchesSearch && matchesCategory;
+
+      // 3. Stock Status match
+      const totalUnits = (p.stockBoxes * p.boxQuantity) + p.stockUnits;
+      let matchesStock = true;
+      if (stockStatusFilter === 'Critico') {
+        matchesStock = totalUnits <= p.minStockUnits;
+      } else if (stockStatusFilter === 'Normal') {
+        matchesStock = totalUnits > p.minStockUnits;
+      } else if (stockStatusFilter === 'SemEstoque') {
+        matchesStock = totalUnits === 0;
+      }
+
+      // 4. ABC Curve match
+      let matchesAbc = true;
+      if (abcClassFilter !== 'Todos') {
+        matchesAbc = p.abcClass === abcClassFilter;
+      }
+
+      // 5. Active / Inactive match
+      let matchesActive = true;
+      if (activeFilter === 'Ativos') {
+        matchesActive = p.active;
+      } else if (activeFilter === 'Arquivados') {
+        matchesActive = !p.active;
+      }
+
+      return matchesSearch && matchesCategory && matchesStock && matchesAbc && matchesActive;
     });
-  }, [products, searchTerm, selectedCategory]);
+  }, [products, searchTerm, selectedCategory, stockStatusFilter, abcClassFilter, activeFilter]);
 
   const openNewModal = () => {
     setEditingProduct(null);
@@ -220,22 +263,36 @@ export default function ManagerProducts({
           <p className="text-xs text-gray-400">Adicione, duplique ou edite itens do portfólio da adega.</p>
         </div>
 
-        <button
-          onClick={openNewModal}
-          className={`px-4 py-2 text-xs font-semibold rounded-lg flex items-center gap-2 cursor-pointer transition-all active:scale-95 ${
-            theme === 'dark' ? 'bg-[#18F2A4] text-black hover:bg-[#12d58f]' : 'bg-[#10B981] text-white hover:bg-[#0e9f6e]'
-          }`}
-        >
-          <Plus className="w-4 h-4" />
-          Novo Produto
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowCategoryConfigModal(true)}
+            className={`px-4 py-2 text-xs font-semibold rounded-lg flex items-center gap-2 cursor-pointer transition-all active:scale-95 border ${
+              theme === 'dark' 
+                ? 'bg-transparent border-[#1C1C1C] text-gray-300 hover:bg-[#1C1C1C]' 
+                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            <Tag className="w-4 h-4 text-[#18F2A4]" />
+            Configurar Categorias
+          </button>
+
+          <button
+            onClick={openNewModal}
+            className={`px-4 py-2 text-xs font-semibold rounded-lg flex items-center gap-2 cursor-pointer transition-all active:scale-95 ${
+              theme === 'dark' ? 'bg-[#18F2A4] text-black hover:bg-[#12d58f]' : 'bg-[#10B981] text-white hover:bg-[#0e9f6e]'
+            }`}
+          >
+            <Plus className="w-4 h-4" />
+            Novo Produto
+          </button>
+        </div>
       </div>
 
       {/* Filter and Search Bar */}
       <div className={`p-4 rounded-xl border flex flex-col md:flex-row justify-between items-center gap-4 ${
         theme === 'dark' ? 'bg-[#111111] border-[#1A1A1A]' : 'bg-white border-gray-200'
       }`}>
-        <div className={`relative flex items-center rounded-lg border px-3 py-2 w-full md:w-96 ${
+        <div className={`relative flex items-center rounded-lg border px-3 py-2 w-full flex-1 ${
           theme === 'dark' ? 'bg-[#080808] border-[#1A1A1A]' : 'bg-white border-gray-200'
         }`}>
           <Search className="w-4 h-4 text-gray-400 mr-2" />
@@ -252,28 +309,88 @@ export default function ManagerProducts({
             </button>
           )}
         </div>
+      </div>
 
-        {/* Categories selector button / dropdown */}
-        <div className="relative w-full md:w-auto">
+      {/* High-Level Advanced Filters Grid */}
+      <div className={`p-4 rounded-xl border grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 ${
+        theme === 'dark' ? 'bg-[#111111] border-[#1A1A1A]' : 'bg-white border-gray-200'
+      }`}>
+        {/* Category filter */}
+        <div className="flex flex-col gap-1">
+          <label className="text-gray-400 text-[10px] font-bold uppercase">Filtrar por Categoria</label>
           <select
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
-            className="w-full md:w-56 p-2 rounded-lg text-xs font-semibold border cursor-pointer focus:outline-none transition-all pr-8 appearance-none"
+            className="p-2 rounded border text-xs focus:outline-none transition-all cursor-pointer font-semibold"
             style={{
               backgroundColor: theme === 'dark' ? '#080808' : 'white',
-              borderColor: theme === 'dark' ? '#1A1A1A' : '#E5E5E5',
-              color: theme === 'dark' ? '#DDD' : '#333',
-              backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='${theme === 'dark' ? '%2318F2A4' : '%2310B981'}' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'></polyline></svg>")`,
-              backgroundRepeat: 'no-repeat',
-              backgroundPosition: 'right 10px center',
-              backgroundSize: '16px'
+              borderColor: theme === 'dark' ? '#1C1C1C' : '#E5E5E5',
+              color: theme === 'dark' ? '#DDD' : '#333'
             }}
           >
+            <option value="Todos">Todas as Categorias</option>
             {categories.map(cat => (
-              <option key={cat} value={cat}>
-                Filtrar: {cat}
-              </option>
+              <option key={cat} value={cat}>{cat}</option>
             ))}
+          </select>
+        </div>
+
+        {/* Stock Status filter */}
+        <div className="flex flex-col gap-1">
+          <label className="text-gray-400 text-[10px] font-bold uppercase">Nível de Estoque</label>
+          <select
+            value={stockStatusFilter}
+            onChange={(e) => setStockStatusFilter(e.target.value as any)}
+            className="p-2 rounded border text-xs focus:outline-none transition-all cursor-pointer font-semibold"
+            style={{
+              backgroundColor: theme === 'dark' ? '#080808' : 'white',
+              borderColor: theme === 'dark' ? '#1C1C1C' : '#E5E5E5',
+              color: theme === 'dark' ? '#DDD' : '#333'
+            }}
+          >
+            <option value="Todos">Todos os Níveis</option>
+            <option value="Critico">Crítico (Reposição)</option>
+            <option value="Normal">Suficiente (Normal)</option>
+            <option value="SemEstoque">Sem Estoque (Zerado)</option>
+          </select>
+        </div>
+
+        {/* ABC Class filter */}
+        <div className="flex flex-col gap-1">
+          <label className="text-gray-400 text-[10px] font-bold uppercase font-mono">Giro ABC de Vendas</label>
+          <select
+            value={abcClassFilter}
+            onChange={(e) => setAbcClassFilter(e.target.value as any)}
+            className="p-2 rounded border text-xs focus:outline-none transition-all cursor-pointer font-semibold"
+            style={{
+              backgroundColor: theme === 'dark' ? '#080808' : 'white',
+              borderColor: theme === 'dark' ? '#1C1C1C' : '#E5E5E5',
+              color: theme === 'dark' ? '#DDD' : '#333'
+            }}
+          >
+            <option value="Todos">Todas as Classes</option>
+            <option value="A">Classe A (Mais Vendidos)</option>
+            <option value="B">Classe B (Giro Médio)</option>
+            <option value="C">Classe C (Baixo Giro)</option>
+          </select>
+        </div>
+
+        {/* Active/Archived status filter */}
+        <div className="flex flex-col gap-1">
+          <label className="text-gray-400 text-[10px] font-bold uppercase">Situação Cadastral</label>
+          <select
+            value={activeFilter}
+            onChange={(e) => setActiveFilter(e.target.value as any)}
+            className="p-2 rounded border text-xs focus:outline-none transition-all cursor-pointer font-semibold"
+            style={{
+              backgroundColor: theme === 'dark' ? '#080808' : 'white',
+              borderColor: theme === 'dark' ? '#1C1C1C' : '#E5E5E5',
+              color: theme === 'dark' ? '#DDD' : '#333'
+            }}
+          >
+            <option value="Todos">Todos os Status</option>
+            <option value="Ativos">Ativos</option>
+            <option value="Arquivados">Arquivados (Inativos)</option>
           </select>
         </div>
       </div>
@@ -542,15 +659,9 @@ export default function ManagerProducts({
                     className="p-2 rounded border bg-[#111] border-[#222] text-white focus:outline-none"
                     style={{ backgroundColor: theme === 'dark' ? '#111' : 'white', borderColor: theme === 'dark' ? '#222' : '#E5E5E5', color: theme === 'dark' ? 'white' : 'black' }}
                   >
-                    <option value="Cervejas">Cervejas</option>
-                    <option value="Destilados">Destilados</option>
-                    <option value="Vinhos">Vinhos</option>
-                    <option value="Refrigerantes">Refrigerantes</option>
-                    <option value="Energéticos">Energéticos</option>
-                    <option value="Gelo">Gelo</option>
-                    <option value="Combos">Combos</option>
-                    <option value="Cigarros">Cigarros</option>
-                    <option value="Petiscos">Petiscos</option>
+                    {categories.map(cat => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
                   </select>
                 </div>
 
@@ -944,6 +1055,199 @@ export default function ManagerProducts({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Category Configuration Modal */}
+      {showCategoryConfigModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className={`w-full max-w-md rounded-xl border flex flex-col shadow-2xl max-h-[80vh] overflow-hidden ${
+            theme === 'dark' ? 'bg-[#0E0E0E] border-[#1A1A1A] text-white' : 'bg-white border-gray-200 text-[#111111]'
+          }`}>
+            <div className={`p-4 border-b flex justify-between items-center shrink-0 ${
+              theme === 'dark' ? 'border-[#1A1A1A]' : 'border-gray-200'
+            }`}>
+              <div className="flex items-center gap-2">
+                <Tag className="w-4 h-4 text-[#18F2A4]" />
+                <span className="font-semibold text-sm">Configuração de Categorias</span>
+              </div>
+              <button 
+                onClick={() => {
+                  setShowCategoryConfigModal(false);
+                  setEditingCatName(null);
+                }} 
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-4 flex flex-col gap-4 overflow-y-auto flex-1 text-xs">
+              <p className="text-gray-400 text-[11px] leading-relaxed">
+                Adicione, edite ou remova categorias do sistema. Alterar ou excluir uma categoria atualizará automaticamente os produtos vinculados de forma segura.
+              </p>
+
+              {/* Form to add category */}
+              <div className={`p-3 rounded-lg border flex flex-col gap-2 ${
+                theme === 'dark' ? 'bg-black/30 border-[#1A1A1A]' : 'bg-gray-50 border-gray-200'
+              }`}>
+                <label className="text-gray-400 font-bold uppercase text-[9px]">Cadastrar Nova Categoria</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="Ex: Vinhos Importados, Drinks..."
+                    value={newCatNameInput}
+                    onChange={(e) => setNewCatNameInput(e.target.value)}
+                    className="p-2 rounded border focus:outline-none flex-1 font-semibold text-xs"
+                    style={{
+                      backgroundColor: theme === 'dark' ? '#080808' : 'white',
+                      borderColor: theme === 'dark' ? '#1C1C1C' : '#E5E5E5',
+                      color: theme === 'dark' ? 'white' : 'black'
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (newCatNameInput.trim()) {
+                          onAddCategory(newCatNameInput.trim());
+                          setNewCatNameInput('');
+                        }
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (newCatNameInput.trim()) {
+                        onAddCategory(newCatNameInput.trim());
+                        setNewCatNameInput('');
+                      }
+                    }}
+                    className={`px-3 py-1 text-xs rounded font-bold transition-all cursor-pointer ${
+                      theme === 'dark' ? 'bg-[#18F2A4] text-black hover:bg-[#12d58f]' : 'bg-[#10B981] text-white hover:bg-[#0e9f6e]'
+                    }`}
+                  >
+                    Adicionar
+                  </button>
+                </div>
+              </div>
+
+              {/* List of existing categories */}
+              <div className="flex flex-col gap-1.5 mt-2">
+                <span className="text-gray-400 font-bold uppercase text-[9px] mb-1">Categorias Atuais ({categories.length})</span>
+                <div className="flex flex-col gap-1.5 max-h-60 overflow-y-auto pr-1">
+                  {categories.map(cat => {
+                    const isEditing = editingCatName === cat;
+                    const prodCount = products.filter(p => p.category === cat).length;
+
+                    return (
+                      <div 
+                        key={cat} 
+                        className={`p-2.5 rounded-lg border flex justify-between items-center gap-3 transition-all ${
+                          theme === 'dark' ? 'bg-[#060606] border-[#1C1C1C]' : 'bg-white border-gray-150 shadow-xs'
+                        }`}
+                      >
+                        {isEditing ? (
+                          <div className="flex gap-1.5 flex-1 items-center">
+                            <input
+                              type="text"
+                              value={editCatNameInput}
+                              onChange={(e) => setEditCatNameInput(e.target.value)}
+                              className="p-1 rounded border focus:outline-none flex-1 font-semibold text-xs"
+                              style={{
+                                backgroundColor: theme === 'dark' ? '#080808' : 'white',
+                                borderColor: theme === 'dark' ? '#1C1C1C' : '#E5E5E5',
+                                color: theme === 'dark' ? 'white' : 'black'
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  if (editCatNameInput.trim()) {
+                                    onRenameCategory(cat, editCatNameInput.trim());
+                                    setEditingCatName(null);
+                                  }
+                                }
+                              }}
+                            />
+                            <button
+                              onClick={() => {
+                                if (editCatNameInput.trim()) {
+                                  onRenameCategory(cat, editCatNameInput.trim());
+                                  setEditingCatName(null);
+                                }
+                              }}
+                              className="p-1.5 rounded bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors cursor-pointer"
+                              title="Salvar"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => setEditingCatName(null)}
+                              className="p-1.5 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors cursor-pointer"
+                              title="Cancelar"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="flex flex-col text-left">
+                              <span className="font-semibold text-xs" style={{ color: theme === 'dark' ? 'white' : '#111' }}>{cat}</span>
+                              <span className="text-[10px] text-gray-500">{prodCount} produtos vinculados</span>
+                            </div>
+
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingCatName(cat);
+                                  setEditCatNameInput(cat);
+                                }}
+                                className={`p-1.5 rounded transition-all cursor-pointer ${
+                                  theme === 'dark' ? 'hover:bg-[#1C1C1C] text-gray-400 hover:text-white' : 'hover:bg-gray-100 text-gray-500 hover:text-gray-900'
+                                }`}
+                                title="Editar nome"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                              {cat !== 'Outros' && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (confirm(`Tem certeza que deseja excluir a categoria "${cat}"?\n\nTodos os ${prodCount} produtos vinculados serão automaticamente movidos para "Outros".`)) {
+                                      onDeleteCategory(cat);
+                                    }
+                                  }}
+                                  className="p-1.5 rounded hover:bg-red-500/10 text-red-400 hover:text-red-500 transition-all cursor-pointer"
+                                  title="Excluir categoria"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 border-t flex justify-end shrink-0" style={{ borderColor: theme === 'dark' ? '#1A1A1A' : '#E5E5E5' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowCategoryConfigModal(false);
+                  setEditingCatName(null);
+                }}
+                className={`px-4 py-2 rounded font-bold text-xs cursor-pointer transition-all ${
+                  theme === 'dark' ? 'bg-[#141414] text-gray-300 hover:bg-[#1C1C1C] border border-[#222]' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                }`}
+              >
+                Fechar
+              </button>
+            </div>
           </div>
         </div>
       )}

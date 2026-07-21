@@ -1,89 +1,106 @@
 import React from 'react';
-import { GlassWater } from 'lucide-react';
+import { GlassWater, Plus, AlertCircle } from 'lucide-react';
 import { Product } from '../types';
 
-interface ProductCardProps {
-  key?: any;
+export interface ProductCardProps {
   product: Product;
-  onAdd: (product: Product) => void;
+  onAdd: (prod: Product) => void;
   theme: 'dark' | 'light';
 }
 
-export default function ProductCard({
-  product,
-  onAdd,
-  theme
-}: ProductCardProps) {
-  const totalStock = (product.stockBoxes * product.boxQuantity) + product.stockUnits;
-  const isOutOfStock = totalStock <= 0;
+const ProductCard: React.FC<ProductCardProps> = ({ product, onAdd, theme }) => {
+  const isDark = theme === 'dark';
+  
+  const totalUnits = (product.stockBoxes * product.boxQuantity) + product.stockUnits;
+  const isLowStock = totalUnits <= product.minStockUnits;
+  const isOutOfStock = totalUnits === 0;
 
   return (
-    <button
-      id={`product-card-${product.id}`}
-      disabled={isOutOfStock}
-      onClick={() => onAdd(product)}
-      className={`p-3 rounded-xl border text-left flex gap-3.5 items-center transition-all duration-200 w-full cursor-pointer relative overflow-hidden group ${
+    <div
+      onClick={() => !isOutOfStock && onAdd(product)}
+      className={`group p-3 rounded-xl border flex flex-col justify-between transition-all duration-300 relative select-none ${
         isOutOfStock 
-          ? 'opacity-40 cursor-not-allowed bg-transparent' 
-          : theme === 'dark' 
-            ? 'bg-[#0C0C0C] border-[#1C1C1C] hover:border-[#18F2A4] hover:bg-[#111111]' 
-            : 'bg-white border-gray-200 hover:border-[#10B981] hover:shadow-sm'
+          ? 'opacity-50 cursor-not-allowed' 
+          : 'cursor-pointer hover:scale-[1.01] active:scale-[0.99]'
+      } ${
+        isDark 
+          ? 'bg-[#121212]/30 border-[#1C1C1C] hover:border-emerald-500/30 hover:bg-[#152E22]/10' 
+          : 'bg-white border-gray-100 hover:border-emerald-200 hover:bg-emerald-50/20'
       }`}
+      style={{
+        boxShadow: isDark ? '0 4px 20px -2px rgba(0,0,0,0.3)' : '0 4px 15px -2px rgba(0,0,0,0.02)'
+      }}
     >
-      {/* Product Image or Calm Design Placeholder */}
-      <div className="relative shrink-0">
-        {product.image ? (
-          <img
-            src={product.image}
-            alt={product.name}
-            referrerPolicy="no-referrer"
-            className="w-12 h-12 rounded-lg object-cover border transition-transform duration-300 group-hover:scale-105"
-            style={{ borderColor: theme === 'dark' ? '#222222' : '#E5E5E5' }}
-          />
-        ) : (
-          /* Calm Design Placeholder */
-          <div 
-            className={`w-12 h-12 rounded-lg flex items-center justify-center border transition-all duration-300 group-hover:scale-105 ${
-              theme === 'dark' 
-                ? 'bg-[#151515] border-[#222222] text-gray-600 group-hover:text-[#18F2A4]' 
-                : 'bg-gray-100 border-gray-200 text-gray-400 group-hover:text-[#10B981]'
-            }`}
-          >
-            <GlassWater className="w-5 h-5 opacity-80" />
-          </div>
-        )}
-      </div>
-
-      {/* Product Details */}
-      <div className="flex-1 min-w-0 flex flex-col justify-between h-12">
-        <div className="flex justify-between items-start gap-2">
-          <span className={`font-bold text-xs tracking-tight truncate flex-1 ${
-            theme === 'dark' ? 'text-gray-100' : 'text-gray-900'
-          }`} title={product.name}>
-            {product.name}
-          </span>
-          {product.ageRestricted && (
-            <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-full shrink-0 uppercase tracking-wide border ${
-              theme === 'dark'
-                ? 'bg-red-950/40 text-red-400 border-red-900/30'
-                : 'bg-red-100 text-red-900 border-red-200'
-            }`}>
-              18+
-            </span>
+      {/* Upper Section */}
+      <div className="flex gap-3">
+        {/* Product Image / Placeholder */}
+        <div 
+          className={`w-12 h-12 rounded-lg shrink-0 overflow-hidden flex items-center justify-center border ${
+            isDark ? 'bg-black/40 border-[#222]' : 'bg-gray-50 border-gray-100'
+          }`}
+        >
+          {product.image ? (
+            <img 
+              src={product.image} 
+              alt={product.name} 
+              referrerPolicy="no-referrer"
+              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+            />
+          ) : (
+            <GlassWater className={`w-5 h-5 ${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
           )}
         </div>
 
-        <div className="flex justify-between items-end gap-2 mt-auto">
-          <span className={`text-xs font-black font-mono leading-none ${
-            theme === 'dark' ? 'text-[#18F2A4]' : 'text-emerald-700'
-          }`}>
-            R$ {product.sellPrice.toFixed(2)}
-          </span>
-          <span className="text-[9px] text-gray-500 font-medium">
-            Estoque: {totalStock} un
-          </span>
+        {/* Name and SKU */}
+        <div className="flex-1 min-w-0">
+          <p className={`text-xs font-semibold truncate leading-snug ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>
+            {product.name}
+          </p>
+          <div className="flex items-center gap-1.5 mt-0.5">
+            <span className={`font-mono text-[9px] px-1 py-0.2 rounded border uppercase ${
+              isDark ? 'text-gray-400 bg-gray-500/10 border-gray-500/15' : 'text-gray-500 bg-gray-50 border-gray-200/50'
+            }`}>
+              {product.category}
+            </span>
+            {isOutOfStock ? (
+              <span className="text-[9px] font-medium text-red-500 flex items-center gap-0.5 font-sans">
+                Sem Estoque
+              </span>
+            ) : isLowStock ? (
+              <span className="text-[9px] font-medium text-amber-500 flex items-center gap-0.5 font-sans">
+                <AlertCircle className="w-2.5 h-2.5" />
+                Estoque Baixo
+              </span>
+            ) : null}
+          </div>
         </div>
       </div>
-    </button>
+
+      {/* Footer Price and Add Button */}
+      <div className="flex justify-between items-center mt-3 pt-2.5 border-t border-dashed" style={{ borderColor: isDark ? '#1C1C1C' : '#F0F0F0' }}>
+        <div>
+          <span className={`text-[10px] block ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+            Preço Unitário
+          </span>
+          <span className={`text-xs font-mono font-bold ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>
+            R$ {product.sellPrice.toFixed(2)}
+          </span>
+        </div>
+
+        {!isOutOfStock && (
+          <div 
+            className={`w-6 h-6 rounded-lg flex items-center justify-center transition-all duration-300 border ${
+              isDark 
+                ? 'bg-[#152E22] border-emerald-500/20 text-emerald-400 group-hover:bg-emerald-500 group-hover:text-black' 
+                : 'bg-emerald-50 border-emerald-200 text-emerald-600 group-hover:bg-emerald-500 group-hover:text-white'
+            }`}
+          >
+            <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+          </div>
+        )}
+      </div>
+    </div>
   );
-}
+};
+
+export default ProductCard;

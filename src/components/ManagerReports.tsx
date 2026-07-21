@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { FileText, FileSpreadsheet, Download, RefreshCw, BarChart2, Calendar, ShieldAlert } from 'lucide-react';
-import { jsPDF } from 'jspdf';
 import { Product, Sale, FinancialTransaction } from '../types';
+import { pdf } from '@react-pdf/renderer';
+import FluxOSReportPDF from './FluxOSReportPDF';
+import { exportStyledReport } from '../lib/excelExport';
 
 interface ManagerReportsProps {
   theme: 'dark' | 'light';
@@ -206,159 +208,44 @@ export default function ManagerReports({
         }
       }
 
-      // 2. EXPORT AS REAL EXCEL (.CSV SPREADSHEET WITH BOM)
+      // 2. EXPORT AS REAL EXCEL SPREADSHEET (.XLSX)
       if (format === 'XLS') {
-        let csvContent = '\ufeff'; // UTF-8 BOM for Portuguese accents
-        csvContent += `"${title.toUpperCase()}"\n`;
-        csvContent += `"Gerado em:","${new Date().toLocaleString('pt-BR')}"\n\n`;
-
-        // Add Summary Info Card
-        csvContent += `"RESUMO ANALÍTICO E METRICAS DE BI"\n`;
-        summaryData.forEach(item => {
-          csvContent += `"${item.label}","${item.value}"\n`;
-        });
-        csvContent += `\n`;
-
-        // Add Main Grid Data Table
-        csvContent += headers.map(h => `"${h}"`).join(',') + '\n';
-        rows.forEach(row => {
-          csvContent += row.map(cell => `"${cell.replace(/"/g, '""')}"`).join(',') + '\n';
-        });
-
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.setAttribute('download', `adegaos_relatorio_${reportId}_${new Date().toISOString().split('T')[0]}.csv`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-
-        alert(`Relatório "${title}" gerado e exportado como planilha Excel .CSV real com codificação UTF-8 homologada!`);
+        exportStyledReport(reportId, title, headers, rows, summaryData)
+          .then(() => {
+            alert(`Relatório "${title}" exportado com sucesso em formato Excel (.xlsx).`);
+          })
+          .catch(err => {
+            console.error('Erro ao gerar planilha Excel:', err);
+            alert('Falha ao gerar o relatório Excel.');
+          });
       } 
       
-      // 3. EXPORT AS REAL DESIGNER PDF
+      // 3. EXPORT AS REAL DESIGNER VECTOR PDF
       else if (format === 'PDF') {
-        const doc = new jsPDF({
-          orientation: 'portrait',
-          unit: 'mm',
-          format: 'a4'
-        });
-
-        const primaryColor = [16, 185, 129]; // Emerald 500
-        const darkBg = [22, 28, 45]; // Dark Navy slate
-
-        // DRAW HEADER BLOCK
-        doc.setFillColor(darkBg[0], darkBg[1], darkBg[2]);
-        doc.rect(0, 0, 210, 40, 'F');
-
-        // Text title
-        doc.setTextColor(24, 242, 164); // #18F2A4 (Vibrant Mint)
-        doc.setFont('Helvetica', 'bold');
-        doc.setFontSize(20);
-        doc.text('FluxOS • Business Intelligence', 15, 15);
-
-        doc.setTextColor(255, 255, 255);
-        doc.setFont('Helvetica', 'normal');
-        doc.setFontSize(10);
-        doc.text('Relatório Consolidado de Gestão Empresarial e Fluxo Operacional', 15, 22);
-        doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, 15, 28);
-
-        // Header Accent line
-        doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-        doc.rect(0, 40, 210, 2, 'F');
-
-        // Document Title banner
-        doc.setTextColor(17, 24, 39);
-        doc.setFont('Helvetica', 'bold');
-        doc.setFontSize(14);
-        doc.text(title.toUpperCase(), 15, 52);
-
-        // SUMMARY METRICS CARD
-        doc.setFillColor(243, 244, 246); // Gray 100
-        doc.rect(15, 58, 180, 40, 'F');
+        const doc = (
+          <FluxOSReportPDF 
+            title={title} 
+            headers={headers} 
+            rows={rows} 
+            summaryData={summaryData} 
+          />
+        );
         
-        doc.setFont('Helvetica', 'bold');
-        doc.setFontSize(10);
-        doc.setTextColor(55, 65, 81);
-        doc.text('PRINCIPAIS KPIS / METRICAS DO PERÍODO', 20, 64);
-
-        doc.setFont('Helvetica', 'normal');
-        doc.setFontSize(9);
-        doc.setTextColor(75, 85, 99);
-        
-        let yOffset = 70;
-        summaryData.slice(0, 4).forEach((item, index) => {
-          const colX = index % 2 === 0 ? 20 : 110;
-          doc.text(`• ${item.label}:`, colX, yOffset);
-          doc.setFont('Helvetica', 'bold');
-          doc.text(item.value, colX + 55, yOffset);
-          doc.setFont('Helvetica', 'normal');
-          
-          if (index % 2 !== 0) {
-            yOffset += 7;
-          }
-        });
-
-        // DRAW MAIN DATA TABLE HEADER
-        doc.setTextColor(17, 24, 39);
-        doc.setFont('Helvetica', 'bold');
-        doc.setFontSize(11);
-        doc.text('DETALHAMENTO DOS REGISTROS AUDITADOS', 15, 110);
-
-        doc.setFillColor(31, 41, 55); // Gray 800
-        doc.rect(15, 114, 180, 8, 'F');
-        
-        doc.setTextColor(255, 255, 255);
-        doc.setFontSize(8);
-        doc.setFont('Helvetica', 'bold');
-
-        const colWidth = 180 / headers.length;
-        headers.forEach((h, index) => {
-          doc.text(h, 17 + index * colWidth, 119);
-        });
-
-        // DRAW GRID DATA ROWS
-        doc.setTextColor(55, 65, 81);
-        doc.setFont('Helvetica', 'normal');
-        doc.setFontSize(8);
-
-        let rowY = 126;
-        rows.slice(0, 24).forEach((row, rowIndex) => {
-          if (rowIndex % 2 === 0) {
-            doc.setFillColor(249, 250, 251); // Gray 50
-            doc.rect(15, rowY - 4, 180, 6, 'F');
-          }
-
-          row.forEach((cell, cellIndex) => {
-            const maxChars = cellIndex === 1 ? 24 : 15;
-            const textToPrint = cell.length > maxChars ? cell.slice(0, maxChars - 3) + '...' : cell;
-            doc.text(textToPrint, 17 + cellIndex * colWidth, rowY);
+        pdf(doc).toBlob()
+          .then(blob => {
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `fluxos_relatorio_${reportId}_${new Date().toISOString().split('T')[0]}.pdf`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            alert(`Relatório "${title}" exportado com sucesso em formato PDF.`);
+          })
+          .catch(err => {
+            console.error('Erro ao renderizar PDF:', err);
+            alert('Falha ao compilar o relatório PDF.');
           });
-
-          doc.setFillColor(229, 231, 235); // Gray 200
-          doc.rect(15, rowY + 2, 180, 0.1, 'F');
-
-          rowY += 6;
-        });
-
-        if (rows.length > 24) {
-          doc.setTextColor(107, 114, 128);
-          doc.setFontSize(7.5);
-          doc.text(`* Foram omitidas ${rows.length - 24} linhas adicionais para visualização ideal na primeira página. Utilize o Excel para exportação ilimitada.`, 15, rowY + 3);
-        }
-
-        // FOOTER BRANDING CARD
-        doc.setFillColor(darkBg[0], darkBg[1], darkBg[2]);
-        doc.rect(0, 280, 210, 17, 'F');
-        doc.setTextColor(255, 255, 255);
-        doc.setFontSize(8);
-        doc.setFont('Helvetica', 'bold');
-        doc.text('AdegaOS Terminal de Auditoria Homologada • Documento gerado sob criptografia RSA', 15, 290);
-        doc.text('Página 1 / 1', 185, 290);
-
-        doc.save(`adegaos_relatorio_${reportId}_${new Date().toISOString().split('T')[0]}.pdf`);
-        alert(`Relatório "${title}" gerado e exportado como PDF real assinado com sucesso!`);
       }
     }, 1200);
   };

@@ -1,5 +1,8 @@
-import React, { useMemo, useState } from 'react';
-import { DollarSign, TrendingUp, AlertTriangle, ArrowUpRight, ArrowDownRight, Package, ShoppingCart, Percent, Clock, ChevronRight, BarChart3, LineChart, Sparkles } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { 
+  TrendingUp, TrendingDown, Package, ShoppingBag, DollarSign, 
+  ArrowRight, AlertTriangle, CheckCircle, Calendar, Filter, RefreshCw
+} from 'lucide-react';
 import { Product, Sale, FinancialTransaction } from '../types';
 import {
   ResponsiveContainer,
@@ -7,14 +10,14 @@ import {
   Area,
   BarChart,
   Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  CartesianGrid,
-  Legend,
   PieChart,
   Pie,
-  Cell
+  Cell,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend
 } from 'recharts';
 
 interface ManagerDashboardProps {
@@ -32,1082 +35,760 @@ export default function ManagerDashboard({
   theme,
   onGoToTab
 }: ManagerDashboardProps) {
-  const [timeRange, setTimeRange] = useState<'today' | '7d' | '30d' | 'custom'>('30d');
-  const [activeChartTab, setActiveChartTab] = useState<'financeiro' | 'eficiencia'>('financeiro');
-  
-  // Custom date states (default to last 30 days)
+  const isDark = theme === 'dark';
+
+  // 1. Date Filter States
+  const [dateRangeType, setDateRangeType] = useState<string>('30days');
   const [startDate, setStartDate] = useState<string>(() => {
     const d = new Date();
-    d.setDate(d.getDate() - 29);
+    d.setDate(d.getDate() - 30);
     return d.toISOString().split('T')[0];
   });
   const [endDate, setEndDate] = useState<string>(() => {
     return new Date().toISOString().split('T')[0];
   });
 
-  // Calculate start/end date objects for current and previous period comparison
-  const dateRanges = useMemo(() => {
-    const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-    const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-
-    let curStart = new Date();
-    let curEnd = new Date();
-    let prevStart = new Date();
-    let prevEnd = new Date();
-
-    if (timeRange === 'today') {
-      curStart = todayStart;
-      curEnd = todayEnd;
-      
-      prevStart = new Date(todayStart);
-      prevStart.setDate(prevStart.getDate() - 1);
-      prevEnd = new Date(todayEnd);
-      prevEnd.setDate(prevEnd.getDate() - 1);
-    } else if (timeRange === '7d') {
-      curStart = new Date(todayStart);
-      curStart.setDate(curStart.getDate() - 6);
-      curEnd = todayEnd;
-
-      prevStart = new Date(curStart);
-      prevStart.setDate(prevStart.getDate() - 7);
-      prevEnd = new Date(curStart);
-      prevEnd.setMilliseconds(prevEnd.getMilliseconds() - 1);
-    } else if (timeRange === '30d') {
-      curStart = new Date(todayStart);
-      curStart.setDate(curStart.getDate() - 29);
-      curEnd = todayEnd;
-
-      prevStart = new Date(curStart);
-      prevStart.setDate(prevStart.getDate() - 30);
-      prevEnd = new Date(curStart);
-      prevEnd.setMilliseconds(prevEnd.getMilliseconds() - 1);
-    } else { // custom
-      curStart = startDate ? new Date(startDate + 'T00:00:00') : new Date(todayStart);
-      curEnd = endDate ? new Date(endDate + 'T23:59:59') : new Date(todayEnd);
-
-      const diffMs = curEnd.getTime() - curStart.getTime();
-      prevStart = new Date(curStart.getTime() - diffMs - 1000);
-      prevEnd = new Date(curStart.getTime() - 1000);
+  const handleRangeChange = (type: string) => {
+    setDateRangeType(type);
+    const today = new Date();
+    let start = new Date();
+    
+    if (type === 'today') {
+      start = today;
+    } else if (type === '7days') {
+      start.setDate(today.getDate() - 7);
+    } else if (type === '30days') {
+      start.setDate(today.getDate() - 30);
+    } else if (type === 'month') {
+      start = new Date(today.getFullYear(), today.getMonth(), 1);
+    } else if (type === 'all') {
+      setStartDate('');
+      setEndDate(today.toISOString().split('T')[0]);
+      return;
     }
 
-    return { curStart, curEnd, prevStart, prevEnd };
-  }, [timeRange, startDate, endDate]);
+    setStartDate(start.toISOString().split('T')[0]);
+    setEndDate(today.toISOString().split('T')[0]);
+  };
 
-  // Filter sales based on current period range
+  // 2. Filtered Data Sets based on selected Date Range
   const filteredSales = useMemo(() => {
-    const { curStart, curEnd } = dateRanges;
     return sales.filter(s => {
-      if (s.status !== 'pago') return false;
-      const saleDate = new Date(s.timestamp);
-      return saleDate >= curStart && saleDate <= curEnd;
+      const saleDate = s.timestamp.substring(0, 10);
+      return (!startDate || saleDate >= startDate) && (!endDate || saleDate <= endDate);
     });
-  }, [sales, dateRanges]);
+  }, [sales, startDate, endDate]);
 
-  // Filter sales based on previous period range (for comparison)
-  const previousSales = useMemo(() => {
-    const { prevStart, prevEnd } = dateRanges;
-    return sales.filter(s => {
-      if (s.status !== 'pago') return false;
-      const saleDate = new Date(s.timestamp);
-      return saleDate >= prevStart && saleDate <= prevEnd;
+  const filteredTransactions = useMemo(() => {
+    return financialTransactions.filter(t => {
+      const tDate = (t.timestamp || t.date || '').substring(0, 10);
+      if (!tDate) return true; // Keep if no date available
+      return (!startDate || tDate >= startDate) && (!endDate || tDate <= endDate);
     });
-  }, [sales, dateRanges]);
+  }, [financialTransactions, startDate, endDate]);
 
-  // Compute stats dynamically for current period
+  // 3. High-level Financial Metrics Calculations
   const stats = useMemo(() => {
-    let revenue = 0;
-    let cost = 0;
+    // 1. Gross Revenue (Total faturado das vendas pagas no período)
+    const totalSales = filteredSales
+      .filter(s => s.status === 'pago')
+      .reduce((acc, s) => acc + s.total, 0);
 
-    filteredSales.forEach(s => {
-      revenue += s.total;
-      s.items.forEach(item => {
-        const prod = products.find(p => p.id === item.productId);
-        if (prod) {
-          cost += prod.costPrice * item.quantity;
-        } else {
-          cost += item.unitPrice * 0.5 * item.quantity;
-        }
-      });
-    });
-
-    // Proportional or direct expenses
-    const totalExpenses = financialTransactions
+    // 2. Outflows (Despesas pagas no período)
+    const totalExpenses = filteredTransactions
       .filter(t => t.type === 'despesa' && t.status === 'pago')
-      .filter(t => {
-        const txDate = new Date(t.date + 'T12:00:00');
-        return txDate >= dateRanges.curStart && txDate <= dateRanges.curEnd;
-      })
       .reduce((acc, t) => acc + t.value, 0);
 
-    // Fallback/proportional expenses if none are registered in this micro-range
-    const finalExpenses = totalExpenses > 0 ? totalExpenses : financialTransactions
-      .filter(t => t.type === 'despesa' && t.status === 'pago')
-      .reduce((acc, t) => {
-        if (timeRange === 'today') return acc + (t.value / 30);
-        if (timeRange === '7d') return acc + (t.value / 4);
-        if (timeRange === '30d') return acc + t.value;
-        // custom duration multiplier
-        const durationDays = Math.ceil((dateRanges.curEnd.getTime() - dateRanges.curStart.getTime()) / (1000 * 60 * 60 * 24));
-        return acc + (t.value * (durationDays / 30));
-      }, 0);
-
-    const grossProfit = revenue - cost;
-    const netProfit = grossProfit - finalExpenses;
-    const cmv = revenue > 0 ? (cost / revenue) * 100 : 0;
-    const margin = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
-
-    // Accounts Payables / Receivables
-    const accountsPayable = financialTransactions
-      .filter(t => t.type === 'despesa' && t.status === 'pendente')
-      .reduce((acc, t) => acc + t.value, 0);
-
-    const accountsReceivable = financialTransactions
-      .filter(t => t.type === 'receita' && t.status === 'pendente')
-      .reduce((acc, t) => acc + t.value, 0);
-
-    // Critical stock
-    const criticalProducts = products.filter(p => {
-      const totalUnits = (p.stockBoxes * p.boxQuantity) + p.stockUnits;
-      return totalUnits <= p.minStockUnits;
-    });
-
-    return {
-      revenue,
-      cost,
-      grossProfit,
-      netProfit: isNaN(netProfit) ? 0 : netProfit,
-      cmv,
-      margin,
-      accountsPayable,
-      accountsReceivable,
-      criticalCount: criticalProducts.length,
-      criticalProducts: criticalProducts.slice(0, 4)
-    };
-  }, [filteredSales, products, financialTransactions, timeRange, dateRanges]);
-
-  // Compute stats dynamically for previous period
-  const prevStats = useMemo(() => {
-    let revenue = 0;
-    let cost = 0;
-
-    previousSales.forEach(s => {
-      revenue += s.total;
-      s.items.forEach(item => {
-        const prod = products.find(p => p.id === item.productId);
-        if (prod) {
-          cost += prod.costPrice * item.quantity;
-        } else {
-          cost += item.unitPrice * 0.5 * item.quantity;
-        }
-      });
-    });
-
-    const totalExpenses = financialTransactions
-      .filter(t => t.type === 'despesa' && t.status === 'pago')
-      .filter(t => {
-        const txDate = new Date(t.date + 'T12:00:00');
-        return txDate >= dateRanges.prevStart && txDate <= dateRanges.prevEnd;
-      })
-      .reduce((acc, t) => acc + t.value, 0);
-
-    const finalExpenses = totalExpenses > 0 ? totalExpenses : financialTransactions
-      .filter(t => t.type === 'despesa' && t.status === 'pago')
-      .reduce((acc, t) => {
-        if (timeRange === 'today') return acc + (t.value / 30);
-        if (timeRange === '7d') return acc + (t.value / 4);
-        if (timeRange === '30d') return acc + t.value;
-        const durationDays = Math.ceil((dateRanges.prevEnd.getTime() - dateRanges.prevStart.getTime()) / (1000 * 60 * 60 * 24));
-        return acc + (t.value * (durationDays / 30));
-      }, 0);
-
-    const grossProfit = revenue - cost;
-    const netProfit = grossProfit - finalExpenses;
-    const cmv = revenue > 0 ? (cost / revenue) * 100 : 0;
-    const margin = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
-
-    return {
-      revenue,
-      netProfit,
-      cmv,
-      margin
-    };
-  }, [previousSales, products, financialTransactions, timeRange, dateRanges]);
-
-  // Vendas por forma de pagamento percentage computation
-  const paymentMethodStats = useMemo(() => {
-    const methods: Record<string, number> = { pix: 0, dinheiro: 0, debito: 0, credito: 0, fiado: 0 };
-    filteredSales.forEach(s => {
-      if (methods[s.paymentMethod] !== undefined) {
-        methods[s.paymentMethod] += s.total;
-      } else {
-        methods.pix += s.total;
-      }
-    });
-    const totalPay = Object.values(methods).reduce((a, b) => a + b, 0);
-    return Object.entries(methods).map(([key, val]) => ({
-      name: key === 'debito' ? 'Débito' : key === 'credito' ? 'Crédito' : key === 'fiado' ? 'Fiado (À Prazo)' : key.toUpperCase(),
-      value: val,
-      percentage: totalPay > 0 ? (val / totalPay) * 100 : 0
-    })).sort((a, b) => b.value - a.value);
-  }, [filteredSales]);
-
-  // Top products
-  const topProducts = useMemo(() => {
-    const productSalesMap: Record<string, number> = {};
-    filteredSales.forEach(s => {
-      s.items.forEach(item => {
-        productSalesMap[item.productId] = (productSalesMap[item.productId] || 0) + item.quantity;
-      });
-    });
-
-    return Object.entries(productSalesMap).map(([id, qty]) => {
-      const prod = products.find(p => p.id === id);
-      return {
-        name: prod ? prod.name : 'Produto Removido',
-        category: prod ? prod.category : 'N/A',
-        quantity: qty,
-        revenue: qty * (prod ? prod.sellPrice : 0)
-      };
-    }).sort((a, b) => b.quantity - a.quantity).slice(0, 5);
-  }, [filteredSales, products]);
-
-  // Busy hours calculation
-  const busyHours = useMemo(() => {
-    const hours = Array(24).fill(0);
-    filteredSales.forEach(s => {
-      const hour = new Date(s.timestamp).getHours();
-      hours[hour]++;
-    });
-    // Find max value to scale
-    const maxVal = Math.max(...hours, 1);
-    return hours.map((count, hour) => ({
-      hour: `${String(hour).padStart(2, '0')}:00`,
-      count,
-      percent: (count / maxVal) * 100
-    })).filter(h => h.count > 0 || [18, 19, 20, 21, 22, 23].includes(parseInt(h.hour)));
-  }, [filteredSales]);
-
-  // Dynamic Trend Chart data generator affected by selected date period
-  const chartPoints = useMemo(() => {
-    const { curStart, curEnd } = dateRanges;
-    const dataPoints: { 
-      date: string; 
-      "Receita Bruta (R$)": number; 
-      "Custo (R$)": number; 
-      "CMV (%)": number; 
-      "Margem (%)": number;
-    }[] = [];
-
-    const isToday = timeRange === 'today';
-    
-    if (isToday) {
-      // Group by hours for today in 2-hour blocks
-      for (let hour = 8; hour <= 23; hour += 2) {
-        let blockRevenue = 0;
-        let blockCost = 0;
-        
-        sales.forEach(s => {
-          if (s.status !== 'pago') return;
-          const saleDate = new Date(s.timestamp);
-          if (saleDate.toDateString() === curStart.toDateString()) {
-            const h = saleDate.getHours();
-            if (h >= hour && h < hour + 2) {
-              blockRevenue += s.total;
-              s.items.forEach(item => {
-                const prod = products.find(p => p.id === item.productId);
-                if (prod) blockCost += prod.costPrice * item.quantity;
-              });
-            }
+    // 3. Cost of Goods Sold (CMV) based on costPrice
+    let totalCmv = 0;
+    filteredSales
+      .filter(s => s.status === 'pago')
+      .forEach(s => {
+        s.items.forEach(item => {
+          const prod = products.find(p => p.id === item.productId);
+          if (prod) {
+            totalCmv += prod.costPrice * item.quantity;
+          } else {
+            totalCmv += item.unitPrice * 0.5 * item.quantity;
           }
         });
+      });
 
-        const label = `${String(hour).padStart(2, '0')}h-${String(hour + 2).padStart(2, '0')}h`;
-        const marginVal = blockRevenue > 0 ? ((blockRevenue - blockCost) / blockRevenue) * 100 : 0;
-        const cmvVal = blockRevenue > 0 ? (blockCost / blockRevenue) * 100 : 0;
+    // 4. Net Profit
+    const netProfit = totalSales - totalCmv - totalExpenses;
+    
+    // 5. Total transactions count
+    const transactionsCount = filteredSales.length;
 
-        dataPoints.push({
-          date: label,
-          "Receita Bruta (R$)": blockRevenue,
-          "Custo (R$)": blockCost,
-          "CMV (%)": parseFloat(cmvVal.toFixed(1)),
-          "Margem (%)": parseFloat(marginVal.toFixed(1))
+    // 6. Low stock products count (independent of period - alert status)
+    const lowStockProducts = products.filter(p => {
+      const totalUnits = (p.stockBoxes * p.boxQuantity) + p.stockUnits;
+      return p.active && totalUnits <= p.minStockUnits;
+    });
+
+    return {
+      totalSales,
+      totalExpenses,
+      netProfit,
+      transactionsCount,
+      lowStockProducts,
+      lowStockCount: lowStockProducts.length
+    };
+  }, [products, filteredSales, filteredTransactions]);
+
+  // 4. Top Selling Products based on current filtered Sales
+  const topSellingProducts = useMemo(() => {
+    const counts: { [id: string]: { qty: number; name: string; revenue: number } } = {};
+    filteredSales
+      .filter(s => s.status === 'pago')
+      .forEach(s => {
+        s.items.forEach(item => {
+          const prod = products.find(p => p.id === item.productId);
+          const name = prod ? prod.name : 'Produto Desconhecido';
+          if (!counts[item.productId]) {
+            counts[item.productId] = { qty: 0, name, revenue: 0 };
+          }
+          counts[item.productId].qty += item.quantity;
+          counts[item.productId].revenue += item.quantity * item.unitPrice;
         });
+      });
+
+    return Object.entries(counts)
+      .map(([id, info]) => ({ id, ...info }))
+      .sort((a, b) => b.qty - a.qty)
+      .slice(0, 5);
+  }, [products, filteredSales]);
+
+  // 5. Chart 1: Revenue Timeline (Recharts AreaChart)
+  const chartTimelineData = useMemo(() => {
+    const dataMap: { [date: string]: number } = {};
+    
+    // Build days structure for the selected period
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      const diffTime = Math.abs(end.getTime() - start.getTime());
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) || 1;
+      
+      const maxRangeDays = Math.min(diffDays, 31); // Limit to 31 points to avoid over-crowding
+      for (let i = 0; i <= maxRangeDays; i++) {
+        const d = new Date(start);
+        d.setDate(start.getDate() + i);
+        const dateStr = d.toISOString().split('T')[0];
+        dataMap[dateStr] = 0;
       }
     } else {
-      // Group by days within selected period
-      const startDay = new Date(curStart);
-      const endDay = new Date(curEnd);
-      
-      const loopDate = new Date(startDay);
-      // Safeguard for long custom ranges
-      let count = 0;
-      while (loopDate <= endDay && count < 366) {
-        count++;
-        const loopDateStr = loopDate.toDateString();
-        let dayRevenue = 0;
-        let dayCost = 0;
-
-        sales.forEach(s => {
-          if (s.status !== 'pago') return;
-          const saleDate = new Date(s.timestamp);
-          if (saleDate.toDateString() === loopDateStr) {
-            dayRevenue += s.total;
-            s.items.forEach(item => {
-              const prod = products.find(p => p.id === item.productId);
-              if (prod) dayCost += prod.costPrice * item.quantity;
-            });
-          }
-        });
-
-        const label = loopDate.toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' });
-        const marginVal = dayRevenue > 0 ? ((dayRevenue - dayCost) / dayRevenue) * 100 : 0;
-        const cmvVal = dayRevenue > 0 ? (dayCost / dayRevenue) * 100 : 0;
-
-        dataPoints.push({ 
-          date: label, 
-          "Receita Bruta (R$)": dayRevenue, 
-          "Custo (R$)": dayCost,
-          "CMV (%)": parseFloat(cmvVal.toFixed(1)),
-          "Margem (%)": parseFloat(marginVal.toFixed(1))
-        });
-
-        loopDate.setDate(loopDate.getDate() + 1);
+      // Fallback: last 7 days
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const dateStr = d.toISOString().split('T')[0];
+        dataMap[dateStr] = 0;
       }
     }
 
-    const maxVal = Math.max(...dataPoints.map(p => p["Receita Bruta (R$)"]), 2000);
+    filteredSales
+      .filter(s => s.status === 'pago')
+      .forEach(s => {
+        const dateStr = s.timestamp.substring(0, 10);
+        if (dataMap[dateStr] !== undefined) {
+          dataMap[dateStr] += s.total;
+        }
+      });
 
-    return {
-      points: dataPoints,
-      maxVal
-    };
-  }, [sales, products, dateRanges, timeRange]);
+    return Object.entries(dataMap)
+      .map(([date, amount]) => {
+        const parts = date.split('-');
+        const dayMonth = parts.length === 3 ? `${parts[2]}/${parts[1]}` : date;
+        return {
+          rawDate: date,
+          name: dayMonth,
+          Faturamento: amount
+        };
+      })
+      .sort((a, b) => a.rawDate.localeCompare(b.rawDate));
+  }, [filteredSales, startDate, endDate]);
 
-  const primaryColor = theme === 'dark' ? '#18F2A4' : '#10B981';
-  const secondaryColor = '#888888';
+  // 6. Chart 2: Peak Hours of Sale (Recharts AreaChart / BarChart)
+  const chartPeakHoursData = useMemo(() => {
+    const hoursMap: { [hour: number]: number } = {};
+    
+    // Initialize all 24 hours to show a complete daily cycle
+    for (let h = 0; h < 24; h++) {
+      hoursMap[h] = 0;
+    }
+
+    filteredSales.forEach(s => {
+      const matches = s.timestamp.match(/(\d{2}):\d{2}:\d{2}/);
+      if (matches && matches[1]) {
+        const hr = parseInt(matches[1], 10);
+        if (hoursMap[hr] !== undefined) {
+          hoursMap[hr] += 1;
+        } else {
+          hoursMap[hr] = 1;
+        }
+      }
+    });
+
+    return Object.entries(hoursMap)
+      .map(([hour, count]) => ({
+        name: `${hour.toString().padStart(2, '0')}h`,
+        Pedidos: count,
+        rawHour: parseInt(hour, 10)
+      }))
+      .sort((a, b) => a.rawHour - b.rawHour);
+  }, [filteredSales]);
+
+  // 7. Chart 3: Payment Distribution (Recharts PieChart)
+  const chartPaymentData = useMemo(() => {
+    const paymentMap: { [method: string]: number } = {};
+    
+    filteredSales
+      .filter(s => s.status === 'pago')
+      .forEach(s => {
+        const rawMethod = s.paymentMethod || 'Outros';
+        let method = rawMethod;
+        
+        // Normalize
+        const lower = rawMethod.toLowerCase();
+        if (lower === 'dinheiro') method = 'Dinheiro';
+        else if (lower === 'pix') method = 'PIX';
+        else if (lower.includes('credit') || lower.includes('crédito') || lower.includes('credito')) method = 'C. Crédito';
+        else if (lower.includes('debit') || lower.includes('débito') || lower.includes('debito')) method = 'C. Débito';
+        else method = rawMethod.charAt(0).toUpperCase() + rawMethod.slice(1);
+
+        paymentMap[method] = (paymentMap[method] || 0) + s.total;
+      });
+
+    return Object.entries(paymentMap)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value);
+  }, [filteredSales]);
+
+  // Professional colors for Pie Chart segments
+  const COLORS = ['#10B981', '#6366F1', '#06B6D4', '#F59E0B', '#EF4444', '#EC4899', '#8B5CF6'];
+
+  // Custom styled Tooltip component for Recharts
+  const renderMoneyTooltip = ({ active, payload, label }: any) => {
+    if (active && payload && payload.length) {
+      return (
+        <div className={`p-3 rounded-xl border shadow-xl text-xs font-sans leading-none ${
+          isDark ? 'bg-[#0F0F0F] border-gray-800 text-white' : 'bg-white border-gray-200 text-gray-900 shadow-md'
+        }`}>
+          <p className="font-bold mb-1.5">{label || 'Data/Período'}</p>
+          <p className="font-mono text-emerald-500 font-extrabold text-sm">
+            R$ {payload[0].value.toFixed(2)}
+          </p>
+        </div>
+      );
+    }
+    return null;
+  };
+
+  const renderSimpleTooltip = ({ active, payload, label }: any) => {
+    if (active && payload && payload.length) {
+      return (
+        <div className={`p-3 rounded-xl border shadow-xl text-xs font-sans leading-none ${
+          isDark ? 'bg-[#0F0F0F] border-gray-800 text-white' : 'bg-white border-gray-200 text-gray-900 shadow-md'
+        }`}>
+          <p className="font-bold mb-1.5">{label || 'Horário'}</p>
+          <p className="font-mono text-indigo-400 font-extrabold text-sm">
+            {payload[0].value} {payload[0].value === 1 ? 'pedido' : 'pedidos'}
+          </p>
+        </div>
+      );
+    }
+    return null;
+  };
 
   return (
-    <div className="flex flex-col gap-6 w-full">
-      {/* Upper header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h2 className="text-xl font-semibold tracking-tight">Painel Executivo</h2>
-          <p className="text-xs text-gray-400">Dados consolidados de faturamento, custos e lucratividade operacional.</p>
+    <div className="flex flex-col gap-6 w-full font-sans">
+      
+      {/* 1. Sleek Predefined & Custom Date Range Filter Bar */}
+      <div className={`p-4 rounded-xl border flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all ${
+        isDark ? 'bg-[#121212]/30 border-[#1C1C1C]' : 'bg-white border-slate-200 shadow-xs text-slate-900'
+      }`}>
+        <div className="flex items-center gap-2">
+          <Calendar className="w-4.5 h-4.5 text-emerald-500" />
+          <h2 className={`text-sm font-extrabold tracking-tight ${isDark ? 'text-gray-100' : 'text-slate-900'}`}>
+            Filtro de Período Executivo
+          </h2>
         </div>
 
-        {/* Time filters */}
-        <div className="flex flex-wrap items-center gap-2">
-          {timeRange === 'custom' && (
-            <div className="flex items-center gap-1.5 text-xs">
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className={`px-2 py-1 rounded border focus:outline-none font-mono ${
-                  theme === 'dark' ? 'bg-[#111111] border-[#1A1A1A] text-white' : 'bg-white border-gray-200 text-black'
-                }`}
-              />
-              <span className="text-gray-400">até</span>
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                className={`px-2 py-1 rounded border focus:outline-none font-mono ${
-                  theme === 'dark' ? 'bg-[#111111] border-[#1A1A1A] text-white' : 'bg-white border-gray-200 text-black'
-                }`}
-              />
-            </div>
-          )}
-
-          <div className={`flex rounded-lg p-1 border ${
-            theme === 'dark' ? 'bg-[#080808] border-[#1A1A1A]' : 'bg-gray-100 border-gray-200'
-          }`}>
-            {(['today', '7d', '30d', 'custom'] as const).map(range => (
+        {/* Action Controls */}
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* Preset Buttons */}
+          <div className={`flex rounded-lg p-0.5 border ${isDark ? 'border-gray-800/20 bg-gray-500/5' : 'border-slate-200 bg-slate-100/80'}`}>
+            {[
+              { id: 'today', label: 'Hoje' },
+              { id: '7days', label: '7 Dias' },
+              { id: '30days', label: '30 Dias' },
+              { id: 'month', label: 'Mês Atual' },
+              { id: 'all', label: 'Tudo' }
+            ].map(preset => (
               <button
-                key={range}
-                onClick={() => setTimeRange(range)}
-                className={`text-xs px-2.5 py-1 rounded-md font-medium transition-all cursor-pointer ${
-                  timeRange === range
-                    ? (theme === 'dark' ? 'bg-[#111111] text-[#18F2A4] border-b-2 border-[#18F2A4]' : 'bg-white text-[#10B981] shadow-sm')
-                    : 'text-gray-400 hover:text-gray-800 dark:hover:text-white'
+                key={preset.id}
+                onClick={() => handleRangeChange(preset.id)}
+                className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all cursor-pointer uppercase tracking-wider ${
+                  dateRangeType === preset.id
+                    ? (isDark ? 'bg-emerald-500 text-black font-extrabold shadow-sm' : 'bg-[#10B981] text-white font-extrabold shadow-xs')
+                    : (isDark ? 'text-gray-400 hover:text-gray-200' : 'text-slate-600 hover:text-slate-950 font-semibold')
                 }`}
               >
-                {range === 'today' ? 'Hoje' : range === '7d' ? '7d' : range === '30d' ? '30d' : 'Período'}
+                {preset.label}
               </button>
             ))}
           </div>
+
+          <div className={`h-4 w-px hidden sm:block ${isDark ? 'bg-gray-800/20' : 'bg-slate-200'}`} />
+
+          {/* Custom Date Inputs */}
+          <div className="flex items-center gap-1.5 text-xs">
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => {
+                setStartDate(e.target.value);
+                setDateRangeType('custom');
+              }}
+              className={`px-2 py-1 rounded-lg border outline-none font-bold text-[11px] ${
+                isDark ? 'bg-black border-gray-800 text-white' : 'bg-white border-slate-300 text-slate-900 shadow-2xs'
+              }`}
+            />
+            <span className={`text-[10px] font-bold uppercase ${isDark ? 'text-gray-500' : 'text-slate-500'}`}>até</span>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => {
+                setEndDate(e.target.value);
+                setDateRangeType('custom');
+              }}
+              className={`px-2 py-1 rounded-lg border outline-none font-bold text-[11px] ${
+                isDark ? 'bg-black border-gray-800 text-white' : 'bg-white border-slate-300 text-slate-900 shadow-2xs'
+              }`}
+            />
+          </div>
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Revenue */}
-        <div className={`p-4 rounded-xl border flex flex-col gap-1 relative overflow-hidden ${
-          theme === 'dark' ? 'bg-[#111111] border-[#1A1A1A]' : 'bg-white border-gray-200'
-        }`}>
-          <div className="flex justify-between items-start">
-            <span className="text-[10px] uppercase font-bold tracking-wider text-gray-400">Receita Bruta</span>
-            <DollarSign className="w-4 h-4 text-gray-500" />
-          </div>
-          <div className="flex items-baseline gap-1 mt-1">
-            <span className="text-xl font-bold font-mono">R$ {stats.revenue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-          </div>
-          <div className="flex items-center gap-1 mt-2 text-[10px]">
-            {(() => {
-              const change = prevStats.revenue === 0 ? (stats.revenue > 0 ? 100 : 0) : ((stats.revenue - prevStats.revenue) / prevStats.revenue) * 100;
-              return change >= 0 ? (
-                <span className="text-emerald-500 font-bold flex items-center gap-0.5">
-                  <ArrowUpRight className="w-3.5 h-3.5" /> +{change.toFixed(1)}%
-                </span>
-              ) : (
-                <span className="text-red-500 font-bold flex items-center gap-0.5">
-                  <ArrowDownRight className="w-3.5 h-3.5" /> {change.toFixed(1)}%
-                </span>
-              );
-            })()}
-            <span className="text-gray-400">vs. período anterior</span>
-          </div>
-        </div>
-
-        {/* Profit */}
-        <div className={`p-4 rounded-xl border flex flex-col gap-1 relative overflow-hidden ${
-          theme === 'dark' ? 'bg-[#111111] border-[#1A1A1A]' : 'bg-white border-gray-200'
-        }`}>
-          <div className="flex justify-between items-start">
-            <span className="text-[10px] uppercase font-bold tracking-wider text-gray-400">Lucro Líquido Est.</span>
-            <TrendingUp className="w-4 h-4 text-[#18F2A4]" />
-          </div>
-          <div className="flex items-baseline gap-1 mt-1">
-            <span className={`text-xl font-bold font-mono ${stats.netProfit >= 0 ? (theme === 'dark' ? 'text-[#18F2A4]' : 'text-emerald-600') : 'text-red-500'}`}>
-              R$ {stats.netProfit.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </span>
-          </div>
-          <div className="flex items-center gap-1 mt-2 text-[10px]">
-            {(() => {
-              const change = prevStats.netProfit === 0 ? (stats.netProfit > 0 ? 100 : 0) : ((stats.netProfit - prevStats.netProfit) / Math.abs(prevStats.netProfit)) * 100;
-              return change >= 0 ? (
-                <span className="text-emerald-500 font-bold flex items-center gap-0.5">
-                  <ArrowUpRight className="w-3.5 h-3.5" /> +{change.toFixed(1)}%
-                </span>
-              ) : (
-                <span className="text-red-500 font-bold flex items-center gap-0.5">
-                  <ArrowDownRight className="w-3.5 h-3.5" /> {change.toFixed(1)}%
-                </span>
-              );
-            })()}
-            <span className="text-gray-400">vs. período anterior</span>
-          </div>
-        </div>
-
-        {/* CMV % */}
-        <div className={`p-4 rounded-xl border flex flex-col gap-1 relative overflow-hidden ${
-          theme === 'dark' ? 'bg-[#111111] border-[#1A1A1A]' : 'bg-white border-gray-200'
-        }`}>
-          <div className="flex justify-between items-start">
-            <span className="text-[10px] uppercase font-bold tracking-wider text-gray-400">CMV Gerencial</span>
-            <Percent className="w-4 h-4 text-orange-500" />
-          </div>
-          <div className="flex items-baseline gap-1 mt-1">
-            <span className="text-xl font-bold font-mono">{stats.cmv.toFixed(1)}%</span>
-          </div>
-          <div className="flex items-center gap-1 mt-2 text-[10px]">
-            {(() => {
-              const diff = stats.cmv - prevStats.cmv;
-              return diff <= 0 ? (
-                <span className="text-emerald-500 font-bold">
-                  {diff.toFixed(1)}% variação
-                </span>
-              ) : (
-                <span className="text-orange-500 font-bold">
-                  +{diff.toFixed(1)}% variação
-                </span>
-              );
-            })()}
-            <span className="text-gray-400">vs. período anterior</span>
-          </div>
-        </div>
-
-        {/* Critical Stock */}
-        <button
-          onClick={() => onGoToTab('estoque')}
-          className={`p-4 rounded-xl border flex flex-col gap-1 text-left relative overflow-hidden transition-colors cursor-pointer group ${
-            theme === 'dark' 
-              ? 'bg-[#111111] border-[#1A1A1A] hover:bg-[#151515]' 
-              : 'bg-white border-gray-200 hover:bg-gray-50'
+      {/* 2. Professional KPI Cards Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* KPI 1: Gross Revenue */}
+        <div 
+          onClick={() => onGoToTab('financeiro')}
+          className={`p-5 rounded-xl border flex justify-between items-center cursor-pointer transition-all hover:scale-[1.01] ${
+            isDark ? 'bg-[#121212]/30 border-[#1C1C1C] hover:border-emerald-500/30' : 'bg-white border-slate-200 hover:border-emerald-400 shadow-xs hover:shadow-md'
           }`}
         >
-          <div className="flex justify-between items-start">
-            <span className="text-[10px] uppercase font-bold tracking-wider text-gray-400">Estoque Crítico</span>
-            <AlertTriangle className={`w-4 h-4 ${stats.criticalCount > 0 ? 'text-amber-500 animate-pulse' : 'text-gray-500'}`} />
+          <div className="text-left">
+            <p className={`text-[10px] font-extrabold tracking-wider uppercase ${isDark ? 'text-gray-500' : 'text-slate-500'}`}>
+              Faturamento Bruto
+            </p>
+            <p className={`text-xl font-black font-mono tracking-tight mt-2 ${isDark ? 'text-gray-100' : 'text-slate-900'}`}>
+              R$ {stats.totalSales.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+            </p>
+            <span className={`text-[9px] block mt-1 ${isDark ? 'text-gray-400' : 'text-slate-500 font-medium'}`}>Período selecionado</span>
           </div>
-          <div className="flex items-baseline gap-1 mt-1">
-            <span className={`text-xl font-bold font-mono ${stats.criticalCount > 0 ? 'text-amber-500' : ''}`}>
-              {stats.criticalCount} <span className="text-xs font-normal text-gray-400">itens</span>
-            </span>
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isDark ? 'bg-emerald-500/10 text-emerald-400' : 'bg-emerald-50 text-emerald-600 border border-emerald-200/60'}`}>
+            <TrendingUp className="w-5 h-5" />
           </div>
-          <div className="flex items-center gap-1 mt-2 text-[10px] text-gray-400 group-hover:text-white transition-colors">
-            <span>Ver itens sob limite mínimo</span>
-            <ChevronRight className="w-3 h-3 ml-0.5" />
-          </div>
-        </button>
-      </div>
-
-      {/* Auxiliary Mini Row for bills and drawer */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className={`p-3 rounded-lg border flex justify-between items-center text-xs ${
-          theme === 'dark' ? 'bg-[#080808] border-[#1A1A1A]' : 'bg-gray-50 border-gray-200'
-        }`}>
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-gray-400">Caixa Aberto Operacional:</span>
-          </div>
-          <span className="font-bold font-mono text-[#18F2A4]">R$ 450,00</span>
         </div>
 
-        <div className={`p-3 rounded-lg border flex justify-between items-center text-xs ${
-          theme === 'dark' ? 'bg-[#080808] border-[#1A1A1A]' : 'bg-gray-50 border-gray-200'
-        }`}>
-          <div className="flex items-center gap-2">
-            <span className="text-gray-400">Contas a Receber:</span>
+        {/* KPI 2: Costs and Outflows */}
+        <div 
+          onClick={() => onGoToTab('financeiro')}
+          className={`p-5 rounded-xl border flex justify-between items-center cursor-pointer transition-all hover:scale-[1.01] ${
+            isDark ? 'bg-[#121212]/30 border-[#1C1C1C] hover:border-rose-500/30' : 'bg-white border-slate-200 hover:border-rose-400 shadow-xs hover:shadow-md'
+          }`}
+        >
+          <div className="text-left">
+            <p className={`text-[10px] font-extrabold tracking-wider uppercase ${isDark ? 'text-gray-500' : 'text-slate-500'}`}>
+              Custos e Despesas
+            </p>
+            <p className={`text-xl font-black font-mono tracking-tight mt-2 ${isDark ? 'text-gray-100' : 'text-slate-900'}`}>
+              R$ {stats.totalExpenses.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+            </p>
+            <span className={`text-[9px] block mt-1 ${isDark ? 'text-gray-400' : 'text-slate-500 font-medium'}`}>Pagos no período</span>
           </div>
-          <span className="font-bold font-mono text-emerald-500">R$ {stats.accountsReceivable.toLocaleString('pt-BR')}</span>
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isDark ? 'bg-rose-500/10 text-rose-400' : 'bg-rose-50 text-rose-600 border border-rose-200/60'}`}>
+            <TrendingDown className="w-5 h-5" />
+          </div>
         </div>
 
-        <div className={`p-3 rounded-lg border flex justify-between items-center text-xs ${
-          theme === 'dark' ? 'bg-[#080808] border-[#1A1A1A]' : 'bg-gray-50 border-gray-200'
-        }`}>
-          <div className="flex items-center gap-2">
-            <span className="text-gray-400">Contas a Pagar (Pendentes):</span>
-          </div>
-          <span className="font-bold font-mono text-red-500">R$ {stats.accountsPayable.toLocaleString('pt-BR')}</span>
-        </div>
-      </div>
-
-      {/* Main Grid: Charts & Top-Sellers */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Trend Chart (Receita x CMV x Margem) using Recharts */}
-        <div className={`p-5 rounded-xl border lg:col-span-2 flex flex-col justify-between ${
-          theme === 'dark' ? 'bg-[#0E0E0E] border-[#1C1C1C]' : 'bg-white border-gray-100 shadow-sm'
-        }`}>
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-2">
-            <div>
-              <span className="text-xs uppercase font-extrabold text-gray-400 tracking-wider flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5 text-[#18F2A4]" />
-                Faturamento
-              </span>
-              <p className="text-[11px] text-gray-500 mt-0.5">Visão analítica operacional no período selecionado.</p>
-            </div>
-
-            {/* Sub-tab switcher */}
-            <div className={`flex rounded-lg p-0.5 border text-[11px] ${
-              theme === 'dark' ? 'bg-[#050505] border-[#1A1A1A]' : 'bg-gray-50 border-gray-200'
+        {/* KPI 3: Net Profit */}
+        <div 
+          onClick={() => onGoToTab('financeiro')}
+          className={`p-5 rounded-xl border flex justify-between items-center cursor-pointer transition-all hover:scale-[1.01] ${
+            isDark ? 'bg-[#121212]/30 border-[#1C1C1C] hover:border-sky-500/30' : 'bg-white border-slate-200 hover:border-sky-400 shadow-xs hover:shadow-md'
+          }`}
+        >
+          <div className="text-left">
+            <p className={`text-[10px] font-extrabold tracking-wider uppercase ${isDark ? 'text-gray-500' : 'text-slate-500'}`}>
+              Lucro Líquido
+            </p>
+            <p className={`text-xl font-black font-mono tracking-tight mt-2 ${
+              stats.netProfit >= 0 ? (isDark ? 'text-sky-400' : 'text-sky-700') : 'text-rose-600'
             }`}>
-              <button
-                onClick={() => setActiveChartTab('financeiro')}
-                className={`px-2.5 py-1 rounded-md font-bold transition-all cursor-pointer flex items-center gap-1 ${
-                  activeChartTab === 'financeiro'
-                    ? theme === 'dark' 
-                      ? 'bg-[#111111] text-[#18F2A4]' 
-                      : 'bg-white text-[#10B981] shadow-xs'
-                    : 'text-gray-400 hover:text-gray-300'
-                }`}
-              >
-                <BarChart3 className="w-3 h-3" />
-                Faturamento x Custo
-              </button>
-              <button
-                onClick={() => setActiveChartTab('eficiencia')}
-                className={`px-2.5 py-1 rounded-md font-bold transition-all cursor-pointer flex items-center gap-1 ${
-                  activeChartTab === 'eficiencia'
-                    ? theme === 'dark' 
-                      ? 'bg-[#111111] text-[#18F2A4]' 
-                      : 'bg-white text-[#10B981] shadow-xs'
-                    : 'text-gray-400 hover:text-gray-300'
-                }`}
-              >
-                <LineChart className="w-3 h-3" />
-                CMV x Margem (%)
-              </button>
-            </div>
+              R$ {stats.netProfit.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+            </p>
+            <span className={`text-[9px] block mt-1 ${isDark ? 'text-gray-400' : 'text-slate-500 font-medium'}`}>Margem operacional</span>
           </div>
-
-          {/* Recharts Container */}
-          <div className="relative w-full h-56 mt-4">
-            {chartPoints.points.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                {activeChartTab === 'financeiro' ? (
-                  <AreaChart
-                    data={chartPoints.points}
-                    margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
-                  >
-                    <defs>
-                      <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor={primaryColor} stopOpacity={theme === 'dark' ? 0.35 : 0.25}/>
-                        <stop offset="95%" stopColor={primaryColor} stopOpacity={0}/>
-                      </linearGradient>
-                      <linearGradient id="colorCost" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#F97316" stopOpacity={theme === 'dark' ? 0.2 : 0.15}/>
-                        <stop offset="95%" stopColor="#F97316" stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid
-                      strokeDasharray="3 3"
-                      vertical={false}
-                      stroke={theme === 'dark' ? '#161616' : '#F1F1F1'}
-                    />
-                    <XAxis
-                      dataKey="date"
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{ fill: '#888888', fontSize: 10, fontWeight: 500 }}
-                      dy={10}
-                    />
-                    <YAxis
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{ fill: '#888888', fontSize: 10 }}
-                      dx={-5}
-                      tickFormatter={(val) => `R$${val >= 1000 ? (val / 1000) + 'k' : val}`}
-                    />
-                    <Tooltip
-                      content={({ active, payload, label }) => (
-                        active && payload && payload.length ? (
-                          <div className={`p-2.5 rounded-lg border text-xs shadow-xl font-sans ${
-                            theme === 'dark' ? 'bg-[#0E0E0E] border-[#222] text-white' : 'bg-white border-gray-200 text-gray-900'
-                          }`}>
-                            <p className="font-bold mb-1.5 text-gray-400">{label}</p>
-                            {payload.map((item: any, idx: number) => (
-                              <div key={idx} className="flex justify-between items-center gap-6 py-0.5">
-                                <span className="flex items-center gap-1.5">
-                                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: item.color }} />
-                                  {item.name}:
-                                </span>
-                                <span className="font-mono font-bold" style={{ color: item.color }}>
-                                  R$ {item.value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        ) : null
-                      )}
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="Receita Bruta (R$)"
-                      stroke={primaryColor}
-                      strokeWidth={2}
-                      fillOpacity={1}
-                      fill="url(#colorRevenue)"
-                      name="Receita Bruta"
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="Custo (R$)"
-                      stroke="#F97316"
-                      strokeWidth={1.5}
-                      fillOpacity={1}
-                      fill="url(#colorCost)"
-                      name="Custo Mercadoria"
-                    />
-                  </AreaChart>
-                ) : (
-                  <BarChart
-                    data={chartPoints.points}
-                    margin={{ top: 10, right: 10, left: -25, bottom: 0 }}
-                  >
-                    <CartesianGrid
-                      strokeDasharray="3 3"
-                      vertical={false}
-                      stroke={theme === 'dark' ? '#161616' : '#F1F1F1'}
-                    />
-                    <XAxis
-                      dataKey="date"
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{ fill: '#888888', fontSize: 10, fontWeight: 500 }}
-                      dy={10}
-                    />
-                    <YAxis
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{ fill: '#888888', fontSize: 10 }}
-                      dx={-5}
-                      tickFormatter={(val) => `${val}%`}
-                    />
-                    <Tooltip
-                      content={({ active, payload, label }) => (
-                        active && payload && payload.length ? (
-                          <div className={`p-2.5 rounded-lg border text-xs shadow-xl font-sans ${
-                            theme === 'dark' ? 'bg-[#0E0E0E] border-[#222] text-white' : 'bg-white border-gray-200 text-gray-900'
-                          }`}>
-                            <p className="font-bold mb-1.5 text-gray-400">{label}</p>
-                            {payload.map((item: any, idx: number) => (
-                              <div key={idx} className="flex justify-between items-center gap-6 py-0.5">
-                                <span className="flex items-center gap-1.5">
-                                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: item.color }} />
-                                  {item.name}:
-                                </span>
-                                <span className="font-mono font-bold" style={{ color: item.color }}>
-                                  {item.value}%
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        ) : null
-                      )}
-                    />
-                    <Legend 
-                      verticalAlign="top" 
-                      height={36} 
-                      iconType="circle"
-                      iconSize={6}
-                      wrapperStyle={{ fontSize: 10, fontWeight: 500 }}
-                    />
-                    <Bar
-                      dataKey="Margem (%)"
-                      fill={theme === 'dark' ? '#18F2A4' : '#10B981'}
-                      radius={[4, 4, 0, 0]}
-                      name="Margem Operacional (%)"
-                      maxBarSize={30}
-                    />
-                    <Bar
-                      dataKey="CMV (%)"
-                      fill="#F97316"
-                      radius={[4, 4, 0, 0]}
-                      name="CMV (%)"
-                      maxBarSize={30}
-                    />
-                  </BarChart>
-                )}
-              </ResponsiveContainer>
-            ) : (
-              <div className="w-full h-full flex flex-col items-center justify-center text-gray-500 text-xs py-10">
-                Dados insuficientes para renderizar gráficos.
-              </div>
-            )}
-          </div>
-
-          <div className="flex gap-4 items-center justify-end text-[10px] font-mono mt-3 pt-2.5 border-t border-[#1F1F1F]/40">
-            <div className="flex items-center gap-1.5">
-              <div className="w-2.5 h-2.5 rounded-full bg-[#18F2A4]" style={{ backgroundColor: primaryColor }} />
-              <span className={theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}>Faturamento Bruto</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <div className="w-2.5 h-2.5 rounded-full bg-orange-500" />
-              <span className={theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}>CMV (Custo de Custo)</span>
-            </div>
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+            stats.netProfit >= 0 
+              ? (isDark ? 'bg-sky-500/10 text-sky-400' : 'bg-sky-50 text-sky-700 border border-sky-200/60') 
+              : 'bg-rose-50 text-rose-700 border border-rose-200/60'
+          }`}>
+            <DollarSign className="w-5 h-5" />
           </div>
         </div>
 
-        {/* Vendas por Canal / Forma de pagamento */}
-        <div className={`p-4 rounded-xl border flex flex-col justify-between ${
-          theme === 'dark' ? 'bg-[#111111] border-[#1A1A1A]' : 'bg-white border-gray-200'
-        }`}>
-          <div>
-            <span className="text-xs uppercase font-bold text-gray-400 tracking-wider">Formas de Pagamento</span>
-            <p className="text-[11px] text-gray-500 mb-4">Divisão percentual de recebíveis por transação.</p>
+        {/* KPI 4: Replenishment Alerts (Estoque Alerta) */}
+        <div 
+          onClick={() => onGoToTab('produtos')}
+          className={`p-5 rounded-xl border flex justify-between items-center cursor-pointer transition-all hover:scale-[1.01] ${
+            isDark ? 'bg-[#121212]/30 border-[#1C1C1C] hover:border-amber-500/30' : 'bg-white border-slate-200 hover:border-amber-400 shadow-xs hover:shadow-md'
+          }`}
+        >
+          <div className="text-left">
+            <p className={`text-[10px] font-extrabold tracking-wider uppercase ${isDark ? 'text-gray-500' : 'text-slate-500'}`}>
+              Rupturas de Estoque
+            </p>
+            <p className={`text-xl font-black font-mono tracking-tight mt-2 ${
+              stats.lowStockCount > 0 ? 'text-amber-600 font-extrabold' : (isDark ? 'text-gray-100' : 'text-slate-900')
+            }`}>
+              {stats.lowStockCount} {stats.lowStockCount === 1 ? 'SKU crítico' : 'SKUs críticos'}
+            </p>
+            <span className={`text-[9px] block mt-1 ${isDark ? 'text-gray-400' : 'text-slate-500 font-medium'}`}>Abaixo do estoque mínimo</span>
           </div>
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+            stats.lowStockCount > 0 
+              ? (isDark ? 'bg-amber-500/10 text-amber-500 animate-pulse' : 'bg-amber-50 text-amber-700 border border-amber-200/60')
+              : (isDark ? 'bg-black/30 text-gray-500' : 'bg-slate-100 text-slate-500')
+          }`}>
+            <Package className="w-5 h-5" />
+          </div>
+        </div>
+      </div>
 
-          <div className="flex flex-col sm:flex-row items-center gap-4 flex-1 justify-center">
-            {paymentMethodStats.some(p => p.value > 0) ? (
-              <>
-                <div className="w-[110px] h-[110px] relative flex-shrink-0">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={paymentMethodStats.filter(p => p.value > 0)}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={35}
-                        outerRadius={50}
-                        paddingAngle={3}
-                        dataKey="value"
-                      >
-                        {paymentMethodStats.filter(p => p.value > 0).map((entry, index) => {
-                          const colors = {
-                            'PIX': '#18F2A4',
-                            'DINHEIRO': '#10B981',
-                            'CRÉDITO': '#3B82F6',
-                            'DÉBITO': '#8B5CF6',
-                            'FIADO (À PRAZO)': '#EF4444'
-                          };
-                          const key = entry.name.toUpperCase();
-                          const color = colors[key as keyof typeof colors] || '#6B7280';
-                          return <Cell key={`cell-${index}`} fill={color} />;
-                        })}
-                      </Pie>
-                      <Tooltip
-                        content={({ active, payload }) => {
-                          if (active && payload && payload.length) {
-                            return (
-                              <div className={`p-2 rounded border text-[10px] shadow-md font-sans ${
-                                theme === 'dark' ? 'bg-[#0E0E0E] border-[#222] text-white' : 'bg-white border-gray-200 text-gray-900'
-                              }`}>
-                                <p className="font-bold">{payload[0].name}</p>
-                                <p className="font-mono">R$ {payload[0].value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-                              </div>
-                            );
-                          }
-                          return null;
-                        }}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-                  {/* Center label */}
-                  <div className="absolute inset-0 flex flex-col justify-center items-center pointer-events-none">
-                    <span className="text-[8px] uppercase font-bold text-gray-400">Total</span>
-                    <span className="text-[9px] font-bold font-mono">
-                      R$ {paymentMethodStats.reduce((sum, item) => sum + item.value, 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
+      {/* 3. Conditional Replenishment Alerts Card (Avoids Clutter, appears only when necessary!) */}
+      {stats.lowStockCount > 0 && (
+        <div className={`p-5 rounded-xl border border-amber-500/20 text-left transition-all ${
+          isDark ? 'bg-amber-950/10' : 'bg-amber-50/40'
+        }`}>
+          <div className="flex items-center gap-2 mb-3">
+            <AlertTriangle className="w-5 h-5 text-amber-500" />
+            <h3 className={`text-xs font-black uppercase tracking-wider ${isDark ? 'text-amber-400' : 'text-amber-800'}`}>
+              Atenção: Necessidade Crítica de Reposição de Estoque ({stats.lowStockCount})
+            </h3>
+            <span className="text-[9px] bg-amber-500/10 text-amber-500 px-2 py-0.5 rounded-full font-bold ml-auto">Urgente</span>
+          </div>
+          
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+            {stats.lowStockProducts.slice(0, 6).map((p) => {
+              const currentUnitsTotal = (p.stockBoxes * p.boxQuantity) + p.stockUnits;
+              return (
+                <div 
+                  key={p.id} 
+                  onClick={() => onGoToTab('produtos')}
+                  className={`p-3 rounded-lg border flex flex-col justify-between cursor-pointer transition-colors ${
+                    isDark ? 'bg-black/40 border-gray-900 hover:border-amber-500/30' : 'bg-white border-gray-150 hover:border-amber-300'
+                  }`}
+                >
+                  <div className="flex justify-between items-start gap-1">
+                    <p className={`text-xs font-bold truncate ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>{p.name}</p>
+                    <span className="text-[8px] bg-red-500/10 text-red-500 px-1 py-0.5 rounded font-mono font-bold shrink-0">
+                      -{Math.max(0, p.minStockUnits - currentUnitsTotal)} un
                     </span>
                   </div>
-                </div>
 
-                {/* Custom Color-Coded Legend Table */}
-                <div className="flex-1 w-full flex flex-col gap-1.5 justify-center">
-                  {paymentMethodStats.map(item => {
-                    const colors = {
-                      'PIX': '#18F2A4',
-                      'DINHEIRO': '#10B981',
-                      'CRÉDITO': '#3B82F6',
-                      'DÉBITO': '#8B5CF6',
-                      'FIADO (À PRAZO)': '#EF4444'
-                    };
-                    const color = colors[item.name.toUpperCase() as keyof typeof colors] || '#6B7280';
-                    return (
-                      <div key={item.name} className="flex justify-between items-center text-[10px]">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
-                          <span className="font-medium text-gray-400 truncate">{item.name}</span>
-                        </div>
-                        <div className="font-mono text-right font-semibold ml-2 flex-shrink-0 flex items-center gap-1">
-                          <span style={{ color: theme === 'dark' ? 'white' : '#111' }}>R$ {item.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                          <span className="text-gray-500">({item.percentage.toFixed(0)}%)</span>
-                        </div>
-                      </div>
-                    );
-                  })}
+                  <div className="mt-2 flex justify-between items-end text-[10px] font-mono">
+                    <div>
+                      <span className="text-gray-500 block text-[9px] uppercase">Estoque atual</span>
+                      <span className={`font-bold ${currentUnitsTotal === 0 ? 'text-red-500' : 'text-amber-500'}`}>
+                        {p.stockBoxes} fdos / {p.stockUnits} un ({currentUnitsTotal} un)
+                      </span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-gray-500 block text-[9px] uppercase">Mínimo</span>
+                      <span className={`font-bold ${isDark ? 'text-gray-400' : 'text-gray-650'}`}>{p.minStockUnits} un</span>
+                    </div>
+                  </div>
                 </div>
-              </>
-            ) : (
-              <div className="text-center py-8 text-xs text-gray-500 flex-1">Nenhum recebimento registrado.</div>
-            )}
+              );
+            })}
           </div>
 
-          <div className={`p-2 rounded-lg border text-[9px] mt-4 ${
-            theme === 'dark' ? 'bg-[#080808] border-[#1C1C1C] text-gray-400' : 'bg-gray-50 border-gray-200 text-gray-600'
-          }`}>
-            🚨 <span className="font-semibold">Conciliação:</span> Valores excluem as taxas padrão das maquininhas (débito: ~1.2%, crédito: ~2.8%).
-          </div>
+          {stats.lowStockCount > 6 && (
+            <button 
+              onClick={() => onGoToTab('produtos')}
+              className="mt-3 text-[10px] font-bold text-amber-600 hover:text-amber-500 inline-flex items-center gap-1 cursor-pointer"
+            >
+              Visualizar mais {stats.lowStockCount - 6} produtos com estoque baixo <ArrowRight className="w-3 h-3" />
+            </button>
+          )}
         </div>
-      </div>
+      )}
 
-      {/* Second Row: Critical Items list & Last Sales */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Top Sold Products */}
-        <div className={`p-4 rounded-xl border flex flex-col gap-3 ${
-          theme === 'dark' ? 'bg-[#111111] border-[#1A1A1A]' : 'bg-white border-gray-200'
+      {/* 4. Primary Recharts Area: Revenue + Sales Distribution */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        
+        {/* Chart Card 1: Gross Revenue Over Time (Recharts AreaChart) */}
+        <div className={`p-5 rounded-xl border lg:col-span-8 flex flex-col justify-between ${
+          isDark ? 'bg-[#121212]/30 border-[#1C1C1C]' : 'bg-white border-slate-200 shadow-xs text-slate-900'
         }`}>
-          <div>
-            <span className="text-xs uppercase font-bold text-gray-400 tracking-wider">Produtos Mais Vendidos</span>
-            <p className="text-[11px] text-gray-500">Top 5 itens mais retirados no período de filtragem.</p>
+          <div className="flex justify-between items-start border-b pb-3 mb-4" style={{ borderColor: isDark ? '#1C1C1C' : '#E2E8F0' }}>
+            <div className="text-left">
+              <h3 className={`text-xs font-black tracking-wider uppercase ${isDark ? 'text-gray-300' : 'text-slate-800'}`}>
+                Histórico de Faturamento Bruto (Recorrente)
+              </h3>
+              <p className={`text-[10px] mt-1 ${isDark ? 'text-gray-500' : 'text-slate-500 font-medium'}`}>Curva diária de vendas em reais do período selecionado</p>
+            </div>
+            <div className="text-right">
+              <span className={`text-xs font-black font-mono ${isDark ? 'text-emerald-400' : 'text-emerald-700'}`}>
+                R$ {stats.totalSales.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
+              </span>
+            </div>
           </div>
 
-          <div className="flex-1 flex flex-col justify-start">
-            {topProducts.length > 0 ? (
-              <div className="flex flex-col gap-3">
-                {topProducts.map((prod, idx) => {
-                  const maxQty = Math.max(...topProducts.map(p => p.quantity), 1);
-                  const percentage = (prod.quantity / maxQty) * 100;
+          {chartTimelineData.length === 0 ? (
+            <div className={`h-60 flex items-center justify-center text-xs ${isDark ? 'text-gray-500' : 'text-slate-500'}`}>
+              Nenhum dado faturado no período.
+            </div>
+          ) : (
+            <div className="w-full h-60">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart
+                  data={chartTimelineData}
+                  margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                >
+                  <defs>
+                    <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#10B981" stopOpacity={0.25}/>
+                      <stop offset="95%" stopColor="#10B981" stopOpacity={0.0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#222' : '#E2E8F0'} />
+                  <XAxis 
+                    dataKey="name" 
+                    tick={{ fill: isDark ? '#888' : '#334155', fontSize: 10, fontWeight: 'bold' }} 
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <YAxis 
+                    tick={{ fill: isDark ? '#888' : '#334155', fontSize: 10, fontWeight: 'bold' }}
+                    axisLine={false}
+                    tickLine={false}
+                    tickFormatter={(val) => `R$${val}`}
+                  />
+                  <Tooltip content={renderMoneyTooltip} />
+                  <Area 
+                    type="monotone" 
+                    dataKey="Faturamento" 
+                    stroke="#10B981" 
+                    strokeWidth={2.5}
+                    fillOpacity={1} 
+                    fill="url(#colorRevenue)" 
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </div>
+
+        {/* Chart Card 2: Payment Methods (Recharts PieChart) */}
+        <div className={`p-5 rounded-xl border lg:col-span-4 flex flex-col justify-between ${
+          isDark ? 'bg-[#121212]/30 border-[#1C1C1C]' : 'bg-white border-slate-200 shadow-xs text-slate-900'
+        }`}>
+          <div className="border-b pb-3 mb-4 text-left" style={{ borderColor: isDark ? '#1C1C1C' : '#E2E8F0' }}>
+            <h3 className={`text-xs font-black tracking-wider uppercase ${isDark ? 'text-gray-300' : 'text-slate-800'}`}>
+              Distribuição por Meio de Pagamento
+            </h3>
+            <p className={`text-[10px] mt-1 ${isDark ? 'text-gray-500' : 'text-slate-500 font-medium'}`}>Divisão proporcional do faturamento</p>
+          </div>
+
+          {chartPaymentData.length === 0 ? (
+            <div className={`h-60 flex items-center justify-center text-xs ${isDark ? 'text-gray-500' : 'text-slate-500'}`}>
+              Sem dados disponíveis.
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center flex-1">
+              <div className="w-full h-44 flex items-center justify-center relative">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={chartPaymentData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={45}
+                      outerRadius={70}
+                      paddingAngle={4}
+                      dataKey="value"
+                    >
+                      {chartPaymentData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={(value: any) => [`R$ ${value.toFixed(2)}`, 'Volume']} />
+                  </PieChart>
+                </ResponsiveContainer>
+                {/* Center metric */}
+                <div className="absolute flex flex-col items-center">
+                  <span className={`text-[9px] uppercase font-bold tracking-wider ${isDark ? 'text-gray-500' : 'text-slate-500'}`}>Total</span>
+                  <span className={`text-xs font-mono font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                    R$ {stats.totalSales.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
+                  </span>
+                </div>
+              </div>
+
+              {/* Legend with percentages */}
+              <div className="w-full grid grid-cols-2 gap-2 mt-4 text-[10px] text-left">
+                {chartPaymentData.slice(0, 4).map((item, idx) => {
+                  const percentage = stats.totalSales > 0 ? (item.value / stats.totalSales) * 100 : 0;
                   return (
-                    <div key={idx} className="flex flex-col gap-1">
-                      <div className="flex justify-between items-center text-xs">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold shrink-0 ${
-                            idx === 0 ? 'bg-amber-500/15 text-amber-500' :
-                            idx === 1 ? 'bg-slate-300/15 text-slate-300' :
-                            idx === 2 ? 'bg-amber-700/15 text-amber-700' :
-                            theme === 'dark' ? 'bg-[#1C1C1C] text-gray-400' : 'bg-gray-100 text-gray-500'
-                          }`}>
-                            {idx + 1}
-                          </span>
-                          <div className="min-w-0">
-                            <span className="font-semibold block truncate text-[11px]" style={{ color: theme === 'dark' ? '#E5E7EB' : '#1F2937' }}>
-                              {prod.name}
-                            </span>
-                          </div>
-                        </div>
-                        <div className="text-right font-mono text-[10px] shrink-0 ml-2">
-                          <span className="font-bold" style={{ color: theme === 'dark' ? '#F3F4F6' : '#111827' }}>{prod.quantity} un</span>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div className={`flex-1 h-1.5 rounded-full ${theme === 'dark' ? 'bg-[#161616]' : 'bg-gray-100'}`}>
-                          <div
-                            className="h-full rounded-full transition-all duration-500"
-                            style={{
-                              width: `${percentage}%`,
-                              backgroundColor: theme === 'dark' ? '#18F2A4' : '#10B981'
-                            }}
-                          />
-                        </div>
-                        <span className="text-[8px] text-gray-500 font-mono w-14 text-right shrink-0">
-                          R$ {prod.revenue.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
+                    <div key={item.name} className="flex items-center gap-1.5 truncate">
+                      <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: COLORS[idx % COLORS.length] }} />
+                      <div className="min-w-0">
+                        <span className={`font-bold block truncate ${isDark ? 'text-gray-300' : 'text-slate-800'}`}>
+                          {item.name}
+                        </span>
+                        <span className={`text-[9px] font-mono font-bold ${isDark ? 'text-gray-500' : 'text-slate-600'}`}>
+                          {percentage.toFixed(1)}% (R$ {item.value.toFixed(0)})
                         </span>
                       </div>
                     </div>
                   );
                 })}
               </div>
-            ) : (
-              <div className="text-center py-8 text-xs text-gray-500">Nenhum produto vendido no período.</div>
-            )}
-          </div>
-        </div>
-
-        {/* Peak Hours Heatmap */}
-        <div className={`p-4 rounded-xl border flex flex-col justify-between ${
-          theme === 'dark' ? 'bg-[#111111] border-[#1A1A1A]' : 'bg-white border-gray-200'
-        }`}>
-          <div>
-            <span className="text-xs uppercase font-bold text-gray-400 tracking-wider">Picos de Atendimento</span>
-            <p className="text-[11px] text-gray-500 mb-3">Fluxo de lançamentos de pedidos ao longo do dia.</p>
-          </div>
-
-          <div className="h-[120px] w-full">
-            {(() => {
-              const hoursMap = Array(24).fill(0).map((_, i) => ({
-                hour: `${String(i).padStart(2, '0')}h`,
-                "Pedidos": 0
-              }));
-              
-              filteredSales.forEach(s => {
-                const hour = new Date(s.timestamp).getHours();
-                hoursMap[hour]["Pedidos"]++;
-              });
-
-              const activeHours = hoursMap.filter((h, index) => {
-                return h["Pedidos"] > 0 || (index >= 11 && index <= 23);
-              });
-
-              if (activeHours.some(h => h["Pedidos"] > 0)) {
-                return (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart
-                      data={activeHours}
-                      margin={{ top: 5, right: 5, left: -30, bottom: 0 }}
-                    >
-                      <defs>
-                        <linearGradient id="colorPedidos" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor={primaryColor} stopOpacity={0.3}/>
-                          <stop offset="95%" stopColor={primaryColor} stopOpacity={0}/>
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid
-                        strokeDasharray="3 3"
-                        vertical={false}
-                        stroke={theme === 'dark' ? '#161616' : '#F1F1F1'}
-                      />
-                      <XAxis
-                        dataKey="hour"
-                        axisLine={false}
-                        tickLine={false}
-                        tick={{ fill: '#888888', fontSize: 9 }}
-                      />
-                      <YAxis
-                        axisLine={false}
-                        tickLine={false}
-                        tick={{ fill: '#888888', fontSize: 9 }}
-                        allowDecimals={false}
-                      />
-                      <Tooltip
-                        content={({ active, payload }) => {
-                          if (active && payload && payload.length) {
-                            return (
-                              <div className={`p-2 rounded border text-[10px] shadow-md font-sans ${
-                                theme === 'dark' ? 'bg-[#0E0E0E] border-[#222] text-white' : 'bg-white border-gray-200 text-gray-900'
-                              }`}>
-                                <p className="font-bold">{payload[0].payload.hour}</p>
-                                <p className="text-[#18F2A4]">Pedidos: <span className="font-bold">{payload[0].value}</span></p>
-                              </div>
-                            );
-                          }
-                          return null;
-                        }}
-                      />
-                      <Area
-                        type="monotone"
-                        dataKey="Pedidos"
-                        stroke={primaryColor}
-                        strokeWidth={1.5}
-                        fillOpacity={1}
-                        fill="url(#colorPedidos)"
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                );
-              } else {
-                return <div className="text-center py-8 text-xs text-gray-500">Sem atividade registrada.</div>;
-              }
-            })()}
-          </div>
-
-          <div className="text-[9px] text-gray-400 leading-normal border-t border-[#1C1C1C] pt-2 mt-3" style={{ borderColor: theme === 'dark' ? '#1C1C1C' : '#E5E5E5' }}>
-            💡 <span className="font-semibold text-gray-200" style={{ color: theme === 'dark' ? 'white' : '#222' }}>Recomendação:</span> Otimizar escala de garçons no turno de maior fluxo para garantir agilidade operacional.
-          </div>
-        </div>
-
-        {/* Stock Reposition Alerts */}
-        <div className={`p-4 rounded-xl border flex flex-col gap-3 ${
-          theme === 'dark' ? 'bg-[#111111] border-[#1A1A1A]' : 'bg-white border-gray-200'
-        }`}>
-          <div>
-            <span className={`text-xs uppercase tracking-wider ${
-              theme === 'dark' ? 'text-red-400 font-bold' : 'text-red-700 font-extrabold'
-            }`}>Alertas de Reposição</span>
-            <p className="text-[11px] text-gray-500">Itens abaixo do estoque mínimo operacional.</p>
-          </div>
-
-          <div className="flex flex-col gap-2 flex-1">
-            {stats.criticalProducts.map(prod => {
-              const currentStock = (prod.stockBoxes * prod.boxQuantity) + prod.stockUnits;
-              return (
-                <div key={prod.id} className={`flex justify-between items-center p-2.5 rounded-lg border text-xs ${
-                  theme === 'dark' 
-                    ? 'bg-red-950/10 border-red-500/20' 
-                    : 'bg-red-50 border-red-200 shadow-sm'
-                }`}>
-                  <div className="min-w-0 pr-2">
-                    <span className={`font-bold line-clamp-1 text-[11px] ${
-                      theme === 'dark' ? 'text-red-200' : 'text-red-950'
-                    }`}>{prod.name}</span>
-                    <span className={`text-[9px] font-bold block mt-0.5 ${
-                      theme === 'dark' ? 'text-gray-400' : 'text-red-800'
-                    }`}>Min: {prod.minStockUnits} un / Atual: {currentStock} un</span>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded uppercase ${
-                      theme === 'dark' ? 'bg-red-950 text-red-400 border border-red-900/30' : 'bg-red-700 text-white'
-                    }`}>CRÍTICO</span>
-                  </div>
-                </div>
-              );
-            })}
-            {stats.criticalCount === 0 && (
-              <div className="text-center py-6 text-xs text-gray-500 flex-1 flex flex-col justify-center items-center gap-2">
-                <Package className="w-8 h-8 text-emerald-500" />
-                <span className="text-emerald-400 font-medium">Estoque saudável!</span>
-                <span className="text-[10px] text-gray-500">Nenhum produto abaixo do mínimo operacional.</span>
-              </div>
-            )}
-          </div>
-          {stats.criticalCount > 4 && (
-            <button onClick={() => onGoToTab('estoque')} className={`text-[10px] hover:underline font-bold text-right block ${
-              theme === 'dark' ? 'text-red-400' : 'text-red-700'
-            }`}>
-              Ver mais {stats.criticalCount - 4} produtos...
-            </button>
+            </div>
           )}
+        </div>
+      </div>
+
+      {/* 5. Secondary Recharts Area: Peak Times + Top Sellers */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        
+        {/* Chart Card 3: Peak Service Hours (Recharts BarChart) */}
+        <div className={`p-5 rounded-xl border lg:col-span-8 flex flex-col justify-between ${
+          isDark ? 'bg-[#121212]/30 border-[#1C1C1C]' : 'bg-white border-slate-200 shadow-xs text-slate-900'
+        }`}>
+          <div className="flex justify-between items-start border-b pb-3 mb-4" style={{ borderColor: isDark ? '#1C1C1C' : '#E2E8F0' }}>
+            <div className="text-left">
+              <h3 className={`text-xs font-black tracking-wider uppercase ${isDark ? 'text-gray-300' : 'text-slate-800'}`}>
+                Picos de Atendimento (Por Horário)
+              </h3>
+              <p className={`text-[10px] mt-1 ${isDark ? 'text-gray-500' : 'text-slate-500 font-medium'}`}>Frequência de pedidos abertos agrupados por hora de operação</p>
+            </div>
+            <span className={`text-[9px] font-black px-2.5 py-1 rounded ${isDark ? 'bg-indigo-500/10 text-indigo-400' : 'bg-indigo-50 text-indigo-800 border border-indigo-200/60'}`}>Mapeamento de Demanda</span>
+          </div>
+
+          {filteredSales.length === 0 ? (
+            <div className={`h-60 flex items-center justify-center text-xs ${isDark ? 'text-gray-500' : 'text-slate-500'}`}>
+              Sem dados de atendimento registrados neste período.
+            </div>
+          ) : (
+            <div className="w-full h-60">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart
+                  data={chartPeakHoursData}
+                  margin={{ top: 10, right: 10, left: -25, bottom: 0 }}
+                >
+                  <defs>
+                    <linearGradient id="colorPeaks" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={isDark ? '#6366F1' : '#4F46E5'} stopOpacity={0.25}/>
+                      <stop offset="95%" stopColor={isDark ? '#6366F1' : '#4F46E5'} stopOpacity={0.0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#222' : '#E2E8F0'} vertical={false} />
+                  <XAxis 
+                    dataKey="name" 
+                    tick={{ fill: isDark ? '#888' : '#334155', fontSize: 9, fontWeight: 'bold' }} 
+                    axisLine={false}
+                    tickLine={false}
+                    interval={1} // Only show alternate hours to prevent horizontal clutter
+                  />
+                  <YAxis 
+                    tick={{ fill: isDark ? '#888' : '#334155', fontSize: 10, fontWeight: 'bold' }}
+                    axisLine={false}
+                    tickLine={false}
+                    allowDecimals={false}
+                  />
+                  <Tooltip content={renderSimpleTooltip} />
+                  <Area 
+                    type="monotone" 
+                    dataKey="Pedidos" 
+                    stroke={isDark ? '#6366F1' : '#4F46E5'} 
+                    strokeWidth={2.5}
+                    fillOpacity={1} 
+                    fill="url(#colorPeaks)" 
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </div>
+
+        {/* Chart Card 4: Top Products (Ranking list) */}
+        <div className={`p-5 rounded-xl border lg:col-span-4 flex flex-col justify-between ${
+          isDark ? 'bg-[#121212]/30 border-[#1C1C1C]' : 'bg-white border-slate-200 shadow-xs text-slate-900'
+        }`}>
+          <div className="border-b pb-3 mb-4 text-left" style={{ borderColor: isDark ? '#1C1C1C' : '#E2E8F0' }}>
+            <h3 className={`text-xs font-black tracking-wider uppercase ${isDark ? 'text-gray-300' : 'text-slate-800'}`}>
+              Ranking de 5 Produtos Mais Vendidos
+            </h3>
+            <p className={`text-[10px] mt-1 ${isDark ? 'text-gray-500' : 'text-slate-500 font-medium'}`}>Mais populares por volume do período</p>
+          </div>
+
+          {topSellingProducts.length === 0 ? (
+            <div className={`flex-1 flex items-center justify-center text-xs py-10 ${isDark ? 'text-gray-500' : 'text-slate-500'}`}>
+              Nenhuma venda registrada no período selecionado.
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3.5 flex-1 justify-center">
+              {topSellingProducts.map((p, idx) => {
+                return (
+                  <div key={p.id} className="flex justify-between items-center">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span className={`w-5 h-5 rounded-lg text-[10px] font-black flex items-center justify-center font-mono ${
+                        idx === 0 ? 'bg-amber-500/20 text-amber-600' : 
+                        idx === 1 ? 'bg-slate-300 text-slate-700' : 
+                        idx === 2 ? 'bg-amber-100 text-amber-800' :
+                        (isDark ? 'bg-black/40 text-gray-500' : 'bg-slate-100 text-slate-600')
+                      }`}>
+                        {idx + 1}
+                      </span>
+                      <div className="text-left min-w-0">
+                        <p className={`text-xs font-extrabold truncate ${isDark ? 'text-gray-200' : 'text-slate-900'}`}>
+                          {p.name}
+                        </p>
+                        <span className={`text-[8px] uppercase tracking-wider font-bold block ${isDark ? 'text-gray-500' : 'text-slate-500'}`}>Faturamento</span>
+                      </div>
+                    </div>
+
+                    <div className="text-right shrink-0">
+                      <p className={`text-xs font-mono font-black ${isDark ? 'text-gray-200' : 'text-slate-900'}`}>
+                        {p.qty} un
+                      </p>
+                      <p className={`text-[10px] font-mono font-bold ${isDark ? 'text-emerald-500' : 'text-emerald-700'}`}>
+                        R$ {p.revenue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <button
+            onClick={() => onGoToTab('relatorios')}
+            className={`w-full mt-5 py-2.5 rounded-lg text-[10px] font-black tracking-wider uppercase border flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+              isDark 
+                ? 'bg-black/30 border-[#1C1C1C] text-gray-300 hover:bg-black/50 hover:text-white' 
+                : 'bg-slate-50 border-slate-200 text-slate-800 hover:bg-slate-100 shadow-2xs font-bold'
+            }`}
+          >
+            Auditar Relatórios de Movimentação
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
     </div>

@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { 
   BarChart3, Package, Layers, FileDown, Receipt, ShieldAlert, Key, 
   Settings, ShoppingCart, User, Landmark, Sun, Moon, Sparkles, Monitor, Tablet, Truck, HelpCircle, Users,
-  ChefHat, LogOut, Menu
+  ChefHat, LogOut, Menu, FileSpreadsheet, Barcode, Play, Bell, AlertTriangle
 } from 'lucide-react';
 
 import { Product, Supplier, Sale, FinancialTransaction, TableComandaState, CashierUser, Shift } from './types';
@@ -54,6 +54,7 @@ import LoginScreen from './components/LoginScreen';
 import ProductionPanel from './components/ProductionPanel';
 import LandingPage from './components/LandingPage';
 import AdminPanel from './components/AdminPanel';
+import ManagerImportPortal from './components/ManagerImportPortal';
 
 export default function App() {
   // Global Shared States
@@ -64,6 +65,32 @@ export default function App() {
   const [tablesComandas, setTablesComandas] = useState<TableComandaState[]>([]);
   const [usersList, setUsersList] = useState<CashierUser[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+  const [startWizardOnMount, setStartWizardOnMount] = useState<boolean>(false);
+
+  // Custom styled dialogs states
+  const [customAlert, setCustomAlert] = useState<{
+    message: string;
+    type?: 'info' | 'success' | 'warning' | 'error';
+    onClose?: () => void;
+  } | null>(null);
+
+  const [customConfirm, setCustomConfirm] = useState<{
+    message: string;
+    onConfirm: () => void;
+    onCancel?: () => void;
+  } | null>(null);
+
+  useEffect(() => {
+    // Override standard alert to use our premium custom modal alert!
+    (window as any).alert = (message: string, type: 'info' | 'success' | 'warning' | 'error' = 'info', onClose?: () => void) => {
+      setCustomAlert({ message, type, onClose });
+    };
+
+    // Expose our beautiful confirmation modal trigger
+    (window as any).confirmModal = (message: string, onConfirm: () => void, onCancel?: () => void) => {
+      setCustomConfirm({ message, onConfirm, onCancel });
+    };
+  }, []);
 
   // Dynamic Curva ABC calculation based on sales history (last 30 days)
   const productsWithAbc = useMemo(() => {
@@ -275,13 +302,137 @@ export default function App() {
   };
 
   // Active user inside the Manager
-  const [currentUser, setCurrentUser] = useState<CashierUser | null>(null);
+  const [currentUser, setCurrentUser] = useState<CashierUser | null>(() => {
+    try {
+      const stored = localStorage.getItem('cashier_session_user');
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
+  });
 
   // Product Shell Layout controls
-  const [activeProductView, setActiveProductView] = useState<'manager' | 'order' | 'production' | 'landing' | 'admin'>('manager');
+  const [activeProductView, setActiveProductView] = useState<'manager' | 'order' | 'production' | 'landing' | 'admin'>(() => {
+    try {
+      const stored = localStorage.getItem('cashier_session_user');
+      if (stored) {
+        const user = JSON.parse(stored);
+        if (user.role === 'kitchen' || user.role === 'bar') return 'production';
+        if (user.role === 'waiter') return 'order';
+        return 'manager';
+      }
+    } catch {}
+
+    try {
+      const hasReg = localStorage.getItem('fluxos_has_registration') === 'true' || !!localStorage.getItem('adegaos_store_name');
+      if (hasReg) {
+        return 'manager';
+      }
+    } catch {}
+
+    // If no session, default to the marketing landing page
+    return 'landing';
+  });
   const [managerActiveTab, setManagerActiveTab] = useState<string>('dashboard');
   const [isQuickSaleOpen, setIsQuickSaleOpen] = useState<boolean>(false);
-  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    try {
+      const stored = localStorage.getItem('adegaos_theme');
+      return (stored === 'light' || stored === 'dark') ? stored : 'dark';
+    } catch {
+      return 'dark';
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('adegaos_theme', theme);
+    } catch {}
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [theme]);
+
+  // Product categories management state (customizable categories)
+  const [productCategories, setProductCategories] = useState<string[]>(() => {
+    try {
+      const stored = localStorage.getItem('flux_product_categories');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return ['Cervejas', 'Destilados', 'Sem Álcool', 'Petiscos', 'Cigarros', 'Vinhos', 'Outros'];
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('flux_product_categories', JSON.stringify(productCategories));
+    } catch {}
+  }, [productCategories]);
+
+  // Merge any category found in existing products that isn't already in the list
+  useEffect(() => {
+    if (products.length > 0) {
+      const uniqueCats = Array.from(new Set(products.map(p => p.category))).filter(Boolean);
+      setProductCategories(prev => {
+        const next = [...prev];
+        let changed = false;
+        uniqueCats.forEach(cat => {
+          if (!next.includes(cat)) {
+            next.push(cat);
+            changed = true;
+          }
+        });
+        return changed ? next : prev;
+      });
+    }
+  }, [products]);
+
+  const handleAddCategory = (catName: string) => {
+    const trimmed = catName.trim();
+    if (!trimmed) return;
+    setProductCategories(prev => {
+      if (prev.includes(trimmed)) return prev;
+      return [...prev, trimmed];
+    });
+  };
+
+  const handleRenameCategory = (oldName: string, newName: string) => {
+    const trimmedNew = newName.trim();
+    if (!trimmedNew || oldName === trimmedNew) return;
+    setProductCategories(prev => prev.map(cat => cat === oldName ? trimmedNew : cat));
+
+    // Update all products belonging to this category
+    setProducts(prevProducts => {
+      return prevProducts.map(p => {
+        if (p.category === oldName) {
+          const updatedProd = { ...p, category: trimmedNew };
+          saveProductToDb(updatedProd);
+          return updatedProd;
+        }
+        return p;
+      });
+    });
+  };
+
+  const handleDeleteCategory = (catName: string) => {
+    setProductCategories(prev => prev.filter(cat => cat !== catName));
+
+    // Move all products belonging to this category to 'Outros'
+    setProducts(prevProducts => {
+      return prevProducts.map(p => {
+        if (p.category === catName) {
+          const updatedProd = { ...p, category: 'Outros' };
+          saveProductToDb(updatedProd);
+          return updatedProd;
+        }
+        return p;
+      });
+    });
+  };
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
   const [scannedBarcodeTrigger, setScannedBarcodeTrigger] = useState<{ barcode: string; timestamp: number } | null>(null);
 
@@ -290,10 +441,36 @@ export default function App() {
     const handleUrlRoute = () => {
       const search = window.location.search;
       const hash = window.location.hash;
-      if (search.includes('login') || hash === '#login' || search.includes('system') || hash === '#system') {
+      if (search.includes('landing') || hash === '#landing' || search.includes('site') || hash === '#site') {
+        setActiveProductView('landing');
+      } else if (search.includes('login') || hash === '#login' || search.includes('system') || hash === '#system') {
         setActiveProductView('manager');
       } else if (search.includes('admin') || hash === '#admin') {
         setActiveProductView('admin');
+      } else {
+        // If no explicit route, restore session-based view if user is logged in
+        try {
+          const stored = localStorage.getItem('cashier_session_user');
+          if (stored) {
+            const user = JSON.parse(stored);
+            if (user.role === 'kitchen' || user.role === 'bar') {
+              setActiveProductView('production');
+            } else if (user.role === 'waiter') {
+              setActiveProductView('order');
+            } else {
+              setActiveProductView('manager');
+            }
+          } else {
+            const hasReg = localStorage.getItem('fluxos_has_registration') === 'true' || !!localStorage.getItem('adegaos_store_name');
+            if (hasReg) {
+              setActiveProductView('manager');
+            } else {
+              setActiveProductView('landing');
+            }
+          }
+        } catch (e) {
+          console.error('Error reading session for route:', e);
+        }
       }
     };
     handleUrlRoute();
@@ -417,6 +594,7 @@ export default function App() {
     setCurrentUser(user);
     try {
       localStorage.setItem('cashier_session_user', JSON.stringify(user));
+      localStorage.setItem('fluxos_has_registration', 'true');
     } catch (e) {
       console.error('Error saving session:', e);
     }
@@ -730,29 +908,42 @@ export default function App() {
     }));
   };
 
-  const handleAddTableComanda = (type: 'mesa' | 'comanda', number: number) => {
-    const newId = `${type}-${Date.now()}`;
-    const newItem: TableComandaState = {
-      id: newId,
-      type,
-      number,
-      status: 'livre',
-      items: [],
-      subtotal: 0
-    };
+  const handleAddTableComandaBatch = (type: 'mesa' | 'comanda', numbers: number[]) => {
     setTablesComandas(prev => {
-      const exists = prev.some(t => t.type === type && t.number === number);
-      if (exists) {
-        alert(`Já existe uma ${type === 'mesa' ? 'Mesa' : 'Comanda'} com o número ${number}.`);
+      const newItems: TableComandaState[] = [];
+      
+      numbers.forEach(num => {
+        const exists = prev.some(t => t.type === type && t.number === num) || newItems.some(t => t.type === type && t.number === num);
+        if (!exists) {
+          const newItem: TableComandaState = {
+            id: `${type}-${Date.now()}-${num}-${Math.random().toString(36).substring(2, 5)}`,
+            type,
+            number: num,
+            status: 'livre',
+            items: [],
+            subtotal: 0
+          };
+          newItems.push(newItem);
+          saveTableComandaToDb(newItem);
+        }
+      });
+
+      if (newItems.length === 0) {
+        alert(`Todas as ${type === 'mesa' ? 'mesas' : 'comandas'} do lote especificado já existem.`);
         return prev;
       }
-      const updated = [...prev, newItem].sort((a, b) => {
+
+      const updated = [...prev, ...newItems].sort((a, b) => {
         if (a.type !== b.type) return a.type === 'mesa' ? -1 : 1;
         return a.number - b.number;
       });
-      saveTableComandaToDb(newItem);
+
       return updated;
     });
+  };
+
+  const handleAddTableComanda = (type: 'mesa' | 'comanda', number: number) => {
+    handleAddTableComandaBatch(type, [number]);
   };
 
   const handleRemoveTableComanda = (tableId: string) => {
@@ -825,7 +1016,7 @@ export default function App() {
   // Color theme selectors
   const themeClasses = theme === 'dark' 
     ? 'bg-[#000000] text-white scheme-dark theme-dark' 
-    : 'bg-[#FFFFFF] text-[#111111] scheme-light theme-light';
+    : 'bg-[#F8FAFC] text-slate-900 scheme-light theme-light';
 
   const menuItems = [
     { id: 'dashboard', name: 'Painel Executivo', icon: BarChart3 },
@@ -838,6 +1029,7 @@ export default function App() {
     { id: 'fornecedores', name: 'Fornecedores', icon: Users },
     { id: 'financeiro', name: 'Financeiro / DRE', icon: Landmark },
     { id: 'relatorios', name: 'Relatórios & BI', icon: FileDown },
+    { id: 'importador', name: 'Importação em Lote', icon: FileSpreadsheet },
     { id: 'configuracoes', name: 'Configurações', icon: Settings },
   ];
 
@@ -846,6 +1038,9 @@ export default function App() {
       <LandingPage
         theme={theme}
         onEnterSystem={() => {
+          try {
+            localStorage.setItem('fluxos_has_registration', 'true');
+          } catch {}
           setActiveProductView('manager');
         }}
         onEnterAdmin={() => {
@@ -863,8 +1058,15 @@ export default function App() {
         usersList={usersList}
         onAddUser={handleAddUser}
         onDeleteUser={handleDeleteUser}
+        products={products}
+        sales={sales}
+        tablesComandas={tablesComandas}
+        activeShift={activeShift}
         onBackToLanding={() => {
           setActiveProductView('landing');
+        }}
+        onBackToLogin={() => {
+          setActiveProductView('manager');
         }}
       />
     );
@@ -893,7 +1095,7 @@ export default function App() {
       {/* Mobile top bar for Manager mode */}
       {activeProductView === 'manager' && (
         <div className={`md:hidden flex items-center justify-between p-3 border-b shrink-0 z-20 ${
-          theme === 'dark' ? 'bg-[#080808] border-[#161616]' : 'bg-gray-50 border-gray-200'
+          theme === 'dark' ? 'bg-[#080808] border-[#161616]' : 'bg-white border-slate-200 shadow-xs text-slate-900'
         }`}>
           <button
             onClick={() => setIsMobileMenuOpen(true)}
@@ -903,8 +1105,7 @@ export default function App() {
             <Menu className="w-5 h-5 text-[#18F2A4]" />
           </button>
           <div className="flex items-center gap-1.5">
-            <Sparkles className="w-4 h-4 text-[#18F2A4]" />
-            <span className="font-extrabold text-xs tracking-tight">Flux<span className="text-[#18F2A4]">OS</span></span>
+            <span className="font-extrabold text-xs tracking-tight">Flux<span className="text-transparent bg-clip-text bg-gradient-to-r from-violet-400 via-blue-400 to-[#18F2A4]">OS</span></span>
           </div>
           <div className="w-8"></div>
         </div>
@@ -931,17 +1132,16 @@ export default function App() {
             <aside className={`fixed inset-y-0 left-0 z-40 w-60 transform ${
               isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
             } md:relative md:translate-x-0 transition-transform duration-300 ease-in-out border-r flex flex-col justify-between shrink-0 h-full ${
-              theme === 'dark' ? 'bg-[#080808] border-[#161616]' : 'bg-gray-50 border-gray-200'
+              theme === 'dark' ? 'bg-[#080808] border-[#161616]' : 'bg-white border-slate-200 shadow-xs'
             }`}>
               <div className="flex flex-col gap-1.5 overflow-y-auto flex-1">
                 {/* Brand Header inside Sidebar */}
-                <div className="p-4 flex items-center gap-2 border-b border-gray-800/20" style={{ borderColor: theme === 'dark' ? '#161616' : '#E5E5E5' }}>
-                  <Sparkles className="w-5 h-5 text-[#18F2A4]" />
-                  <span className="font-extrabold text-sm tracking-tight">Flux<span className="text-[#18F2A4]">OS</span></span>
+                <div className="p-4 flex items-center gap-2 border-b border-gray-800/20" style={{ borderColor: theme === 'dark' ? '#161616' : '#E2E8F0' }}>
+                  <span className="font-extrabold text-sm tracking-tight">Flux<span className="text-transparent bg-clip-text bg-gradient-to-r from-violet-400 via-blue-400 to-[#18F2A4]">OS</span></span>
                 </div>
 
                 <div className="p-3 flex flex-col gap-1">
-                  <span className="text-[9px] font-bold text-gray-500 uppercase tracking-widest block mb-2 px-3">Gestão do Negócio</span>
+                  <span className={`text-[9px] font-bold uppercase tracking-widest block mb-2 px-3 ${theme === 'dark' ? 'text-gray-500' : 'text-slate-500'}`}>Gestão do Negócio</span>
                   {menuItems.map(item => {
                     const IconComp = item.icon;
                     const isActive = managerActiveTab === item.id;
@@ -958,8 +1158,8 @@ export default function App() {
                         }}
                         className={`w-full py-2.5 px-3 rounded-lg text-xs font-semibold flex items-center gap-2.5 transition-all text-left cursor-pointer ${
                           isActive
-                            ? (theme === 'dark' ? 'bg-[#18F2A4]/10 text-[#18F2A4]' : 'bg-emerald-500/10 text-[#10B981]')
-                            : (theme === 'dark' ? 'text-gray-400 hover:text-white hover:bg-[#111111]' : 'text-gray-600 hover:text-black hover:bg-gray-100')
+                            ? (theme === 'dark' ? 'bg-[#18F2A4]/10 text-[#18F2A4]' : 'bg-emerald-50 text-emerald-800 font-bold border border-emerald-200/60 shadow-2xs')
+                            : (theme === 'dark' ? 'text-gray-400 hover:text-white hover:bg-[#111111]' : 'text-slate-600 hover:text-slate-950 hover:bg-slate-100 font-medium')
                         }`}
                       >
                         <IconComp className="w-4 h-4 shrink-0" />
@@ -971,20 +1171,20 @@ export default function App() {
               </div>
 
               {/* Sidebar Footer with user identity, Logout & Quick sale trigger */}
-              <div className="p-4 border-t border-[#161616] flex flex-col gap-3" style={{ borderColor: theme === 'dark' ? '#161616' : '#E5E5E5' }}>
+              <div className="p-4 border-t flex flex-col gap-3" style={{ borderColor: theme === 'dark' ? '#161616' : '#E2E8F0' }}>
                 {/* User identification card */}
                 <div className={`p-2.5 rounded-lg flex items-center justify-between gap-2 border ${
-                  theme === 'dark' ? 'bg-[#111111]/80 border-[#1C1C1C]' : 'bg-gray-100 border-gray-200'
+                  theme === 'dark' ? 'bg-[#111111]/80 border-[#1C1C1C]' : 'bg-slate-50 border-slate-200'
                 }`}>
                   <div className="flex flex-col text-left overflow-hidden">
-                     <span className="text-xs font-bold truncate leading-tight" style={{ color: theme === 'dark' ? '#FFF' : '#111' }}>{currentUser.name}</span>
-                     <span className="text-[9px] text-gray-500 uppercase font-mono tracking-wider mt-0.5">{currentUser.role}</span>
+                     <span className="text-xs font-bold truncate leading-tight" style={{ color: theme === 'dark' ? '#FFF' : '#0F172A' }}>{currentUser.name}</span>
+                     <span className={`text-[9px] uppercase font-mono tracking-wider mt-0.5 ${theme === 'dark' ? 'text-gray-500' : 'text-slate-500 font-semibold'}`}>{currentUser.role}</span>
                   </div>
 
                   <button
                     onClick={handleLogout}
                     className={`p-1.5 rounded-lg border transition-colors cursor-pointer text-red-500 hover:bg-red-500/10 shrink-0 ${
-                      theme === 'dark' ? 'border-[#1C1C1C] bg-[#111]' : 'border-gray-200 bg-white'
+                      theme === 'dark' ? 'border-[#1C1C1C] bg-[#111]' : 'border-slate-200 bg-white shadow-2xs'
                     }`}
                     title="Sair do Sistema"
                   >
@@ -994,10 +1194,10 @@ export default function App() {
 
                 <button
                   onClick={() => setIsQuickSaleOpen(!isQuickSaleOpen)}
-                  className={`w-full py-2.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                  className={`w-full py-2.5 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
                     theme === 'dark' 
                       ? 'bg-[#18F2A4] text-black hover:bg-[#12d58f]' 
-                      : 'bg-[#10B981] text-white hover:bg-[#0e9f6e]'
+                      : 'bg-[#10B981] text-white hover:bg-[#0e9f6e] shadow-xs'
                   }`}
                 >
                   <ShoppingCart className="w-4 h-4" />
@@ -1009,7 +1209,41 @@ export default function App() {
             </aside>
 
             {/* Inner Dashboard scroll space */}
-            <main className="flex-1 overflow-y-auto p-6 md:p-8">
+            <main className={`flex-1 overflow-y-auto p-6 md:p-8 flex flex-col gap-6 ${
+              theme === 'dark' ? 'bg-black text-white' : 'bg-slate-50 text-slate-900'
+            }`}>
+              
+              {/* Alert: Missing Barcodes persistent warning banner */}
+              {products.filter(p => !p.barcode && p.active).length > 0 && managerActiveTab !== 'importador' && (
+                <div className={`p-4 rounded-xl border flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 transition-all duration-300 animate-fade-in ${
+                  theme === 'dark' 
+                    ? 'bg-amber-500/10 border-amber-500/20 text-amber-300' 
+                    : 'bg-amber-50 border-amber-200 text-amber-800'
+                }`}>
+                  <div className="flex gap-3 items-start">
+                    <div className="p-2 bg-amber-500/20 rounded-lg shrink-0">
+                      <Barcode className="w-5 h-5 text-amber-400" />
+                    </div>
+                    <div>
+                      <span className="font-bold text-xs block uppercase tracking-wider">Atenção: Códigos de Barras Faltantes</span>
+                      <p className="text-[10px] text-gray-400 mt-1">
+                        Existem <strong className="text-amber-400 font-extrabold">{products.filter(p => !p.barcode && p.active).length}</strong> produtos ativos cadastrados sem código de barras. Use o assistente óptico para vinculá-los rapidamente sem interromper suas atividades.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setStartWizardOnMount(true);
+                      setManagerActiveTab('importador');
+                    }}
+                    className="w-full sm:w-auto px-4 py-2 bg-amber-500 text-black font-extrabold text-xs rounded-lg hover:bg-amber-400 transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-2 shrink-0"
+                  >
+                    <Play className="w-4 h-4 animate-pulse" />
+                    Escanear Pendentes
+                  </button>
+                </div>
+              )}
+
               {managerActiveTab === 'dashboard' && (
                 <ManagerDashboard 
                   products={productsWithAbc} 
@@ -1026,6 +1260,10 @@ export default function App() {
                   onAddProduct={handleAddProduct}
                   onUpdateProduct={handleUpdateProduct}
                   theme={theme}
+                  categories={productCategories}
+                  onAddCategory={handleAddCategory}
+                  onRenameCategory={handleRenameCategory}
+                  onDeleteCategory={handleDeleteCategory}
                 />
               )}
               {managerActiveTab === 'estoque' && (
@@ -1123,6 +1361,22 @@ export default function App() {
                   onToggleTheme={handleToggleTheme}
                 />
               )}
+              {managerActiveTab === 'importador' && (
+                <ManagerImportPortal
+                  products={products}
+                  suppliers={suppliers}
+                  usersList={usersList}
+                  onAddProduct={handleAddProduct}
+                  onUpdateProduct={handleUpdateProduct}
+                  onAddSupplier={handleAddSupplier}
+                  onAddUser={handleAddUser}
+                  categories={productCategories}
+                  onAddCategory={handleAddCategory}
+                  theme={theme}
+                  startWithWizardOpen={startWizardOnMount}
+                  onCloseWizard={() => setStartWizardOnMount(false)}
+                />
+              )}
             </main>
 
             {/* PDV collapsible quick sale bar */}
@@ -1142,7 +1396,7 @@ export default function App() {
           </div>
         ) : activeProductView === 'production' ? (
           /* =====================================
-             3. PRODUCT: ADEGAOS PRODUCTION PANEL
+             3. PRODUCT: FLUXOS PRODUCTION PANEL
              ===================================== */
           <div className="flex-1 overflow-y-auto">
             <ProductionPanel
@@ -1158,7 +1412,7 @@ export default function App() {
           </div>
         ) : (
           /* =====================================
-             2. PRODUCT: ADEGAOS ORDER (WAITERS)
+             2. PRODUCT: FLUXOS ORDER (WAITERS)
              ===================================== */
           <div className="flex-1 flex flex-col w-full h-full">
             {/* The mobile applet component frame */}
@@ -1171,6 +1425,7 @@ export default function App() {
               onAddFinancial={handleAddFinancial} 
               onUpdateStock={handleUpdateStock} 
               onAddTableComanda={handleAddTableComanda}
+              onAddTableComandaBatch={handleAddTableComandaBatch}
               onRemoveTableComanda={handleRemoveTableComanda}
               usersList={usersList} 
               theme={theme}
@@ -1183,6 +1438,82 @@ export default function App() {
         )}
 
       </div>
+
+      {/* Custom Styled Alert Modal */}
+      {customAlert && (
+        <div className="fixed inset-0 z-[999] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/75 backdrop-blur-sm" onClick={() => {
+            if (customAlert.onClose) customAlert.onClose();
+            setCustomAlert(null);
+          }} />
+          <div className={`relative w-full max-w-sm rounded-2xl border p-5 shadow-2xl flex flex-col gap-4 transition-all animate-in fade-in zoom-in-95 duration-150 ${
+            theme === 'dark' ? 'bg-[#0A0A0A] border-[#1C1C1C] text-white' : 'bg-white border-gray-200 text-gray-950'
+          }`}>
+            <div className="flex items-center gap-2">
+              <Bell className="w-4 h-4 text-emerald-500" />
+              <h4 className="font-extrabold text-[11px] tracking-wider uppercase text-gray-400">Mensagem do Sistema</h4>
+            </div>
+            <p className="text-xs font-semibold leading-relaxed" style={{ color: theme === 'dark' ? '#E5E5E5' : '#333' }}>
+              {customAlert.message}
+            </p>
+            <button
+              onClick={() => {
+                if (customAlert.onClose) customAlert.onClose();
+                setCustomAlert(null);
+              }}
+              className={`w-full py-2.5 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer ${
+                theme === 'dark' ? 'bg-[#18F2A4] text-black hover:bg-[#12d58f]' : 'bg-[#10B981] text-white hover:bg-[#0e9f6e]'
+              }`}
+            >
+              Entendido
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Custom Styled Confirm Modal */}
+      {customConfirm && (
+        <div className="fixed inset-0 z-[999] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/75 backdrop-blur-sm" onClick={() => {
+            if (customConfirm.onCancel) customConfirm.onCancel();
+            setCustomConfirm(null);
+          }} />
+          <div className={`relative w-full max-w-sm rounded-2xl border p-5 shadow-2xl flex flex-col gap-4 transition-all animate-in fade-in zoom-in-95 duration-150 ${
+            theme === 'dark' ? 'bg-[#0A0A0A] border-[#1C1C1C] text-white' : 'bg-white border-gray-200 text-gray-950'
+          }`}>
+            <div className="flex items-center gap-2 text-red-500">
+              <AlertTriangle className="w-4 h-4 text-red-500" />
+              <h4 className="font-extrabold text-[11px] tracking-wider uppercase text-red-400">Confirmar Ação</h4>
+            </div>
+            <p className="text-xs font-semibold leading-relaxed" style={{ color: theme === 'dark' ? '#E5E5E5' : '#333' }}>
+              {customConfirm.message}
+            </p>
+            <div className="grid grid-cols-2 gap-2 mt-2">
+              <button
+                onClick={() => {
+                  if (customConfirm.onCancel) customConfirm.onCancel();
+                  setCustomConfirm(null);
+                }}
+                className={`py-2.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                  theme === 'dark' ? 'border-[#1C1C1C] text-gray-400 hover:bg-white/5' : 'border-gray-200 text-gray-500 hover:bg-gray-50'
+                }`}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => {
+                  customConfirm.onConfirm();
+                  setCustomConfirm(null);
+                }}
+                className="py-2.5 rounded-xl text-xs font-bold bg-red-600 text-white hover:bg-red-500 transition-all active:scale-95 cursor-pointer"
+              >
+                Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

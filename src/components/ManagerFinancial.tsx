@@ -110,7 +110,7 @@ export default function ManagerFinancial({
   const handleApplyAdjustment = () => {
     const diff = physicalCountedCash - cashStats.expected;
     if (Math.abs(diff) < 0.01) {
-      alert("Caixa perfeitamente conciliado! Nenhuma divergência encontrada.");
+      alert("Fechamento de caixa conciliado sem divergências.");
       return;
     }
 
@@ -140,7 +140,7 @@ export default function ManagerFinancial({
       r2: 0,
       coins: 0
     });
-    alert(`Ajuste de R$ ${Math.abs(diff).toFixed(2)} (${diff > 0 ? 'Sobra' : 'Falta'}) inserido no caixa. O saldo do sistema agora confere perfeitamente.`);
+    alert(`Ajuste de R$ ${Math.abs(diff).toFixed(2)} (${diff > 0 ? 'Sobra' : 'Falta'}) registrado com sucesso no caixa.`);
   };
 
   // Math totals
@@ -317,20 +317,20 @@ export default function ManagerFinancial({
       {/* Tab Switcher and title */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h2 className="text-xl font-semibold tracking-tight">Setor Financeiro</h2>
-          <p className="text-xs text-gray-400">Fluxo de caixa diário, liquidações de duplicatas a pagar/receber e DRE Gerencial.</p>
+          <h2 className={`text-xl font-extrabold tracking-tight ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>Setor Financeiro</h2>
+          <p className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-slate-600 font-medium'}`}>Fluxo de caixa diário, liquidações de duplicatas a pagar/receber e DRE Gerencial.</p>
         </div>
 
         {/* Inner Tab Selector */}
         <div className={`flex rounded-lg p-1 border ${
-          theme === 'dark' ? 'bg-[#080808] border-[#1A1A1A]' : 'bg-gray-100 border-gray-200'
+          theme === 'dark' ? 'bg-[#080808] border-[#1A1A1A]' : 'bg-slate-100 border-slate-200'
         }`}>
           <button
             onClick={() => setActiveTab('geral')}
             className={`text-xs px-3 py-1 rounded-md font-semibold transition-all cursor-pointer ${
               activeTab === 'geral'
-                ? (theme === 'dark' ? 'bg-[#111111] text-[#18F2A4]' : 'bg-white text-[#10B981] shadow-sm')
-                : (theme === 'dark' ? 'text-gray-400 hover:text-white' : 'text-gray-500 hover:text-gray-900')
+                ? (theme === 'dark' ? 'bg-[#111111] text-[#18F2A4]' : 'bg-white text-emerald-700 font-extrabold shadow-2xs')
+                : (theme === 'dark' ? 'text-gray-400 hover:text-white' : 'text-slate-600 hover:text-slate-950 font-medium')
             }`}
           >
             Fluxo de Caixa / Duplicatas
@@ -339,8 +339,8 @@ export default function ManagerFinancial({
             onClick={() => setActiveTab('dre')}
             className={`text-xs px-3 py-1 rounded-md font-semibold transition-all cursor-pointer ${
               activeTab === 'dre'
-                ? (theme === 'dark' ? 'bg-[#111111] text-[#18F2A4]' : 'bg-white text-[#10B981] shadow-sm')
-                : (theme === 'dark' ? 'text-gray-400 hover:text-white' : 'text-gray-500 hover:text-gray-900')
+                ? (theme === 'dark' ? 'bg-[#111111] text-[#18F2A4]' : 'bg-white text-emerald-700 font-extrabold shadow-2xs')
+                : (theme === 'dark' ? 'text-gray-400 hover:text-white' : 'text-slate-600 hover:text-slate-950 font-medium')
             }`}
           >
             DRE Gerencial Real
@@ -349,8 +349,8 @@ export default function ManagerFinancial({
             onClick={() => setActiveTab('conciliacao')}
             className={`text-xs px-3 py-1 rounded-md font-semibold transition-all cursor-pointer ${
               activeTab === 'conciliacao'
-                ? (theme === 'dark' ? 'bg-[#111111] text-[#18F2A4]' : 'bg-white text-[#10B981] shadow-sm')
-                : (theme === 'dark' ? 'text-gray-400 hover:text-white' : 'text-gray-500 hover:text-gray-900')
+                ? (theme === 'dark' ? 'bg-[#111111] text-[#18F2A4]' : 'bg-white text-emerald-700 font-extrabold shadow-2xs')
+                : (theme === 'dark' ? 'text-gray-400 hover:text-white' : 'text-slate-600 hover:text-slate-950 font-medium')
             }`}
           >
             Conciliação de Caixa Físico
@@ -359,8 +359,8 @@ export default function ManagerFinancial({
             onClick={() => setActiveTab('turnos')}
             className={`text-xs px-3 py-1 rounded-md font-semibold transition-all cursor-pointer ${
               activeTab === 'turnos'
-                ? (theme === 'dark' ? 'bg-[#111111] text-[#18F2A4]' : 'bg-white text-[#10B981] shadow-sm')
-                : (theme === 'dark' ? 'text-gray-400 hover:text-white' : 'text-gray-500 hover:text-gray-900')
+                ? (theme === 'dark' ? 'bg-[#111111] text-[#18F2A4]' : 'bg-white text-emerald-700 font-extrabold shadow-2xs')
+                : (theme === 'dark' ? 'text-gray-400 hover:text-white' : 'text-slate-600 hover:text-slate-950 font-medium')
             }`}
           >
             Controle de Turnos de Caixa
@@ -552,7 +552,7 @@ export default function ManagerFinancial({
               </div>
 
               <div className="text-[9px] text-gray-500 leading-normal border-t border-[#1C1C1C] pt-3 mt-4">
-                ⚠️ As tarifas financeiras estimadas para este terminal estão fixadas em 1.25% para Débito e 2.99% para Crédito à Vista.
+                As tarifas financeiras estimadas para este terminal estão fixadas em 1,25% para Débito e 2,99% para Crédito à Vista.
               </div>
             </div>
           </div>
@@ -835,7 +835,7 @@ export default function ManagerFinancial({
                   O controle de turnos permite monitorar exatamente as entradas de vendas em dinheiro, PIX ou cartões, aportes adicionais (suprimentos) e retiradas rápidas (sangrias) efetuadas por cada operador, prevenindo furos financeiros e simplificando a conciliação ao fim do expediente.
                 </p>
                 <div className="mt-4 p-3 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[11px] leading-relaxed">
-                  ⚠️ <strong>Aviso Importante:</strong> O PDV exigirá que você abra um turno antes de registrar novas vendas. Isso garante a rastreabilidade total do fluxo de caixa.
+                  <strong>Controle de Auditoria:</strong> O PDV exige a abertura prévia de turno para o registro de vendas, assegurando a integridade e rastreabilidade total dos lançamentos financeiros.
                 </div>
               </div>
 
@@ -874,7 +874,7 @@ export default function ManagerFinancial({
                   onClick={() => {
                     const operator = opName.trim() || 'Operador Geral';
                     onOpenShift(operator, initBal);
-                    alert(`Caixa aberto com sucesso! Operador: ${operator} | Fundo de Troco: R$ ${initBal.toFixed(2)}`);
+                    alert(`Turno de caixa iniciado. Operador: ${operator} | Fundo: R$ ${initBal.toFixed(2)}`);
                   }}
                   className={`w-full py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 active:scale-95 ${
                     theme === 'dark' ? 'bg-[#18F2A4] text-black hover:bg-[#12d58f]' : 'bg-[#10B981] text-white hover:bg-[#0e9f6e]'
@@ -986,13 +986,13 @@ export default function ManagerFinancial({
                         <button
                           onClick={() => {
                             if (sangriaAmount <= 0 || !sangriaReason.trim()) {
-                              alert("Preencha o valor e o motivo da sangria!");
+                              alert("Insira um valor e uma justificativa válidos para a sangria.");
                               return;
                             }
                             onSangria(sangriaAmount, sangriaReason);
                             setSangriaAmount(0);
                             setSangriaReason('');
-                            alert("Sangria realizada e registrada!");
+                            alert("Sangria registrada com sucesso.");
                           }}
                           className="w-full py-2 rounded font-black text-xs bg-red-600/15 hover:bg-red-600/25 text-red-400 border border-red-500/25 transition-all cursor-pointer text-center"
                         >
@@ -1036,13 +1036,13 @@ export default function ManagerFinancial({
                         <button
                           onClick={() => {
                             if (suprimentoAmount <= 0 || !suprimentoReason.trim()) {
-                              alert("Preencha o valor e a justificativa do suprimento!");
+                              alert("Insira um valor e uma justificativa válidos para o suprimento.");
                               return;
                             }
                             onSuprimento(suprimentoAmount, suprimentoReason);
                             setSuprimentoAmount(0);
                             setSuprimentoReason('');
-                            alert("Suprimento realizado e registrado!");
+                            alert("Suprimento registrado com sucesso.");
                           }}
                           className="w-full py-2 rounded font-black text-xs bg-sky-600/15 hover:bg-sky-600/25 text-sky-400 border border-sky-500/25 transition-all cursor-pointer text-center"
                         >
@@ -1209,12 +1209,12 @@ export default function ManagerFinancial({
                           onCloseShift(shiftClosingCash, shiftClosingNotes);
                           
                           triggerThermalPrint('cash_flow', receiptData)
-                            .then(() => alert("Extrato de Fechamento impresso com sucesso!"))
-                            .catch(() => alert("Erro na impressão térmica do fechamento."));
+                            .then(() => alert("Extrato de fechamento impresso com sucesso."))
+                            .catch(() => alert("Erro ao imprimir extrato térmico."));
 
                           setShiftClosingCash(0);
                           setShiftClosingNotes('');
-                          alert("Turno de Caixa Fechado e Relatório Arquivado com sucesso!");
+                          alert("Turno de caixa encerrado com sucesso.");
                         }}
                         className={`w-full py-2.5 rounded-lg text-xs font-black transition-all cursor-pointer flex items-center justify-center gap-1.5 active:scale-95 ${
                           theme === 'dark' ? 'bg-[#18F2A4] text-black hover:bg-[#12d58f]' : 'bg-[#10B981] text-white hover:bg-[#0e9f6e]'

@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="topGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3B82F6"/>
+      <stop offset="50%" stop-color="#2563EB"/>
+      <stop offset="100%" stop-color="#1D4ED8"/>
+    </linearGradient>
+    <linearGradient id="midGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2563EB"/>
+      <stop offset="50%" stop-color="#0284C7"/>
+      <stop offset="100%" stop-color="#0369A1"/>
+    </linearGradient>
+    <linearGradient id="botGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0284C7"/>
+      <stop offset="40%" stop-color="#06B6D4"/>
+      <stop offset="80%" stop-color="#10B981"/>
+      <stop offset="100%" stop-color="#18F2A4"/>
+    </linearGradient>
+  </defs>
+
+  <g transform="translate(32, 32) scale(0.875)">
+    <!-- Top Wing -->
+    <path d="M 120 380 C 150 260 190 145 230 130 C 270 115 385 115 420 115 C 428 115 432 125 425 132 C 390 170 280 180 235 185 C 195 190 165 240 145 320 Z" fill="url(#topGrad)"/>
+    
+    <!-- Middle Wing -->
+    <path d="M 140 310 C 165 225 210 185 265 185 C 315 185 365 190 385 190 C 392 190 395 200 388 208 C 355 240 275 248 235 253 C 190 258 160 290 145 350 Z" fill="url(#midGrad)"/>
+    
+    <!-- Bottom Wing with Arrow -->
+    <path d="M 115 390 C 130 335 160 265 200 260 L 285 260 L 285 220 L 375 285 L 285 350 L 285 310 C 245 310 200 315 170 330 C 145 342 128 365 115 390 Z" fill="url(#botGrad)"/>
+  </g>
+</svg>

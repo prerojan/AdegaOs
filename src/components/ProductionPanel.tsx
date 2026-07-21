@@ -172,7 +172,7 @@ export default function ProductionPanel({
     const list: {
       tableId: string;
       tableName?: string;
-      tableType: 'mesa' | 'comanda';
+      tableType: string;
       tableNumber: number;
       itemIndex: number;
       productId: string;
@@ -180,7 +180,7 @@ export default function ProductionPanel({
       productCategory: string;
       quantity: number;
       notes?: string;
-      status: 'pendente' | 'recebido' | 'preparo' | 'pronto' | 'entregue' | 'cancelado';
+      status: string;
       timestamp: string;
     }[] = [];
 
@@ -355,8 +355,8 @@ export default function ProductionPanel({
           theme === 'dark' ? 'bg-[#0E0E0E] border-[#1C1C1C]' : 'bg-gray-50 border-gray-200 shadow-sm'
         }`}>
           <div className="flex items-center gap-2">
-            <Layers className="w-4 h-4 text-[#18F2A4]" />
-            <span>Terminal de Produção • FluxOS</span>
+            <img src="/logo.svg" alt="FluxOS" className="w-4.5 h-4.5 object-contain" />
+            <span className="font-semibold text-xs tracking-tight">Terminal de Produção • Flux<span className="text-transparent bg-clip-text bg-gradient-to-r from-violet-400 via-blue-400 to-[#18F2A4]">OS</span></span>
           </div>
 
           <div className="flex items-center gap-3">
@@ -437,22 +437,7 @@ export default function ProductionPanel({
             <span>Sinalizador Ativo</span>
           </button>
 
-          {/* Private Sector Badge: Completely replaces sector toggle */}
-          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-bold ${
-            theme === 'dark' ? 'bg-[#080808]/50 border-[#1C1C1C]' : 'bg-gray-100 border-gray-200'
-          }`}>
-            {activeSector === 'bar' ? (
-              <>
-                <GlassWater className="w-4 h-4 text-[#18F2A4]" />
-                <span className="text-[#18F2A4]">Terminal Privado: BAR</span>
-              </>
-            ) : (
-              <>
-                <ChefHat className="w-4 h-4 text-[#18F2A4]" />
-                <span className="text-[#18F2A4]">Terminal Privado: COZINHA</span>
-              </>
-            )}
-          </div>
+
 
           {/* Quick status view tabs */}
           <div className="flex rounded-lg border p-1" style={{ borderColor: theme === 'dark' ? '#1C1C1C' : '#E5E5E5' }}>
@@ -614,9 +599,9 @@ export default function ProductionPanel({
                           {/* Quick cancel option for items in mistake */}
                           <button
                             onClick={() => {
-                              if (confirm('Deseja cancelar a produção deste item? O estoque voltará ao normal.')) {
+                              (window as any).confirmModal('Deseja cancelar a produção deste item? O estoque voltará ao normal.', () => {
                                 handleUpdateItemStatus(item.tableId, item.itemIndex, 'cancelado');
-                              }
+                              });
                             }}
                             className={`p-1.5 rounded text-[10px] font-bold border cursor-pointer transition-all ${
                               theme === 'dark'

@@ -58,37 +58,37 @@ export default function LandingPage({ theme, onEnterSystem, onEnterAdmin, onTogg
   const competitors = [
     {
       feature: 'Previsão de Ruptura de Estoque (Curva ABC & Lead Time)',
-      adegaOs: true,
+      fluxOs: true,
       genericPos: false,
       legacySoft: 'Apenas relatórios estáticos, sem estimativa'
     },
     {
       feature: 'Rastreabilidade FIFO / PEPS com Gestão de Lotes de Validade',
-      adegaOs: true,
+      fluxOs: true,
       genericPos: false,
       legacySoft: 'Geralmente cadastrado como observação de texto'
     },
     {
       feature: 'Sincronização em Tempo Real (Garçom / Balcão / Produção)',
-      adegaOs: true,
+      fluxOs: true,
       genericPos: 'Sincronização lenta ou dependente de banco local',
       legacySoft: true
     },
     {
       feature: 'Desdobramento de Fardos / Receita Dose Automática',
-      adegaOs: true,
+      fluxOs: true,
       genericPos: false,
       legacySoft: 'Requer módulo externo caro de produção'
     },
     {
       feature: 'Painel BI Integrado com DRE e Fluxo de Caixa Real',
-      adegaOs: true,
+      fluxOs: true,
       genericPos: 'Apenas resumo básico de vendas',
       legacySoft: 'Geralmente requer exportar para Excel'
     },
     {
       feature: 'Funcionalidade Offline com Sincronia de Recuperação',
-      adegaOs: true,
+      fluxOs: true,
       genericPos: false,
       legacySoft: 'Banco local isolado'
     }
@@ -148,7 +148,7 @@ export default function LandingPage({ theme, onEnterSystem, onEnterAdmin, onTogg
         printer: 'Térmica Bematech - Setor Bebidas Rápidas',
         status: 'Impressão Concluída',
         target: 'Impressão automática sem intervenção manual',
-        layout: '🧾 COMANDA #4120 - MESA 08'
+        layout: 'COMANDA #4120 - MESA 08'
       }
     },
     {
@@ -275,18 +275,13 @@ export default function LandingPage({ theme, onEnterSystem, onEnterAdmin, onTogg
       <header className={`sticky top-0 z-50 backdrop-blur-md border-b flex items-center justify-between px-6 py-4 transition-colors ${
         theme === 'dark' ? 'bg-[#000000]/80 border-[#111111]' : 'bg-white/80 border-gray-200'
       }`}>
-        <div className="flex items-center gap-2.5 cursor-default select-none group">
-          <div className="relative w-6 h-6 flex items-center justify-center bg-gradient-to-tr from-emerald-500 to-teal-400 rounded-lg shadow-sm overflow-hidden group-hover:rotate-12 transition-transform duration-300">
-            <svg viewBox="0 0 24 24" fill="none" className="w-4 h-4 text-white font-black">
-              <path d="M4 12c0-4.418 3.582-8 8-8s8 3.582 8 8-3.582 8-8 8-8-3.582-8-8z" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeDasharray="30 15" />
-              <path d="M12 8l4 4-4 4" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </div>
-          <span className="font-extrabold text-sm tracking-tight text-gray-900 dark:text-white">
-            Flux<span className="text-[#18F2A4]">OS</span>
+        <div className="flex items-center gap-2 cursor-default select-none group">
+          <img src="/logo.svg" alt="FluxOS Logo" className="w-5.5 h-5.5 object-contain shrink-0 group-hover:scale-105 transition-transform" />
+          <span className={`font-extrabold text-sm tracking-tight ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
+            Flux<span className="text-transparent bg-clip-text bg-gradient-to-r from-violet-400 via-blue-400 to-[#18F2A4]">OS</span>
           </span>
           <span className={`text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border ml-1 ${
-            theme === 'dark' ? 'bg-[#18F2A4]/5 text-[#18F2A4] border-[#18F2A4]/20' : 'bg-emerald-50 text-emerald-700 border-emerald-100'
+            theme === 'dark' ? 'bg-[#18F2A4]/5 text-[#18F2A4] border-[#18F2A4]/20' : 'bg-emerald-50 text-emerald-800 border-emerald-200'
           }`}>
             v3.5 PRO
           </span>
@@ -379,7 +374,7 @@ export default function LandingPage({ theme, onEnterSystem, onEnterAdmin, onTogg
               <span className="w-2.5 h-2.5 rounded-full bg-red-500/80" />
               <span className="w-2.5 h-2.5 rounded-full bg-amber-500/80" />
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500/80" />
-              <span className="text-gray-500 font-mono text-[10px] ml-2">adegaos-cloud-v3.5.sh</span>
+              <span className="text-gray-500 font-mono text-[10px] ml-2">fluxos-cloud-v3.5.sh</span>
             </div>
 
             <div className={`flex flex-wrap gap-1 p-0.5 rounded border ${theme === 'dark' ? 'bg-black/20 border-gray-800/10' : 'bg-gray-100 border-gray-200'}`}>
@@ -710,7 +705,7 @@ export default function LandingPage({ theme, onEnterSystem, onEnterAdmin, onTogg
                     <div className={`border-t border-dashed pt-2 flex flex-col gap-1 ${
                       theme === 'dark' ? 'border-[#18F2A4]/30' : 'border-gray-300'
                     }`}>
-                      <div className="text-center font-bold">*** ADEGAOS - OPERAÇÃO DE SALÃO ***</div>
+                      <div className="text-center font-bold">*** FLUXOS - OPERAÇÃO DE SALÃO ***</div>
                       <div className="text-center">PEDIDO: #4120 | DATA: 19/07/2026</div>
                       <div className={`text-center border-b border-dashed pb-2 ${
                         theme === 'dark' ? 'border-[#18F2A4]/30' : 'border-gray-300'
@@ -1575,16 +1570,15 @@ export default function LandingPage({ theme, onEnterSystem, onEnterAdmin, onTogg
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-6 font-sans">
           <div className="flex flex-col items-center sm:items-start gap-1.5">
             <div className="flex items-center gap-2 cursor-default select-none group">
-              <div className="relative w-5 h-5 flex items-center justify-center bg-gradient-to-tr from-emerald-500 to-teal-400 rounded-md shadow-sm overflow-hidden group-hover:rotate-12 transition-transform duration-300">
-                <svg viewBox="0 0 24 24" fill="none" className="w-3 h-3 text-white font-black">
-                  <path d="M4 12c0-4.418 3.582-8 8-8s8 3.582 8 8-3.582 8-8 8-8-3.582-8-8z" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeDasharray="30 15" />
-                  <path d="M12 8l4 4-4 4" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </div>
-              <span className={`font-extrabold tracking-tight ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>Flux<span className="text-[#18F2A4]">OS</span></span>
+              <img src="/logo.svg" alt="FluxOS Logo" className="w-5 h-5 object-contain shrink-0 group-hover:rotate-12 transition-transform duration-300" />
+              <span className={`font-extrabold tracking-tight ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
+                Flux<span className="text-transparent bg-clip-text bg-gradient-to-r from-violet-400 via-blue-400 to-[#18F2A4]">OS</span>
+              </span>
             </div>
             <p 
-              className="text-[10px] text-gray-500 text-center sm:text-left cursor-default select-none"
+              onDoubleClick={() => onEnterSystem()}
+              className="text-[10px] text-slate-500 text-center sm:text-left cursor-pointer select-none hover:text-emerald-500 transition-colors font-medium"
+              title="Clique duplo para ir à tela de Login"
             >
               © 2026 FluxOS Technologies S.A. Todos os direitos reservados.
             </p>

@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Key, Smartphone, Wifi, WifiOff, RefreshCw, ShoppingCart, Search, Plus, Minus, Check, ArrowRight, User, AlertTriangle, TableProperties, DollarSign, X, CheckSquare, Layers, Sun, Moon, LogOut, Maximize2, Trash2, GlassWater } from 'lucide-react';
+import { Key, Smartphone, Wifi, WifiOff, RefreshCw, ShoppingCart, Search, Plus, Minus, Check, ArrowRight, User, AlertTriangle, TableProperties, DollarSign, X, CheckSquare, Layers, Sun, Moon, LogOut, Maximize2, Trash2, GlassWater, Info } from 'lucide-react';
 import { Product, TableComandaState, Sale, FinancialTransaction, CashierUser, SyncQueueItem } from '../types';
 import ProductCard from './ProductCard';
 import { ToastContainer, ToastItem, ToastType, playPremiumSound } from './ToastNotification';
@@ -14,6 +14,7 @@ interface OrderAppProps {
   onAddFinancial: (tx: FinancialTransaction) => void;
   onUpdateStock: (productId: string, qty: number) => void;
   onAddTableComanda?: (type: 'mesa' | 'comanda', number: number) => void;
+  onAddTableComandaBatch?: (type: 'mesa' | 'comanda', numbers: number[]) => void;
   onRemoveTableComanda?: (tableId: string) => void;
   usersList: CashierUser[];
   theme: 'dark' | 'light';
@@ -32,6 +33,7 @@ export default function OrderApp({
   onAddFinancial,
   onUpdateStock,
   onAddTableComanda,
+  onAddTableComandaBatch,
   onRemoveTableComanda,
   usersList,
   theme,
@@ -70,7 +72,41 @@ export default function OrderApp({
   // Table management states
   const [isConfiguringTables, setIsConfiguringTables] = useState(false);
   const [newTableType, setNewTableType] = useState<'mesa' | 'comanda'>('mesa');
-  const [newTableNumber, setNewTableNumber] = useState<number | ''>('');
+  const [newTableInput, setNewTableInput] = useState<string>('');
+
+  const parseBatchNumbers = (raw: string): number[] => {
+    const results = new Set<number>();
+    if (!raw || !raw.trim()) return [];
+    
+    // Normalize spaces around hyphens e.g. "1 - 10" or "8 - 20"
+    const normalized = raw.trim().replace(/\s*-\s*/g, '-').replace(/\s+a\s+/gi, '-');
+    const parts = normalized.split(/[,;\s]+/);
+    
+    for (const part of parts) {
+      if (!part) continue;
+      if (part.includes('-')) {
+        const subParts = part.split('-');
+        if (subParts.length === 2) {
+          const start = parseInt(subParts[0].trim(), 10);
+          const end = parseInt(subParts[1].trim(), 10);
+          if (!isNaN(start) && !isNaN(end)) {
+            const min = Math.min(start, end);
+            const max = Math.max(start, end);
+            const boundedMax = Math.min(max, min + 200);
+            for (let i = min; i <= boundedMax; i++) {
+              if (i > 0) results.add(i);
+            }
+          }
+        }
+      } else {
+        const num = parseInt(part, 10);
+        if (!isNaN(num) && num > 0) {
+          results.add(num);
+        }
+      }
+    }
+    return Array.from(results).sort((a, b) => a - b);
+  };
 
   // Sync authorizedUser when global currentUser changes
   React.useEffect(() => {
@@ -294,13 +330,17 @@ export default function OrderApp({
     const newQty = item.quantity + delta;
 
     if (newQty <= 0) {
-      if (confirm("Deseja realmente remover este item já consumido da mesa?")) {
+      (window as any).confirmModal("Deseja realmente remover este item já consumido da mesa?", () => {
         // Return stock back (negative quantity restores stock!)
         onUpdateStock(productId, -item.quantity);
-        updatedItems.splice(itemIndex, 1);
-      } else {
-        return;
-      }
+        const nextItems = [...(activeTable.items || [])];
+        const nextIndex = nextItems.findIndex(i => i.productId === productId);
+        if (nextIndex !== -1) {
+          nextItems.splice(nextIndex, 1);
+          onUpdateTableItems(selectedTableId, nextItems);
+        }
+      });
+      return;
     } else {
       // Check stock if increasing quantity
       if (delta > 0) {
@@ -329,7 +369,7 @@ export default function OrderApp({
   const handleRemoveConsumedItem = (productId: string) => {
     if (!selectedTableId || !activeTable) return;
 
-    if (confirm("Deseja cancelar e remover este item da mesa?")) {
+    (window as any).confirmModal("Deseja cancelar e remover este item da mesa?", () => {
       const updatedItems = [...(activeTable.items || [])];
       const itemIndex = updatedItems.findIndex(i => i.productId === productId);
       if (itemIndex !== -1) {
@@ -338,7 +378,7 @@ export default function OrderApp({
         updatedItems.splice(itemIndex, 1);
         onUpdateTableItems(selectedTableId, updatedItems);
       }
-    }
+    });
   };
 
   // Process checkout payments and wipe comanda table back to free
@@ -485,7 +525,9 @@ export default function OrderApp({
         {/* Left Side: App Name and interactive user badge */}
         <div className="flex items-center gap-2 shrink-0">
           <Smartphone className="w-4 h-4 text-[#18F2A4]" />
-          <span className="font-bold">FluxOS Order</span>
+          <span className="font-extrabold text-xs tracking-tight">
+            Flux<span className="text-transparent bg-clip-text bg-gradient-to-r from-violet-400 via-blue-400 to-[#18F2A4]">OS</span> Order
+          </span>
           {authorizedUser && (
             <button
               onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
@@ -591,39 +633,41 @@ export default function OrderApp({
       {/* Screen Router */}
       {!authorizedUser ? (
         /* PIN Login Lockscreen */
-        <div className="flex-1 flex flex-col justify-center items-center p-6 gap-6 my-auto">
-          <div className="text-center">
-            <div className={`w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-3 border ${
-              theme === 'dark' ? 'bg-[#080808] border-[#1C1C1C]' : 'bg-white border-gray-200'
+        <div className="flex-1 flex flex-col justify-center items-center p-6 gap-8 my-auto max-w-sm mx-auto w-full">
+          <div className="text-center flex flex-col items-center gap-2">
+            <div className={`w-14 h-14 rounded-2xl flex items-center justify-center border shadow-sm transition-transform duration-300 hover:scale-105 ${
+              theme === 'dark' ? 'bg-[#0B0B0B] border-[#1C1C1C] text-[#18F2A4]' : 'bg-white border-gray-150 text-emerald-600'
             }`}>
-              <Key className="w-6 h-6 text-[#18F2A4]" />
+              <Key className="w-5 h-5" />
             </div>
-            <h3 className="font-bold text-sm">Acesso do Atendente</h3>
-            <p className="text-[11px] text-gray-400 mt-1">Insira seu PIN numérico de 4 dígitos para lançar.</p>
+            <h3 className="font-extrabold text-base tracking-tight mt-2">Acesso do Atendente</h3>
+            <p className="text-xs text-gray-500 max-w-[240px]">Insira seu código PIN de 4 dígitos para gerenciar pedidos no salão.</p>
           </div>
 
           {/* Asterisk visual display */}
-          <div className="flex gap-2 justify-center py-2 h-10 items-center">
+          <div className="flex gap-3.5 justify-center py-2 h-10 items-center">
             {Array(4).fill(0).map((_, idx) => (
               <div
                 key={idx}
-                className={`w-4 h-4 rounded-full border transition-all ${
+                className={`w-3.5 h-3.5 rounded-full border transition-all duration-200 ${
                   pinInput.length > idx 
-                    ? (theme === 'dark' ? 'bg-[#18F2A4] border-[#18F2A4]' : 'bg-[#10B981] border-[#10B981]')
-                    : 'bg-transparent border-gray-600'
+                    ? (theme === 'dark' ? 'bg-gradient-to-tr from-violet-500 to-[#18F2A4] border-transparent scale-110 shadow-sm' : 'bg-gradient-to-tr from-emerald-500 to-teal-400 border-transparent scale-110 shadow-sm')
+                    : 'bg-transparent border-gray-600 dark:border-gray-800'
                 }`}
               />
             ))}
           </div>
 
           {/* Compact PIN dialpad */}
-          <div className="grid grid-cols-3 gap-3 w-64 max-w-full">
+          <div className="grid grid-cols-3 gap-3.5 w-full">
             {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map(num => (
               <button
                 key={num}
                 onClick={() => handleKeyPress(num)}
-                className={`py-3.5 rounded-lg text-lg font-bold transition-all active:scale-95 cursor-pointer ${
-                  theme === 'dark' ? 'bg-[#080808] border border-[#1C1C1C] hover:bg-[#111]' : 'bg-white border hover:bg-gray-100'
+                className={`py-4 rounded-xl text-lg font-black transition-all active:scale-95 cursor-pointer border flex items-center justify-center ${
+                  theme === 'dark' 
+                    ? 'bg-[#0A0A0A] border-[#1C1C1C] text-gray-200 hover:bg-[#111] hover:text-white' 
+                    : 'bg-white border-gray-200 text-gray-800 hover:bg-gray-50 hover:text-black'
                 }`}
               >
                 {num}
@@ -634,25 +678,29 @@ export default function OrderApp({
                 setAuthorizedUser(usersList[2]); // instant mock bypass so user doesn't get locked out
                 addToast('Acesso simulado como João (Garçom). PIN padrão: 3333', 'info');
               }}
-              className="text-[9px] text-gray-500 font-bold uppercase transition-colors text-center"
+              className={`text-[10px] font-black uppercase tracking-wider transition-colors text-center py-4 rounded-xl border border-dashed flex items-center justify-center ${
+                theme === 'dark' ? 'border-[#1C1C1C] text-[#18F2A4]/70 hover:text-[#18F2A4] hover:bg-[#18F2A4]/5' : 'border-gray-200 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50'
+              }`}
             >
               Demo PIN
             </button>
             <button
               onClick={() => handleKeyPress('0')}
-              className={`py-3.5 rounded-lg text-lg font-bold transition-all active:scale-95 cursor-pointer ${
-                theme === 'dark' ? 'bg-[#080808] border border-[#1C1C1C] hover:bg-[#111]' : 'bg-white border hover:bg-gray-100'
+              className={`py-4 rounded-xl text-lg font-black transition-all active:scale-95 cursor-pointer border flex items-center justify-center ${
+                theme === 'dark' 
+                  ? 'bg-[#0A0A0A] border-[#1C1C1C] text-gray-200 hover:bg-[#111] hover:text-white' 
+                  : 'bg-white border-gray-200 text-gray-800 hover:bg-gray-50 hover:text-black'
               }`}
             >
               0
             </button>
             <button
               onClick={handleBackspace}
-              className={`py-3.5 rounded-lg text-sm font-semibold transition-all active:scale-95 cursor-pointer ${
-                theme === 'dark' ? 'bg-red-950/20 hover:bg-red-950/40 text-red-400' : 'bg-red-50 hover:bg-red-100 text-red-600'
+              className={`py-4 rounded-xl text-xs font-black tracking-wide transition-all active:scale-95 cursor-pointer border flex items-center justify-center ${
+                theme === 'dark' ? 'bg-red-950/10 border-red-900/20 text-red-400 hover:bg-red-950/20' : 'bg-red-50 border-red-100 text-red-600 hover:bg-red-100/70'
               }`}
             >
-              DEL
+              APAGAR
             </button>
           </div>
         </div>
@@ -662,18 +710,18 @@ export default function OrderApp({
           {activeScreen === 'tables' ? (
             /* Subscreen 1: Tables and Comandas list grid */
             <div className="p-4 flex flex-col gap-4 flex-1 overflow-y-auto">
-              <div className="flex justify-between items-center">
-                <span className="text-xs uppercase font-bold tracking-wider text-gray-400">Salão / Comandas</span>
+              <div className="flex justify-between items-center pb-2 border-b dark:border-gray-900/40 border-gray-200/50">
+                <span className="text-[10px] uppercase font-bold tracking-wider text-gray-400">Salão / Comandas</span>
                 {authorizedUser && (authorizedUser.role === 'admin' || authorizedUser.role === 'manager') ? (
                   <button
                     onClick={() => setIsConfiguringTables(true)}
-                    className={`text-[10px] font-bold px-2.5 py-1 rounded-md border flex items-center gap-1 transition-all hover:scale-105 cursor-pointer ${
+                    className={`text-[10px] font-bold px-3 py-1.5 rounded-lg border flex items-center gap-1.5 transition-all hover:scale-[1.02] cursor-pointer ${
                       theme === 'dark' 
-                        ? 'bg-[#18F2A4]/10 border-[#18F2A4]/30 text-[#18F2A4]' 
-                        : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                        ? 'bg-[#18F2A4]/10 border-[#18F2A4]/30 text-[#18F2A4] hover:bg-[#18F2A4]/15' 
+                        : 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100/70'
                     }`}
                   >
-                    ⚙ Configurar Mesas/Comandas
+                    Configurar Terminais
                   </button>
                 ) : (
                   <button
@@ -688,45 +736,55 @@ export default function OrderApp({
               </div>
 
               {/* Grid representation */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 xs:grid-cols-3 gap-3">
                 {tablesComandas.map(tbl => {
                   const itemsCount = tbl.items ? tbl.items.reduce((acc, i) => acc + i.quantity, 0) : 0;
+                  const isLivre = tbl.status === 'livre';
+                  const isOcupada = tbl.status === 'ocupada';
+                  const isFechando = tbl.status === 'fechando';
                   return (
                     <button
                       key={tbl.id}
                       onClick={() => handleSelectTable(tbl.id)}
-                      className={`p-4 rounded-xl border text-left flex flex-col justify-between gap-4 transition-all relative overflow-hidden group cursor-pointer ${
-                        tbl.status === 'ocupada'
-                          ? 'border-amber-500 bg-amber-500/5'
-                          : tbl.status === 'fechando'
-                            ? 'border-red-500 bg-red-500/5 animate-pulse'
-                            : 'border-transparent hover:border-gray-800 bg-[#111111]/40'
+                      className={`group relative p-4 rounded-xl border text-left flex flex-col justify-between gap-4 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-sm cursor-pointer ${
+                        isOcupada
+                          ? 'border-amber-500/30 bg-amber-500/[0.02] hover:bg-amber-500/[0.04]'
+                          : isFechando
+                            ? 'border-red-500/40 bg-red-500/[0.03] hover:bg-red-500/[0.05] animate-pulse'
+                            : theme === 'dark'
+                              ? 'border-[#1C1C1C] bg-[#0E0E0E]/40 hover:border-gray-700 hover:bg-[#111]'
+                              : 'border-gray-200 bg-white hover:border-gray-300 hover:shadow-sm'
                       }`}
-                      style={{ backgroundColor: tbl.status === 'livre' ? (theme === 'dark' ? '#111' : '#FFF') : '', borderColor: tbl.status === 'livre' ? (theme === 'dark' ? '#1C1C1C' : '#E5E5E5') : '' }}
                     >
-                      <div className="flex justify-between items-start">
-                        <span className="font-extrabold text-sm leading-none uppercase tracking-wide">
-                          {tbl.type === 'mesa' ? 'Mesa' : 'Comanda'} {tbl.number}
+                      {/* Badge and state dot */}
+                      <div className="flex justify-between items-center w-full">
+                        <span className="font-extrabold text-xs uppercase tracking-wide text-gray-400">
+                          {tbl.type === 'mesa' ? 'Mesa' : 'Comanda'} <span className="font-black" style={{ color: theme === 'dark' ? 'white' : '#111' }}>{tbl.number}</span>
                         </span>
+                        
                         <span className={`w-2 h-2 rounded-full ${
-                          tbl.status === 'ocupada' ? 'bg-amber-500' : tbl.status === 'fechando' ? 'bg-red-500' : 'bg-emerald-500'
+                          isOcupada ? 'bg-amber-500' : isFechando ? 'bg-red-500' : 'bg-emerald-500'
                         }`} />
                       </div>
 
-                      {tbl.status !== 'livre' ? (
-                        <div>
-                          <span className="text-[10px] text-gray-400 block font-mono">Consumo: {itemsCount} un</span>
-                          <span className="font-mono text-xs font-black text-gray-200 mt-1 block" style={{ color: theme === 'dark' ? 'white' : '#111' }}>R$ {tbl.subtotal.toFixed(2)}</span>
+                      {/* Content block */}
+                      {!isLivre ? (
+                        <div className="flex flex-col gap-0.5 mt-2">
+                          <span className="text-[9px] text-gray-400 font-mono">Consumo: {itemsCount} un</span>
+                          <span className="font-mono text-xs font-black" style={{ color: theme === 'dark' ? '#18F2A4' : '#10B981' }}>
+                            R$ {tbl.subtotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
                         </div>
                       ) : (
-                        <span className="text-[10px] text-gray-500 block italic">Livre</span>
+                        <div className="flex flex-col gap-0.5 mt-2">
+                          <span className="text-[10px] text-gray-400 italic font-medium">Livre</span>
+                          <span className="font-mono text-xs font-semibold text-gray-500">R$ 0,00</span>
+                        </div>
                       )}
                     </button>
                   );
                 })}
               </div>
-
-
             </div>
           ) : activeScreen === 'order' ? (
             /* Subscreen 2: Catalog drink picker and quantity modifier */
@@ -1148,13 +1206,13 @@ export default function OrderApp({
           }`}>
             <div className="flex justify-between items-center border-b pb-2" style={{ borderColor: theme === 'dark' ? '#1C1C1C' : '#E5E5E5' }}>
               <h3 className="font-extrabold text-xs tracking-tight flex items-center gap-1.5">
-                <span className="text-emerald-500">⚙</span> Painel de Mesas & Comandas
+                Painel de Mesas & Comandas
               </h3>
               <button 
                 type="button"
                 onClick={() => {
                   setIsConfiguringTables(false);
-                  setNewTableNumber('');
+                  setNewTableInput('');
                 }} 
                 className="text-gray-400 hover:text-white text-xs font-black p-1 cursor-pointer"
               >
@@ -1164,7 +1222,7 @@ export default function OrderApp({
 
             {/* Quick Add Form */}
             <div className="flex flex-col gap-2.5">
-              <span className="text-[9px] uppercase font-bold text-gray-400">Adicionar Novo Terminal</span>
+              <span className="text-[9px] uppercase font-bold text-gray-400">Adicionar Novo Terminal (Unidade ou Lote)</span>
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
@@ -1190,34 +1248,60 @@ export default function OrderApp({
                 </button>
               </div>
 
-              <div className="flex gap-2 mt-1">
-                <input
-                  type="number"
-                  placeholder="Número (Ex: 16)"
-                  min="1"
-                  value={newTableNumber}
-                  onChange={(e) => setNewTableNumber(e.target.value === '' ? '' : Number(e.target.value))}
-                  className="p-2 rounded-lg border text-xs flex-1 focus:outline-none focus:border-emerald-500"
-                  style={{ backgroundColor: theme === 'dark' ? '#111' : 'white', borderColor: theme === 'dark' ? '#222' : '#E5E5E5', color: theme === 'dark' ? 'white' : 'black' }}
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!newTableNumber) {
-                      addToast('Por favor, digite um número.', 'warning');
-                      return;
-                    }
-                    if (onAddTableComanda) {
-                      onAddTableComanda(newTableType, Number(newTableNumber));
-                      setNewTableNumber('');
-                    }
-                  }}
-                  className={`px-4 rounded-lg text-xs font-black transition-all active:scale-95 cursor-pointer ${
-                    theme === 'dark' ? 'bg-[#18F2A4] text-black hover:bg-[#12d58f]' : 'bg-[#10B981] text-white hover:bg-[#0e9f6e]'
-                  }`}
-                >
-                  Adicionar
-                </button>
+              <div className="flex flex-col gap-1.5 mt-1">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="Ex: 1-10 ou 15"
+                    value={newTableInput}
+                    onChange={(e) => setNewTableInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        const numbers = parseBatchNumbers(newTableInput);
+                        if (numbers.length === 0) {
+                          addToast('Digite um número ou faixa válida (Ex: 1-10 ou 15)', 'warning');
+                          return;
+                        }
+                        if (onAddTableComandaBatch) {
+                          onAddTableComandaBatch(newTableType, numbers);
+                        } else if (onAddTableComanda) {
+                          numbers.forEach(num => onAddTableComanda(newTableType, num));
+                        }
+                        addToast(`${numbers.length} ${newTableType === 'mesa' ? (numbers.length === 1 ? 'mesa cadastrada' : 'mesas cadastradas em lote') : (numbers.length === 1 ? 'comanda cadastrada' : 'comandas cadastradas em lote')}!`, 'success');
+                        setNewTableInput('');
+                      }
+                    }}
+                    className="p-2 rounded-lg border text-xs flex-1 focus:outline-none focus:border-emerald-500 font-bold"
+                    style={{ backgroundColor: theme === 'dark' ? '#111' : 'white', borderColor: theme === 'dark' ? '#222' : '#E5E5E5', color: theme === 'dark' ? 'white' : 'black' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const numbers = parseBatchNumbers(newTableInput);
+                      if (numbers.length === 0) {
+                        addToast('Digite um número ou faixa válida (Ex: 1-10 ou 15)', 'warning');
+                        return;
+                      }
+                      if (onAddTableComandaBatch) {
+                        onAddTableComandaBatch(newTableType, numbers);
+                      } else if (onAddTableComanda) {
+                        numbers.forEach(num => onAddTableComanda(newTableType, num));
+                      }
+                      addToast(`${numbers.length} ${newTableType === 'mesa' ? (numbers.length === 1 ? 'mesa cadastrada' : 'mesas cadastradas em lote') : (numbers.length === 1 ? 'comanda cadastrada' : 'comandas cadastradas em lote')}!`, 'success');
+                      setNewTableInput('');
+                    }}
+                    className={`px-4 rounded-lg text-xs font-black transition-all active:scale-95 cursor-pointer shrink-0 ${
+                      theme === 'dark' ? 'bg-[#18F2A4] text-black hover:bg-[#12d58f]' : 'bg-[#10B981] text-white hover:bg-[#0e9f6e]'
+                    }`}
+                  >
+                    Adicionar
+                  </button>
+                </div>
+                <span className="text-[9px] text-gray-400 font-medium leading-tight flex items-center gap-1.5 mt-0.5">
+                  <Info className="w-3 h-3 text-emerald-500 shrink-0 inline" />
+                  <span>Digite <strong className={theme === 'dark' ? 'text-white' : 'text-gray-900'}>1 - 10</strong> ou <strong className={theme === 'dark' ? 'text-white' : 'text-gray-900'}>8 - 20</strong> para cadastrar em lote.</span>
+                </span>
               </div>
             </div>
 
@@ -1247,9 +1331,9 @@ export default function OrderApp({
                             addToast(`Este terminal está ocupado ou finalizando. Libere-o primeiro antes de remover.`, 'warning');
                             return;
                           }
-                          if (confirm(`Excluir permanentemente a ${tbl.type === 'mesa' ? 'Mesa' : 'Comanda'} ${tbl.number}?`)) {
+                          (window as any).confirmModal(`Excluir permanentemente a ${tbl.type === 'mesa' ? 'Mesa' : 'Comanda'} ${tbl.number}?`, () => {
                             onRemoveTableComanda(tbl.id);
-                          }
+                          });
                         }}
                         className={`text-red-500 font-black hover:bg-red-500/10 px-2 py-1 rounded transition-colors cursor-pointer ${
                           tbl.status !== 'livre' ? 'opacity-30 cursor-not-allowed' : ''
@@ -1315,7 +1399,7 @@ export default function OrderApp({
               {/* Section 1: Fila de Lançamento (Draft Items) */}
               <div>
                 <span className="text-[11px] uppercase tracking-wider font-extrabold text-[#18F2A4] block mb-3">
-                  🚀 Fila de Lançamento (Novos Pedidos)
+                  Fila de Lançamento (Novos Pedidos)
                 </span>
                 
                 {orderCart.length === 0 ? (
@@ -1420,7 +1504,7 @@ export default function OrderApp({
               {/* Section 2: Itens já Consumidos (Confirmed Items) */}
               <div>
                 <span className="text-[11px] uppercase tracking-wider font-extrabold text-gray-400 block mb-3">
-                  🍻 Itens já Confirmados e Consumidos
+                  Itens já Confirmados e Consumidos
                 </span>
                 
                 {!activeTable.items || activeTable.items.length === 0 ? (

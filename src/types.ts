@@ -1,15 +1,8 @@
+import { ReactNode } from 'react';
+
 export interface RecipeItem {
   ingredientProductId: string;
-  quantity: number; // Quantidade fracionada ou inteira (ex: 1 para fardo/lata, 0.1 para dose de whisky)
-}
-
-export interface ProductBatch {
-  id: string;
-  batchNumber: string; // Número do Lote
-  expiryDate: string; // Data de validade (YYYY-MM-DD)
-  initialQuantity: number; // Quantidade original do lote
-  currentQuantity: number; // Quantidade restante no lote
-  createdAt: string; // ISO String de criação
+  quantity: number;
 }
 
 export interface Product {
@@ -22,54 +15,31 @@ export interface Product {
   supplierId: string;
   costPrice: number;
   sellPrice: number;
-  margin: number; // calculated: ((sell - cost) / sell) * 100
-  unit: 'UN' | 'LT' | 'KG';
-  boxQuantity: number; // e.g., 12 units in a box/fardo
-  stockBoxes: number;  // physical unopened boxes
-  stockUnits: number;  // loose physical units
-  // Total stock in units is calculated: (stockBoxes * boxQuantity) + stockUnits
+  unit: 'UN' | 'LT' | 'KG' | string;
+  boxQuantity: number;
+  stockBoxes: number;
+  stockUnits: number;
   minStockUnits: number;
   maxStockUnits: number;
   active: boolean;
   ageRestricted: boolean;
-  image?: string;
   notes?: string;
-  
-  // Advanced inventory fields
-  hasTechnicalSheet?: boolean; // Se possui Ficha Técnica / Receita
-  recipe?: RecipeItem[]; // Lista de ingredientes do combo/dose
-  batches?: ProductBatch[]; // Lotes vinculados para controle FIFO/PEPS
-  leadTimeDays?: number; // Tempo médio de entrega do fornecedor em dias
-  abcClass?: 'A' | 'B' | 'C'; // Classificação Curva ABC (calculada)
+  image?: string;
+  hasTechnicalSheet?: boolean;
+  recipe?: RecipeItem[];
+  leadTimeDays?: number;
+  abcClass?: 'A' | 'B' | 'C' | string;
+  margin?: number;
 }
 
 export interface Supplier {
   id: string;
   companyName: string;
   contactName: string;
-  phone: string;
-  whatsapp: string;
-  email: string;
+  phone?: string;
+  whatsapp?: string;
+  email?: string;
   notes?: string;
-}
-
-export interface PurchaseItem {
-  productId: string;
-  quantityBoxes: number;
-  quantityUnits: number;
-  costPrice: number;
-}
-
-export interface Purchase {
-  id: string;
-  supplierId: string;
-  invoiceNumber: string;
-  date: string;
-  items: PurchaseItem[];
-  total: number;
-  freight: number;
-  discount: number;
-  status: 'pendente' | 'recebido';
 }
 
 export interface SaleItem {
@@ -77,105 +47,120 @@ export interface SaleItem {
   quantity: number;
   unitPrice: number;
   notes?: string;
+  status?: string;
+  timestamp?: string;
+  statusHistory?: any[];
 }
 
 export interface Sale {
   id: string;
-  number: string;
-  timestamp: string; // ISO string
-  type: 'mesa' | 'comanda' | 'balcao' | 'entrega';
-  identifier: string; // e.g., "Mesa 04", "Comanda 112", "Balcão #1", "WhatsApp - João"
-  items: SaleItem[];
-  subtotal: number;
-  discount: number;
+  status: 'pago' | 'pendente' | 'cancelado' | string;
+  paymentMethod: string;
   total: number;
-  paymentMethod: 'pix' | 'dinheiro' | 'debito' | 'credito' | 'dividido' | 'fiado';
-  paymentSplit?: { method: string; value: number }[];
-  cardBrand?: string; // ex: "Stone - Visa", "Maquininha 1 - Master"
-  status: 'aberto' | 'pago' | 'cancelado';
-  cancelReason?: string;
-  cashierId: string; // PIN or User ID
+  items: SaleItem[];
+  timestamp: string;
+  clientName?: string;
+  openedBy?: string;
+  tableId?: string;
+  paymentSplit?: any;
+  number?: number | string;
+  cashierId?: string;
+  discount?: number;
+  type?: string;
+  identifier?: string;
+  subtotal?: number;
+  cardBrand?: string;
   waiterName?: string;
-  deliveryAddress?: string;
-  deliveryFee?: number;
-  deliveryDriverName?: string;
-  deliveryStatus?: 'pendente' | 'preparo' | 'pronto' | 'saiu' | 'entregue' | 'cancelado';
-  customerPhone?: string;
 }
 
 export interface FinancialTransaction {
   id: string;
-  date: string;
-  type: 'receita' | 'despesa';
-  category: string; // ex: "Vendas", "Aluguel", "Fornecedores", "Energia", "Salários"
-  description: string;
+  type: 'receita' | 'despesa' | string;
+  status: 'pago' | 'pendente' | 'cancelado' | string;
+  category: string;
   value: number;
-  paymentMethod?: string;
-  status: 'pago' | 'pendente';
+  description: string;
+  timestamp?: string;
+  date?: string;
   dueDate?: string;
+  paymentMethod?: string;
+}
+
+export interface TableItem {
+  productId: string;
+  quantity: number;
+  unitPrice: number;
+  notes?: string;
+  status?: string;
+  timestamp?: string;
+  statusHistory?: any[];
+}
+
+export interface TableComandaState {
+  id: string;
+  type: 'mesa' | 'comanda' | string;
+  number: number;
+  tableName?: string;
+  status: 'livre' | 'ocupada' | 'fechando' | string;
+  items: TableItem[];
+  subtotal?: number;
 }
 
 export interface CashierUser {
   id: string;
   name: string;
   pin: string;
-  role: 'admin' | 'manager' | 'finance' | 'cashier' | 'waiter' | 'stock' | 'kitchen' | 'bar';
+  role: 'admin' | 'manager' | 'finance' | 'cashier' | 'waiter' | 'stock' | 'kitchen' | 'bar' | string;
   active: boolean;
+}
+
+export interface Shift {
+  id: string;
+  openedBy: string;
+  openTime: string;
+  closeTime?: string;
+  initialBalance: number;
+  cashSales: number;
+  otherSales: {
+    pix: number;
+    card: number;
+    debt: number;
+  };
+  suprimentos: {
+    id: string;
+    amount: number;
+    reason: string;
+    timestamp: string;
+  }[];
+  sangrias: {
+    id: string;
+    amount: number;
+    reason: string;
+    timestamp: string;
+  }[];
+  status?: string;
+  countedAmount?: number;
+  notes?: string;
+  isOpen?: boolean;
+  closingCashCounted?: number;
+  discrepancy?: number;
 }
 
 export interface SyncQueueItem {
   id: string;
   timestamp: string;
-  action: 'create_sale' | 'update_sale' | 'sync_stock';
-  data: any;
-  status: 'pending' | 'syncing' | 'done' | 'failed' | 'conflict';
-  errorMessage?: string;
+  action: 'create_sale' | string;
+  data: {
+    sale: Sale;
+    tx: FinancialTransaction;
+    tableId: string;
+  };
+  status: 'pending' | 'synced' | 'failed' | string;
 }
 
-export interface TableComandaState {
-  id: string; // e.g. "mesa-4" or "comanda-15"
-  type: 'mesa' | 'comanda';
-  number: number;
-  tableName?: string; // Option to put a name on the table (e.g. "Mesa do João")
-  status: 'livre' | 'ocupada' | 'fechando';
-  waiterId?: string;
-  waiterName?: string;
-  items: {
-    productId: string;
-    quantity: number;
-    notes?: string;
-    status: 'pendente' | 'recebido' | 'preparo' | 'pronto' | 'entregue' | 'cancelado';
-    statusHistory: { status: string; timestamp: string; userId: string }[];
-  }[];
-  subtotal: number;
+// Global window extensions for custom premium dialogs and alert overrides
+declare global {
+  interface Window {
+    confirmModal: (message: string, onConfirm: () => void, onCancel?: () => void) => void;
+  }
 }
-
-export interface Shift {
-  id: string;
-  isOpen: boolean;
-  openTime: string; // ISO string
-  closeTime?: string; // ISO string
-  openedBy: string; // operator name
-  initialBalance: number; // fundo de troco
-  cashSales: number; // expected cash from sales
-  otherSales: { pix: number; card: number; debt: number };
-  sangrias: { id: string; timestamp: string; amount: number; reason: string }[];
-  suprimentos: { id: string; timestamp: string; amount: number; reason: string }[];
-  closingCashCounted?: number;
-  discrepancy?: number;
-  notes?: string;
-}
-
-export interface AdegaBranch {
-  id: string;
-  name: string;
-  location: string;
-  managerName: string;
-  employeesCount: number;
-  productsCount: number;
-  monthlyRevenue: number;
-  monthlyProfit: number;
-  status: 'active' | 'inactive';
-  phone: string;
-}
-

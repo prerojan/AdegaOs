@@ -1,566 +1,189 @@
-import { initializeApp, getApps, getApp } from 'firebase/app';
-import { 
-  getFirestore, 
-  collection, 
-  doc, 
-  getDocs, 
-  setDoc, 
-  deleteDoc,
-  writeBatch,
-  onSnapshot
-} from 'firebase/firestore';
 import { Product, Supplier, Sale, FinancialTransaction, TableComandaState, CashierUser } from '../types';
 import { 
   INITIAL_PRODUCTS, MOCK_SALES, INITIAL_SUPPLIERS, 
-  MOCK_FINANCIAL_TRANSACTIONS, INITIAL_TABLES_COMANDAS, INITIAL_CASHIER_USERS 
+  INITIAL_TABLES_COMANDAS, INITIAL_CASHIER_USERS 
 } from '../data/mockData';
 
-// Public client-side environment variables
-const metaEnv = (import.meta as any).env || {};
+export const isFirebaseEnabled = false;
 
-const firebaseConfig = {
-  apiKey: metaEnv.VITE_FIREBASE_API_KEY || "AIzaSyDl6RiKkdWSJTb2Qi1cHKXX45j5HUNxnAU",
-  authDomain: metaEnv.VITE_FIREBASE_AUTH_DOMAIN || "adegaos-bc0ff.firebaseapp.com",
-  projectId: metaEnv.VITE_FIREBASE_PROJECT_ID || "adegaos-bc0ff",
-  storageBucket: metaEnv.VITE_FIREBASE_STORAGE_BUCKET || "adegaos-bc0ff.firebasestorage.app",
-  messagingSenderId: metaEnv.VITE_FIREBASE_MESSAGING_SENDER_ID || "303265966754",
-  appId: metaEnv.VITE_FIREBASE_APP_ID || "1:303265966754:web:098e6dfac893e02f0b45fb",
+// Reactive state listeners
+const listeners = {
+  products: new Set<(data: Product[]) => void>(),
+  sales: new Set<(data: Sale[]) => void>(),
+  suppliers: new Set<(data: Supplier[]) => void>(),
+  transactions: new Set<(data: FinancialTransaction[]) => void>(),
+  tables: new Set<(data: TableComandaState[]) => void>(),
+  users: new Set<(data: CashierUser[]) => void>()
 };
 
-
-const isFirebaseConfigured = !!(
-  firebaseConfig.apiKey && 
-  firebaseConfig.projectId && 
-  firebaseConfig.appId
-);
-
-let app;
-let db: any = null;
-
-if (isFirebaseConfigured) {
+// Helper to get data with seeding
+function getCollection<T>(key: string, initialData: T[]): T[] {
   try {
-    app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
-    db = getFirestore(app);
-    console.log('🔥 Firebase initialized successfully for production storage!');
-  } catch (error) {
-    console.error('❌ Failed to initialize Firebase:', error);
+    const stored = localStorage.getItem(`fluxos_${key}`);
+    if (stored) {
+      return JSON.parse(stored);
+    }
+    localStorage.setItem(`fluxos_${key}`, JSON.stringify(initialData));
+    return initialData;
+  } catch {
+    return initialData;
   }
-} else {
-  console.log(
-    'ℹ️ Firebase environment variables are not configured.\n' +
-    'The application is running in hybrid mode, persisting data safely in local storage.\n' +
-    'To transition to production cloud storage (Firebase Firestore), configure the environment variables on Vercel/Netlify or in .env.'
-  );
 }
 
-// Check status
-export const isFirebaseEnabled = () => !!db;
-
-// Helper to handle local storage fallback
-const getLocalData = <T>(key: string, initialDefault: T | (() => T)): T => {
-  const local = localStorage.getItem(key);
-  if (local) {
-    try {
-      return JSON.parse(local) as T;
-    } catch {
-      // JSON parse failed
-    }
+// Helper to set data and notify listeners
+function setCollection<T>(key: string, data: T[], listenerSet: Set<(data: T[]) => void>) {
+  try {
+    localStorage.setItem(`fluxos_${key}`, JSON.stringify(data));
+  } catch (err) {
+    console.error(`Error saving collection ${key}:`, err);
   }
-  return typeof initialDefault === 'function' 
-    ? (initialDefault as () => T)() 
-    : initialDefault;
-};
+  listenerSet.forEach(cb => cb([...data]));
+}
 
-const setLocalData = <T>(key: string, data: T) => {
-  localStorage.setItem(key, JSON.stringify(data));
-};
+// Subscription methods
+export function subscribeProducts(callback: (p: Product[]) => void) {
+  listeners.products.add(callback);
+  callback(getCollection('products', INITIAL_PRODUCTS));
+  return () => { listeners.products.delete(callback); };
+}
 
-// Helper to recursively strip undefined values to prevent Firestore crashes
-const cleanData = (obj: any): any => {
-  if (obj === null || obj === undefined) {
-    return null;
-  }
-  if (Array.isArray(obj)) {
-    return obj.map(item => cleanData(item));
-  }
-  if (typeof obj === 'object') {
-    const newObj: any = {};
-    for (const key of Object.keys(obj)) {
-      const val = obj[key];
-      if (val !== undefined) {
-        newObj[key] = cleanData(val);
-      }
-    }
-    return newObj;
-  }
-  return obj;
-};
+export function subscribeSales(callback: (s: Sale[]) => void) {
+  listeners.sales.add(callback);
+  callback(getCollection('sales', MOCK_SALES));
+  return () => { listeners.sales.delete(callback); };
+}
 
-/* ============================================================================
-   1. PRODUCTS SERVICE
-   ============================================================================ */
-export const fetchProductsFromDb = async (): Promise<Product[]> => {
-  if (db) {
-    try {
-      const snap = await getDocs(collection(db, 'products'));
-      if (snap.empty) {
-        // Seed database on first run
-        const seedProducts = INITIAL_PRODUCTS;
-        const batch = writeBatch(db);
-        seedProducts.forEach((p) => {
-          const docRef = doc(db, 'products', p.id);
-          batch.set(docRef, cleanData(p));
-        });
-        await batch.commit();
-        console.log('🌱 Seeded products collection in Firestore.');
-        return seedProducts;
-      }
-      return snap.docs.map(d => d.data() as Product);
-    } catch (err) {
-      console.error('Error fetching products from Firestore, falling back to local:', err);
-    }
-  }
-  return getLocalData<Product[]>('adega_products', INITIAL_PRODUCTS);
-};
+export function subscribeSuppliers(callback: (s: Supplier[]) => void) {
+  listeners.suppliers.add(callback);
+  callback(getCollection('suppliers', INITIAL_SUPPLIERS));
+  return () => { listeners.suppliers.delete(callback); };
+}
 
-export const saveProductToDb = async (product: Product): Promise<void> => {
-  if (db) {
-    try {
-      await setDoc(doc(db, 'products', product.id), cleanData(product));
-      return;
-    } catch (err) {
-      console.error('Error saving product to Firestore:', err);
-    }
-  }
-  // Fallback to local state is managed in React State + we update localStorage
-  const current = getLocalData<Product[]>('adega_products', INITIAL_PRODUCTS);
-  const updated = current.some(p => p.id === product.id)
-    ? current.map(p => p.id === product.id ? product : p)
-    : [...current, product];
-  setLocalData('adega_products', updated);
-};
+export function subscribeTransactions(callback: (t: FinancialTransaction[]) => void) {
+  listeners.transactions.add(callback);
+  callback(getCollection('transactions', []));
+  return () => { listeners.transactions.delete(callback); };
+}
 
-/* ============================================================================
-   2. SALES SERVICE
-   ============================================================================ */
-export const fetchSalesFromDb = async (): Promise<Sale[]> => {
-  if (db) {
-    try {
-      const snap = await getDocs(collection(db, 'sales'));
-      if (snap.empty) {
-        // Seed first batch of sales
-        const seedSales = MOCK_SALES;
-        const batch = writeBatch(db);
-        // Only write first 25 sales to avoid exceeding batch limits
-        seedSales.slice(0, 25).forEach((sale) => {
-          const docRef = doc(db, 'sales', sale.id);
-          batch.set(docRef, cleanData(sale));
-        });
-        await batch.commit();
-        return seedSales;
-      }
-      return snap.docs.map(d => d.data() as Sale).sort((a, b) => 
-        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-      );
-    } catch (err) {
-      console.error('Error fetching sales from Firestore:', err);
-    }
-  }
-  return getLocalData<Sale[]>('adega_sales', MOCK_SALES);
-};
+export function subscribeTablesComandas(callback: (t: TableComandaState[]) => void) {
+  listeners.tables.add(callback);
+  callback(getCollection('tables', INITIAL_TABLES_COMANDAS));
+  return () => { listeners.tables.delete(callback); };
+}
 
-export const saveSaleToDb = async (sale: Sale): Promise<void> => {
-  if (db) {
-    try {
-      await setDoc(doc(db, 'sales', sale.id), cleanData(sale));
-      return;
-    } catch (err) {
-      console.error('Error saving sale to Firestore:', err);
-    }
-  }
-  const current = getLocalData<Sale[]>('adega_sales', MOCK_SALES);
-  const updated = current.some(s => s.id === sale.id)
-    ? current.map(s => s.id === sale.id ? sale : s)
-    : [sale, ...current];
-  setLocalData('adega_sales', updated);
-};
+export function subscribeUsers(callback: (u: CashierUser[]) => void) {
+  listeners.users.add(callback);
+  callback(getCollection('users', INITIAL_CASHIER_USERS));
+  return () => { listeners.users.delete(callback); };
+}
 
-/* ============================================================================
-   3. SUPPLIERS SERVICE
-   ============================================================================ */
-export const fetchSuppliersFromDb = async (): Promise<Supplier[]> => {
-  if (db) {
-    try {
-      const snap = await getDocs(collection(db, 'suppliers'));
-      if (snap.empty) {
-        const seedSuppliers = INITIAL_SUPPLIERS;
-        const batch = writeBatch(db);
-        seedSuppliers.forEach((s) => {
-          const docRef = doc(db, 'suppliers', s.id);
-          batch.set(docRef, cleanData(s));
-        });
-        await batch.commit();
-        return seedSuppliers;
-      }
-      return snap.docs.map(d => d.data() as Supplier);
-    } catch (err) {
-      console.error('Error fetching suppliers from Firestore:', err);
-    }
-  }
-  return getLocalData<Supplier[]>('adega_suppliers', INITIAL_SUPPLIERS);
-};
+// Direct DB operations
+export async function fetchProductsFromDb(): Promise<Product[]> {
+  return getCollection('products', INITIAL_PRODUCTS);
+}
 
-export const saveSupplierToDb = async (supplier: Supplier): Promise<void> => {
-  if (db) {
-    try {
-      await setDoc(doc(db, 'suppliers', supplier.id), cleanData(supplier));
-      return;
-    } catch (err) {
-      console.error('Error saving supplier to Firestore:', err);
-    }
-  }
-  const current = getLocalData<Supplier[]>('adega_suppliers', INITIAL_SUPPLIERS);
-  const updated = current.some(s => s.id === supplier.id)
-    ? current.map(s => s.id === supplier.id ? supplier : s)
-    : [...current, supplier];
-  setLocalData('adega_suppliers', updated);
-};
-
-export const deleteSupplierFromDb = async (id: string): Promise<void> => {
-  if (db) {
-    try {
-      await deleteDoc(doc(db, 'suppliers', id));
-      return;
-    } catch (err) {
-      console.error('Error deleting supplier from Firestore:', err);
-    }
-  }
-  const current = getLocalData<Supplier[]>('adega_suppliers', INITIAL_SUPPLIERS);
-  const updated = current.filter(s => s.id !== id);
-  setLocalData('adega_suppliers', updated);
-};
-
-/* ============================================================================
-   4. FINANCIAL TRANSACTIONS SERVICE
-   ============================================================================ */
-export const fetchTransactionsFromDb = async (): Promise<FinancialTransaction[]> => {
-  if (db) {
-    try {
-      const snap = await getDocs(collection(db, 'transactions'));
-      if (snap.empty) {
-        const seedTx = MOCK_FINANCIAL_TRANSACTIONS();
-        const batch = writeBatch(db);
-        seedTx.forEach((tx) => {
-          const docRef = doc(db, 'transactions', tx.id);
-          batch.set(docRef, cleanData(tx));
-        });
-        await batch.commit();
-        return seedTx;
-      }
-      return snap.docs.map(d => d.data() as FinancialTransaction).sort((a, b) =>
-        new Date(b.date).getTime() - new Date(a.date).getTime()
-      );
-    } catch (err) {
-      console.error('Error fetching transactions from Firestore:', err);
-    }
-  }
-  return getLocalData<FinancialTransaction[]>('adega_transactions', MOCK_FINANCIAL_TRANSACTIONS);
-};
-
-export const saveTransactionToDb = async (tx: FinancialTransaction): Promise<void> => {
-  if (db) {
-    try {
-      await setDoc(doc(db, 'transactions', tx.id), cleanData(tx));
-      return;
-    } catch (err) {
-      console.error('Error saving transaction to Firestore:', err);
-    }
-  }
-  const current = getLocalData<FinancialTransaction[]>('adega_transactions', MOCK_FINANCIAL_TRANSACTIONS);
-  const updated = current.some(t => t.id === tx.id)
-    ? current.map(t => t.id === tx.id ? tx : t)
-    : [tx, ...current];
-  setLocalData('adega_transactions', updated);
-};
-
-export const deleteTransactionFromDb = async (id: string): Promise<void> => {
-  if (db) {
-    try {
-      await deleteDoc(doc(db, 'transactions', id));
-      return;
-    } catch (err) {
-      console.error('Error deleting transaction from Firestore:', err);
-    }
-  }
-  const current = getLocalData<FinancialTransaction[]>('adega_transactions', MOCK_FINANCIAL_TRANSACTIONS);
-  const updated = current.filter(t => t.id !== id);
-  setLocalData('adega_transactions', updated);
-};
-
-/* ============================================================================
-   5. TABLES & COMANDAS SERVICE
-   ============================================================================ */
-export const fetchTablesComandasFromDb = async (): Promise<TableComandaState[]> => {
-  if (db) {
-    try {
-      const snap = await getDocs(collection(db, 'tables_comandas'));
-      if (snap.empty) {
-        const seedTables = INITIAL_TABLES_COMANDAS;
-        const batch = writeBatch(db);
-        seedTables.forEach((t) => {
-          const docRef = doc(db, 'tables_comandas', t.id);
-          batch.set(docRef, cleanData(t));
-        });
-        await batch.commit();
-        return seedTables;
-      }
-      return snap.docs.map(d => d.data() as TableComandaState).sort((a, b) => {
-        if (a.type !== b.type) return a.type === 'mesa' ? -1 : 1;
-        return a.number - b.number;
-      });
-    } catch (err) {
-      console.error('Error fetching tables from Firestore:', err);
-    }
-  }
-  return getLocalData<TableComandaState[]>('adega_tables', INITIAL_TABLES_COMANDAS);
-};
-
-export const saveTableComandaToDb = async (table: TableComandaState): Promise<void> => {
-  if (db) {
-    try {
-      await setDoc(doc(db, 'tables_comandas', table.id), cleanData(table));
-      return;
-    } catch (err) {
-      console.error('Error saving table to Firestore:', err);
-    }
-  }
-  const current = getLocalData<TableComandaState[]>('adega_tables', INITIAL_TABLES_COMANDAS);
-  const updated = current.some(t => t.id === table.id)
-    ? current.map(t => t.id === table.id ? table : t)
-    : [...current, table].sort((a, b) => {
-        if (a.type !== b.type) return a.type === 'mesa' ? -1 : 1;
-        return a.number - b.number;
-      });
-  setLocalData('adega_tables', updated);
-};
-
-export const deleteTableComandaFromDb = async (id: string): Promise<void> => {
-  if (db) {
-    try {
-      await deleteDoc(doc(db, 'tables_comandas', id));
-      return;
-    } catch (err) {
-      console.error('Error deleting table from Firestore:', err);
-    }
-  }
-  const current = getLocalData<TableComandaState[]>('adega_tables', INITIAL_TABLES_COMANDAS);
-  const updated = current.filter(t => t.id !== id);
-  setLocalData('adega_tables', updated);
-};
-
-/* ============================================================================
-   6. CASHIER USERS SERVICE
-   ============================================================================ */
-export const fetchUsersFromDb = async (): Promise<CashierUser[]> => {
-  if (db) {
-    try {
-      const snap = await getDocs(collection(db, 'users'));
-      if (snap.empty) {
-        const seedUsers = INITIAL_CASHIER_USERS;
-        const batch = writeBatch(db);
-        seedUsers.forEach((u) => {
-          const docRef = doc(db, 'users', u.id);
-          batch.set(docRef, cleanData(u));
-        });
-        await batch.commit();
-        return seedUsers;
-      }
-      return snap.docs.map(d => d.data() as CashierUser);
-    } catch (err) {
-      console.error('Error fetching users from Firestore:', err);
-    }
-  }
-  return getLocalData<CashierUser[]>('adega_users', INITIAL_CASHIER_USERS);
-};
-
-export const saveUserToDb = async (user: CashierUser): Promise<void> => {
-  if (db) {
-    try {
-      await setDoc(doc(db, 'users', user.id), cleanData(user));
-      return;
-    } catch (err) {
-      console.error('Error saving user to Firestore:', err);
-    }
-  }
-  const current = getLocalData<CashierUser[]>('adega_users', INITIAL_CASHIER_USERS);
-  const updated = current.some(u => u.id === user.id)
-    ? current.map(u => u.id === user.id ? user : u)
-    : [...current, user];
-  setLocalData('adega_users', updated);
-};
-
-export const deleteUserFromDb = async (id: string): Promise<void> => {
-  if (db) {
-    try {
-      await deleteDoc(doc(db, 'users', id));
-      return;
-    } catch (err) {
-      console.error('Error deleting user from Firestore:', err);
-    }
-  }
-  const current = getLocalData<CashierUser[]>('adega_users', INITIAL_CASHIER_USERS);
-  const updated = current.filter(u => u.id !== id);
-  setLocalData('adega_users', updated);
-};
-
-/* ============================================================================
-   7. REAL-TIME SUBSCRIPTION SERVICES (CROSS-TAB + FIRESTORE SYNC)
-   ============================================================================ */
-
-export const subscribeProducts = (callback: (products: Product[]) => void): (() => void) => {
-  if (db) {
-    return onSnapshot(collection(db, 'products'), (snap) => {
-      if (!snap.empty) {
-        callback(snap.docs.map(d => d.data() as Product));
-      }
-    }, (err) => {
-      console.error("Error in products snapshot listener:", err);
-    });
+export async function saveProductToDb(prod: Product): Promise<void> {
+  const list = getCollection('products', INITIAL_PRODUCTS);
+  const idx = list.findIndex(p => p.id === prod.id);
+  if (idx >= 0) {
+    list[idx] = prod;
   } else {
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'adega_products') {
-        const list = getLocalData<Product[]>('adega_products', INITIAL_PRODUCTS);
-        callback(list);
-      }
-    };
-    window.addEventListener('storage', handleStorageChange);
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-    };
+    list.push(prod);
   }
-};
+  setCollection('products', list, listeners.products);
+}
 
-export const subscribeSales = (callback: (sales: Sale[]) => void): (() => void) => {
-  if (db) {
-    return onSnapshot(collection(db, 'sales'), (snap) => {
-      if (!snap.empty) {
-        const list = snap.docs.map(d => d.data() as Sale).sort((a, b) => 
-          new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-        );
-        callback(list);
-      }
-    }, (err) => {
-      console.error("Error in sales snapshot listener:", err);
-    });
-  } else {
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'adega_sales') {
-        const list = getLocalData<Sale[]>('adega_sales', MOCK_SALES);
-        callback(list);
-      }
-    };
-    window.addEventListener('storage', handleStorageChange);
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-    };
-  }
-};
+export async function fetchSalesFromDb(): Promise<Sale[]> {
+  return getCollection('sales', MOCK_SALES);
+}
 
-export const subscribeSuppliers = (callback: (suppliers: Supplier[]) => void): (() => void) => {
-  if (db) {
-    return onSnapshot(collection(db, 'suppliers'), (snap) => {
-      if (!snap.empty) {
-        callback(snap.docs.map(d => d.data() as Supplier));
-      }
-    }, (err) => {
-      console.error("Error in suppliers snapshot listener:", err);
-    });
+export async function saveSaleToDb(sale: Sale): Promise<void> {
+  const list = getCollection('sales', MOCK_SALES);
+  const idx = list.findIndex(s => s.id === sale.id);
+  if (idx >= 0) {
+    list[idx] = sale;
   } else {
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'adega_suppliers') {
-        const list = getLocalData<Supplier[]>('adega_suppliers', INITIAL_SUPPLIERS);
-        callback(list);
-      }
-    };
-    window.addEventListener('storage', handleStorageChange);
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-    };
+    list.push(sale);
   }
-};
+  setCollection('sales', list, listeners.sales);
+}
 
-export const subscribeTransactions = (callback: (txs: FinancialTransaction[]) => void): (() => void) => {
-  if (db) {
-    return onSnapshot(collection(db, 'transactions'), (snap) => {
-      if (!snap.empty) {
-        const list = snap.docs.map(d => d.data() as FinancialTransaction).sort((a, b) =>
-          new Date(b.date).getTime() - new Date(a.date).getTime()
-        );
-        callback(list);
-      }
-    }, (err) => {
-      console.error("Error in transactions snapshot listener:", err);
-    });
-  } else {
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'adega_transactions') {
-        const list = getLocalData<FinancialTransaction[]>('adega_transactions', MOCK_FINANCIAL_TRANSACTIONS);
-        callback(list);
-      }
-    };
-    window.addEventListener('storage', handleStorageChange);
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-    };
-  }
-};
+export async function fetchSuppliersFromDb(): Promise<Supplier[]> {
+  return getCollection('suppliers', INITIAL_SUPPLIERS);
+}
 
-export const subscribeTablesComandas = (callback: (tables: TableComandaState[]) => void): (() => void) => {
-  if (db) {
-    return onSnapshot(collection(db, 'tables_comandas'), (snap) => {
-      if (!snap.empty) {
-        const list = snap.docs.map(d => d.data() as TableComandaState).sort((a, b) => {
-          if (a.type !== b.type) return a.type === 'mesa' ? -1 : 1;
-          return a.number - b.number;
-        });
-        callback(list);
-      }
-    }, (err) => {
-      console.error("Error in tables_comandas snapshot listener:", err);
-    });
+export async function saveSupplierToDb(sup: Supplier): Promise<void> {
+  const list = getCollection('suppliers', INITIAL_SUPPLIERS);
+  const idx = list.findIndex(s => s.id === sup.id);
+  if (idx >= 0) {
+    list[idx] = sup;
   } else {
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'adega_tables') {
-        const list = getLocalData<TableComandaState[]>('adega_tables', INITIAL_TABLES_COMANDAS);
-        callback(list);
-      }
-    };
-    window.addEventListener('storage', handleStorageChange);
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-    };
+    list.push(sup);
   }
-};
+  setCollection('suppliers', list, listeners.suppliers);
+}
 
-export const subscribeUsers = (callback: (users: CashierUser[]) => void): (() => void) => {
-  if (db) {
-    return onSnapshot(collection(db, 'users'), (snap) => {
-      if (!snap.empty) {
-        callback(snap.docs.map(d => d.data() as CashierUser));
-      }
-    }, (err) => {
-      console.error("Error in users snapshot listener:", err);
-    });
+export async function deleteSupplierFromDb(id: string): Promise<void> {
+  const list = getCollection('suppliers', INITIAL_SUPPLIERS).filter(s => s.id !== id);
+  setCollection('suppliers', list, listeners.suppliers);
+}
+
+export async function fetchTransactionsFromDb(): Promise<FinancialTransaction[]> {
+  return getCollection('transactions', []);
+}
+
+export async function saveTransactionToDb(tx: FinancialTransaction): Promise<void> {
+  const list = getCollection('transactions', []);
+  const idx = list.findIndex(t => t.id === tx.id);
+  if (idx >= 0) {
+    list[idx] = tx;
   } else {
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'adega_users') {
-        const list = getLocalData<CashierUser[]>('adega_users', INITIAL_CASHIER_USERS);
-        callback(list);
-      }
-    };
-    window.addEventListener('storage', handleStorageChange);
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-    };
+    list.push(tx);
   }
-};
+  setCollection('transactions', list, listeners.transactions);
+}
+
+export async function deleteTransactionFromDb(id: string): Promise<void> {
+  const list = getCollection('transactions', []).filter(t => t.id !== id);
+  setCollection('transactions', list, listeners.transactions);
+}
+
+export async function fetchTablesComandasFromDb(): Promise<TableComandaState[]> {
+  return getCollection('tables', INITIAL_TABLES_COMANDAS);
+}
+
+export async function saveTableComandaToDb(tc: TableComandaState): Promise<void> {
+  const list = getCollection('tables', INITIAL_TABLES_COMANDAS);
+  const idx = list.findIndex(t => t.id === tc.id);
+  if (idx >= 0) {
+    list[idx] = tc;
+  } else {
+    list.push(tc);
+  }
+  setCollection('tables', list, listeners.tables);
+}
+
+export async function deleteTableComandaFromDb(id: string): Promise<void> {
+  const list = getCollection('tables', INITIAL_TABLES_COMANDAS).filter(t => t.id !== id);
+  setCollection('tables', list, listeners.tables);
+}
+
+export async function fetchUsersFromDb(): Promise<CashierUser[]> {
+  return getCollection('users', INITIAL_CASHIER_USERS);
+}
+
+export async function saveUserToDb(user: CashierUser): Promise<void> {
+  const list = getCollection('users', INITIAL_CASHIER_USERS);
+  const idx = list.findIndex(u => u.id === user.id);
+  if (idx >= 0) {
+    list[idx] = user;
+  } else {
+    list.push(user);
+  }
+  setCollection('users', list, listeners.users);
+}
+
+export async function deleteUserFromDb(id: string): Promise<void> {
+  const list = getCollection('users', INITIAL_CASHIER_USERS).filter(u => u.id !== id);
+  setCollection('users', list, listeners.users);
+}

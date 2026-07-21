@@ -27,6 +27,7 @@ export default function LoginScreen({
 
   // Developer Unlock flow states
   const [delClickCount, setDelClickCount] = useState(0);
+  const [logoClickCount, setLogoClickCount] = useState(0);
   const [showDevUnlock, setShowDevUnlock] = useState(false);
   const [devPin, setDevPin] = useState('');
   const [devError, setDevError] = useState('');
@@ -97,24 +98,6 @@ export default function LoginScreen({
     };
   }, [loginMode, usersList, onLogin]);
 
-  // Auto-fill demo credentials helper
-  const handleDemoCredentials = (role: 'manager' | 'waiter' | 'kitchen' | 'bar') => {
-    setErrorMsg('');
-    if (role === 'manager') {
-      setLoginMode('credentials');
-      setEmail('gerente@fluxos.com.br');
-      setPassword('admin123');
-    } else {
-      setLoginMode('pin');
-      const pins = { waiter: '3333', kitchen: '7777', bar: '8888' };
-      setPinInput(pins[role]);
-      setTimeout(() => {
-        const found = usersList.find(u => u.pin === pins[role] && u.active);
-        if (found) onLogin(found);
-      }, 300);
-    }
-  };
-
   const handlePinPress = (num: string) => {
     setErrorMsg('');
     if (pinInput.length < 4) {
@@ -175,9 +158,24 @@ export default function LoginScreen({
     }`}>
       {/* Upper header */}
       <div className="flex justify-between items-center w-full max-w-md mx-auto">
-        <div className="flex items-center gap-2">
-          <Sparkles className="w-5 h-5 text-[#18F2A4]" />
-          <span className="font-extrabold text-sm tracking-tight">Flux<span className="text-[#18F2A4]">OS</span></span>
+        <div 
+          className="flex items-center gap-2 cursor-pointer select-none"
+          onClick={() => {
+            const next = logoClickCount + 1;
+            if (next >= 5) {
+              window.location.hash = 'landing';
+              onBackToLanding?.();
+              setLogoClickCount(0);
+            } else {
+              setLogoClickCount(next);
+            }
+          }}
+          title="Clique 5 vezes para voltar à Landing Page"
+        >
+          <img src="/logo.svg" alt="FluxOS Logo" className="w-5.5 h-5.5 object-contain shrink-0" />
+          <span className="font-extrabold text-sm tracking-tight">
+            Flux<span className="text-transparent bg-clip-text bg-gradient-to-r from-violet-400 via-blue-400 to-[#18F2A4]">OS</span>
+          </span>
         </div>
         <button
           onClick={onToggleTheme}

@@ -128,9 +128,9 @@ export default function ManagerSuppliers({
                 
                 <button
                   onClick={() => {
-                    if (confirm(`Tem certeza que deseja remover o fornecedor "${sup.companyName}"?`)) {
+                    (window as any).confirmModal(`Tem certeza que deseja remover o fornecedor "${sup.companyName}"?`, () => {
                       onDeleteSupplier(sup.id);
-                    }
+                    });
                   }}
                   title="Remover Fornecedor"
                   className={`text-gray-500 hover:text-red-500 transition-colors p-1.5 rounded-lg ${

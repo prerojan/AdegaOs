@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Package, RefreshCw, Barcode, Plus, Minus, ArrowRight, AlertCircle, History, LayoutGrid } from 'lucide-react';
+import { Package, RefreshCw, Barcode, Plus, Minus, ArrowRight, AlertCircle, History, LayoutGrid, Search, X } from 'lucide-react';
 import { Product } from '../types';
 
 interface ManagerInventoryProps {
@@ -43,6 +43,38 @@ export default function ManagerInventory({
   const selectedProduct = useMemo(() => {
     return products.find(p => p.id === selectedProductId);
   }, [products, selectedProductId]);
+
+  // High-Level Search and Filtering for Inventory Sheet
+  const [inventorySearch, setInventorySearch] = useState('');
+  const [inventoryCategory, setInventoryCategory] = useState('Todos');
+  const [inventoryStockFilter, setInventoryStockFilter] = useState<'Todos' | 'Critico' | 'Normal' | 'SemEstoque'>('Todos');
+
+  const categories = useMemo(() => {
+    const list = new Set(products.map(p => p.category));
+    return ['Todos', ...Array.from(list)];
+  }, [products]);
+
+  const filteredInventoryProducts = useMemo(() => {
+    return products.filter(p => {
+      const matchesSearch = p.name.toLowerCase().includes(inventorySearch.toLowerCase()) ||
+                            p.barcode.includes(inventorySearch) ||
+                            p.sku.toLowerCase().includes(inventorySearch.toLowerCase());
+      
+      const matchesCategory = inventoryCategory === 'Todos' || p.category === inventoryCategory;
+      
+      const totalUnits = (p.stockBoxes * p.boxQuantity) + p.stockUnits;
+      let matchesStock = true;
+      if (inventoryStockFilter === 'Critico') {
+        matchesStock = totalUnits <= p.minStockUnits;
+      } else if (inventoryStockFilter === 'Normal') {
+        matchesStock = totalUnits > p.minStockUnits;
+      } else if (inventoryStockFilter === 'SemEstoque') {
+        matchesStock = totalUnits === 0;
+      }
+
+      return matchesSearch && matchesCategory && matchesStock;
+    });
+  }, [products, inventorySearch, inventoryCategory, inventoryStockFilter]);
 
   // Barcode simulation matching
   const handleBarcodeSearch = (e: React.FormEvent) => {
@@ -114,7 +146,88 @@ export default function ManagerInventory({
     };
 
     setInventoryLogs([logMsg, ...inventoryLogs]);
-    alert(`Conversão Concluída!\n\n1 Caixa fechada foi aberta e adicionou +${selectedProduct.boxQuantity} unidades avulsas ao estoque físico.`);
+    alert(`Conversão concluída. 1 caixa foi fracionada em +${selectedProduct.boxQuantity} unidades avulsas.`);
+  };
+
+  const handleAddBatch = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedProduct) return;
+    if (!batchIdInput || !batchExpiryInput || batchQtyInput <= 0) {
+      alert('Por favor, preencha todos os campos do lote com valores válidos.');
+      return;
+    }
+    
+    const newBatch = {
+      id: batchIdInput.trim(),
+      expiryDate: batchExpiryInput,
+      initialQuantity: batchQtyInput,
+      currentQuantity: batchQtyInput
+    };
+    
+    const currentBatches = selectedProduct.batches ? [...selectedProduct.batches] : [];
+    
+    // Evitar ID de lote duplicado
+    if (currentBatches.some(b => b.id.toLowerCase() === batchIdInput.trim().toLowerCase())) {
+      alert('Já existe um lote cadastrado com este código.');
+      return;
+    }
+    
+    const updatedBatches = [...currentBatches, newBatch];
+    
+    // Adicionar a quantidade do novo lote ao estoque físico total
+    const finalUnits = selectedProduct.stockUnits + batchQtyInput;
+    
+    const updatedProduct: Product = {
+      ...selectedProduct,
+      stockUnits: finalUnits,
+      batches: updatedBatches
+    };
+    
+    onUpdateProduct(updatedProduct);
+    
+    // Log audit
+    const logMsg: InventoryLog = {
+      timestamp: new Date().toISOString(),
+      productName: selectedProduct.name,
+      type: 'entrada',
+      description: `Entrada de Lote de Validade FIFO [${batchIdInput}] com vencimento em ${batchExpiryInput}`,
+      qtyChanged: `+${batchQtyInput} un`
+    };
+    setInventoryLogs([logMsg, ...inventoryLogs]);
+    
+    // Reset inputs
+    setBatchIdInput('');
+    setBatchExpiryInput('');
+    setBatchQtyInput(0);
+    alert('Lote de validade registrado e acrescido ao estoque com sucesso!');
+  };
+
+  const handleRemoveBatch = (bId: string) => {
+    if (!selectedProduct) return;
+    const bToRemove = selectedProduct.batches?.find(b => b.id === bId);
+    if (!bToRemove) return;
+    
+    const updatedBatches = selectedProduct.batches?.filter(b => b.id !== bId) || [];
+    
+    // Deduzir quantidade remanescente deste lote do estoque físico
+    const finalUnits = Math.max(0, selectedProduct.stockUnits - bToRemove.currentQuantity);
+    
+    const updatedProduct: Product = {
+      ...selectedProduct,
+      stockUnits: finalUnits,
+      batches: updatedBatches
+    };
+    onUpdateProduct(updatedProduct);
+    
+    const logMsg: InventoryLog = {
+      timestamp: new Date().toISOString(),
+      productName: selectedProduct.name,
+      type: 'saida',
+      description: `Exclusão manual de Lote de Validade FIFO [${bId}]`,
+      qtyChanged: `-${bToRemove.currentQuantity} un`
+    };
+    setInventoryLogs([logMsg, ...inventoryLogs]);
+    alert('Lote excluído e saldo ajustado.');
   };
 
   const handleAddBatch = (e: React.FormEvent) => {
@@ -479,14 +592,72 @@ export default function ManagerInventory({
 
         {/* Box 2: Stock levels audit ledger table */}
         <div className={`p-5 rounded-xl border flex flex-col gap-4 lg:col-span-2 ${
-          theme === 'dark' ? 'bg-[#111111] border-[#1A1A1A]' : 'bg-white border-gray-200'
+          theme === 'dark' ? 'bg-[#111111] border-[#1A1A1A]' : 'bg-white border-gray-200 shadow-xs'
         }`}>
-          <div className="flex justify-between items-center border-b pb-2.5" style={{ borderColor: theme === 'dark' ? '#1A1A1A' : '#E5E5E5' }}>
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b pb-2.5" style={{ borderColor: theme === 'dark' ? '#1A1A1A' : '#E5E5E5' }}>
             <div className="flex items-center gap-2">
               <LayoutGrid className="w-4 h-4 text-sky-400" />
               <span className={`text-xs uppercase font-extrabold tracking-wider ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>Planilha Geral de Estoques</span>
             </div>
-            <span className={`text-[10px] font-bold ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>Total de {products.length} itens</span>
+            <span className={`text-[10px] font-bold ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+              Mostrando {filteredInventoryProducts.length} de {products.length} itens
+            </span>
+          </div>
+
+          {/* High-Level Inventory Search and Filters Row */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+            {/* Text Search */}
+            <div className={`relative flex items-center rounded-lg border px-2.5 py-1.5 ${
+              theme === 'dark' ? 'bg-[#080808] border-[#1C1C1C]' : 'bg-white border-gray-200'
+            }`}>
+              <Search className="w-3.5 h-3.5 text-gray-400 mr-1.5" />
+              <input
+                type="text"
+                placeholder="Buscar item..."
+                className="w-full text-[11px] bg-transparent focus:outline-none"
+                value={inventorySearch}
+                onChange={(e) => setInventorySearch(e.target.value)}
+              />
+              {inventorySearch && (
+                <button onClick={() => setInventorySearch('')} className="text-gray-400">
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+
+            {/* Category filter */}
+            <select
+              value={inventoryCategory}
+              onChange={(e) => setInventoryCategory(e.target.value)}
+              className="p-1.5 rounded border text-[11px] focus:outline-none font-semibold transition-all cursor-pointer"
+              style={{
+                backgroundColor: theme === 'dark' ? '#080808' : 'white',
+                borderColor: theme === 'dark' ? '#1C1C1C' : '#E5E5E5',
+                color: theme === 'dark' ? '#DDD' : '#333'
+              }}
+            >
+              <option value="Todos">Todas as Categorias</option>
+              {categories.filter(c => c !== 'Todos').map(cat => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
+
+            {/* Stock levels filter */}
+            <select
+              value={inventoryStockFilter}
+              onChange={(e) => setInventoryStockFilter(e.target.value as any)}
+              className="p-1.5 rounded border text-[11px] focus:outline-none font-semibold transition-all cursor-pointer"
+              style={{
+                backgroundColor: theme === 'dark' ? '#080808' : 'white',
+                borderColor: theme === 'dark' ? '#1C1C1C' : '#E5E5E5',
+                color: theme === 'dark' ? '#DDD' : '#333'
+              }}
+            >
+              <option value="Todos">Todos os Níveis de Estoque</option>
+              <option value="Critico">Crítico (Reposição)</option>
+              <option value="Normal">Suficiente (Normal)</option>
+              <option value="SemEstoque">Sem Estoque (Zerado)</option>
+            </select>
           </div>
 
           <div className="overflow-x-auto max-h-[340px] overflow-y-auto">
@@ -503,7 +674,7 @@ export default function ManagerInventory({
                 </tr>
               </thead>
               <tbody>
-                {products.map(prod => {
+                {filteredInventoryProducts.map(prod => {
                   const totalUnits = (prod.stockBoxes * prod.boxQuantity) + prod.stockUnits;
                   const isCrit = totalUnits <= prod.minStockUnits;
                   

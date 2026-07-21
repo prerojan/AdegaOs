@@ -1,13 +1,21 @@
 import React, { useState, useMemo } from 'react';
-import { Truck, Plus, Trash2, CheckCircle, Percent, ClipboardList, Info, Zap, AlertTriangle } from 'lucide-react';
-import { Supplier, Product, Purchase, PurchaseItem, FinancialTransaction } from '../types';
+import { Plus, Search, FileText, CheckCircle, Trash2, ShieldCheck, RefreshCw } from 'lucide-react';
+import { Supplier, Product, FinancialTransaction } from '../types';
+
+const alert = (window as any).alert;
+
+interface PurchaseItem {
+  product: Product;
+  costPrice: number;
+  qtyBoxes: number;
+}
 
 interface ManagerPurchasesProps {
   suppliers: Supplier[];
   products: Product[];
-  onAddPurchaseReceipt: (purchase: Purchase) => void;
-  onUpdateProductCost: (productId: string, newCost: number) => void;
-  onIncreaseStockBoxes: (productId: string, addedBoxes: number) => void;
+  onAddPurchaseReceipt: (receipt: { date: string; invoiceNumber: string; total: number }) => void;
+  onUpdateProductCost: (productId: string, costPrice: number) => void;
+  onIncreaseStockBoxes: (productId: string, qtyBoxes: number) => void;
   onAddFinancial: (tx: FinancialTransaction) => void;
   theme: 'dark' | 'light';
 }
@@ -21,493 +29,290 @@ export default function ManagerPurchases({
   onAddFinancial,
   theme
 }: ManagerPurchasesProps) {
-  const [selectedSupplierId, setSelectedSupplierId] = useState<string>(suppliers[0]?.id || '');
-  const [invoiceNumber, setInvoiceNumber] = useState<string>('');
-  const [freight, setFreight] = useState<number>(0);
-  const [discount, setDiscount] = useState<number>(0);
+  const isDark = theme === 'dark';
 
-  // Active items being typed in the invoice
-  const [cartItems, setCartItems] = useState<{ productId: string; boxes: number; costPrice: number }[]>([]);
+  // State for Purchase Entry Wizard
+  const [invoiceNumber, setInvoiceNumber] = useState('');
+  const [selectedSupplierId, setSelectedSupplierId] = useState(suppliers[0]?.id || '');
+  const [purchaseItems, setPurchaseItems] = useState<PurchaseItem[]>([]);
   
-  // Input fields for current item
-  const [currentItemId, setCurrentItemId] = useState<string>(products[0]?.id || '');
-  const [currentBoxes, setCurrentBoxes] = useState<number>(1);
-  const [currentCost, setCurrentCost] = useState<number>(0);
+  // Temp fields for adding product to purchase receipt
+  const [tempProductId, setTempProductId] = useState('');
+  const [tempCostPrice, setTempCostPrice] = useState<number>(0);
+  const [tempQtyBoxes, setTempQtyBoxes] = useState<number>(1);
 
-  // Set default cost of selected product
-  const handleItemSelect = (prodId: string) => {
-    setCurrentItemId(prodId);
-    const prod = products.find(p => p.id === prodId);
+  const activeProducts = useMemo(() => products.filter(p => p.active), [products]);
+
+  const handleProductSelect = (id: string) => {
+    setTempProductId(id);
+    const prod = products.find(p => p.id === id);
     if (prod) {
-      setCurrentCost(prod.costPrice);
+      setTempCostPrice(prod.costPrice);
     }
   };
 
-  const replenishmentSuggestions = useMemo(() => {
-    return products.map(p => {
-      const currentStock = (p.stockBoxes * p.boxQuantity) + p.stockUnits;
-      
-      // Estimated daily consumption based on ABC classification
-      let dailyConsumption = 1; // Default
-      if (p.abcClass === 'A') dailyConsumption = 5;
-      else if (p.abcClass === 'B') dailyConsumption = 2;
-      else if (p.abcClass === 'C') dailyConsumption = 0.5;
-      
-      const leadTime = p.leadTimeDays || 3;
-      // Reorder point = (Consumption * Lead Time) + Min Stock
-      const reorderPoint = Math.ceil((dailyConsumption * leadTime) + p.minStockUnits);
-      
-      const needsReplenishment = currentStock <= reorderPoint;
-      
-      // Suggest quantity to buy to get back to target (minStock * 2 + consumption safety)
-      const targetStock = (p.minStockUnits * 2) + (dailyConsumption * leadTime);
-      const diffUnits = Math.max(0, targetStock - currentStock);
-      const suggestedBoxes = Math.ceil(diffUnits / p.boxQuantity);
-      
-      return {
-        product: p,
-        currentStock,
-        reorderPoint,
-        leadTime,
-        dailyConsumption,
-        needsReplenishment,
-        suggestedBoxes: suggestedBoxes > 0 ? suggestedBoxes : 1,
-        abcClass: p.abcClass || 'C'
-      };
-    }).filter(item => item.needsReplenishment);
-  }, [products]);
-
-  const handleAddSuggestionToInvoice = (productId: string, boxes: number) => {
-    const prod = products.find(p => p.id === productId);
+  const handleAddItem = () => {
+    if (!tempProductId) {
+      alert('Selecione um produto antes de adicionar.', 'warning');
+      return;
+    }
+    const prod = products.find(p => p.id === tempProductId);
     if (!prod) return;
-    
-    // Check if already in active invoice
-    const existingIdx = cartItems.findIndex(i => i.productId === productId);
-    if (existingIdx >= 0) {
-      const copy = [...cartItems];
-      copy[existingIdx].boxes += boxes;
-      setCartItems(copy);
-    } else {
-      setCartItems([...cartItems, { productId, boxes, costPrice: prod.costPrice }]);
-    }
-    alert(`Adicionado ao carrinho de compras: ${boxes} cx de ${prod.name}`);
-  };
 
-  const handleAddItemToInvoice = () => {
-    if (!currentItemId) return;
-    if (currentBoxes <= 0) {
-      alert('Favor preencher uma quantidade válida de caixas.');
-      return;
-    }
-    if (currentCost <= 0) {
-      alert('Favor preencher o custo de aquisição.');
+    if (tempQtyBoxes <= 0) {
+      alert('A quantidade de caixas deve ser maior que zero.', 'warning');
       return;
     }
 
-    // Check if already in active invoice
-    const existingIdx = cartItems.findIndex(i => i.productId === currentItemId);
-    if (existingIdx >= 0) {
-      const copy = [...cartItems];
-      copy[existingIdx].boxes += currentBoxes;
-      setCartItems(copy);
-    } else {
-      setCartItems([...cartItems, { productId: currentItemId, boxes: currentBoxes, costPrice: currentCost }]);
-    }
-
-    // Reset current input fields
-    setCurrentBoxes(1);
-  };
-
-  const handleRemoveItem = (idx: number) => {
-    const copy = [...cartItems];
-    copy.splice(idx, 1);
-    setCartItems(copy);
-  };
-
-  const invoiceSubtotal = useMemo(() => {
-    return cartItems.reduce((acc, item) => {
-      const prod = products.find(p => p.id === item.productId);
-      const totalUnits = item.boxes * (prod ? prod.boxQuantity : 1);
-      return acc + (item.costPrice * totalUnits);
-    }, 0);
-  }, [cartItems, products]);
-
-  const invoiceTotal = useMemo(() => {
-    return Math.max(0, invoiceSubtotal + freight - discount);
-  }, [invoiceSubtotal, freight, discount]);
-
-  const handleReceiveInvoice = () => {
-    if (cartItems.length === 0) {
-      alert('Selecione pelo menos um item para compor a nota.');
-      return;
-    }
-    if (!invoiceNumber.trim()) {
-      alert('Favor inserir o número da Nota Fiscal.');
-      return;
-    }
-
-    // 1. Process purchase entry
-    const purchaseId = `pur-${Date.now()}`;
-    const newPurchase: Purchase = {
-      id: purchaseId,
-      supplierId: selectedSupplierId,
-      invoiceNumber,
-      date: new Date().toISOString().split('T')[0],
-      items: cartItems.map(i => ({
-        productId: i.productId,
-        quantityBoxes: i.boxes,
-        quantityUnits: 0,
-        costPrice: i.costPrice
-      })),
-      total: invoiceTotal,
-      freight,
-      discount,
-      status: 'recebido'
-    };
-
-    onAddPurchaseReceipt(newPurchase);
-
-    // 2. Loop products to increase stock & update average cost price
-    cartItems.forEach(item => {
-      onIncreaseStockBoxes(item.productId, item.boxes);
-      onUpdateProductCost(item.productId, item.costPrice);
+    setPurchaseItems(prev => {
+      const idx = prev.findIndex(item => item.product.id === tempProductId);
+      if (idx >= 0) {
+        const updated = [...prev];
+        updated[idx] = { 
+          ...updated[idx], 
+          qtyBoxes: updated[idx].qtyBoxes + tempQtyBoxes,
+          costPrice: tempCostPrice
+        };
+        return updated;
+      }
+      return [...prev, { product: prod, costPrice: tempCostPrice, qtyBoxes: tempQtyBoxes }];
     });
 
-    // 3. Register Accounts Payable in Financial Transactions
-    const selectedSupplier = suppliers.find(s => s.id === selectedSupplierId);
-    const dueDate = new Date();
-    dueDate.setDate(dueDate.getDate() + 14); // net 14 terms standard
+    // Reset Temp Fields
+    setTempProductId('');
+    setTempCostPrice(0);
+    setTempQtyBoxes(1);
+  };
 
-    const newTx: FinancialTransaction = {
-      id: `tx-${Date.now()}`,
-      date: new Date().toISOString().split('T')[0],
-      type: 'despesa',
-      category: 'Fornecedores',
-      description: `Compra NF #${invoiceNumber} - ${selectedSupplier ? selectedSupplier.companyName : 'Fornecedor'}`,
-      value: invoiceTotal,
-      status: 'pendente', // unpaid initially as accounts payable
-      dueDate: dueDate.toISOString().split('T')[0]
-    };
+  const handleRemoveItem = (index: number) => {
+    setPurchaseItems(prev => prev.filter((_, i) => i !== index));
+  };
 
-    onAddFinancial(newTx);
+  const purchaseTotal = useMemo(() => {
+    return purchaseItems.reduce((acc, item) => acc + (item.costPrice * item.qtyBoxes * item.product.boxQuantity), 0);
+  }, [purchaseItems]);
 
-    // Reset Entire Form
-    setCartItems([]);
+  const handleSaveReceipt = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!invoiceNumber.trim()) {
+      alert('Por favor, informe o número da Nota Fiscal (NF).', 'warning');
+      return;
+    }
+    if (!selectedSupplierId) {
+      alert('Selecione um fornecedor cadastrado.', 'warning');
+      return;
+    }
+    if (purchaseItems.length === 0) {
+      alert('Adicione pelo menos um item à Nota Fiscal antes de salvar.', 'warning');
+      return;
+    }
+
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    // 1. Trigger Parent callback
+    onAddPurchaseReceipt({
+      date: todayStr,
+      invoiceNumber,
+      total: purchaseTotal
+    });
+
+    // 2. Loop products to update costs and stocks
+    purchaseItems.forEach(item => {
+      onUpdateProductCost(item.product.id, item.costPrice);
+      onIncreaseStockBoxes(item.product.id, item.qtyBoxes);
+    });
+
+    // 3. Clear State
     setInvoiceNumber('');
-    setFreight(0);
-    setDiscount(0);
-    alert(`Nota Fiscal #${invoiceNumber} recebida com sucesso!\n\nEstoque atualizado, preços médios recalculados e duplicata à pagar gerada para 14 dias.`);
+    setPurchaseItems([]);
+    alert('Entrada de mercadorias registrada! Estoques atualizados e duplicata lançada no financeiro.', 'success');
   };
 
   return (
-    <div className="flex flex-col gap-6 w-full">
-      {/* Header */}
-      <div>
-        <h2 className="text-xl font-semibold tracking-tight">Recebimento de Notas (Compras)</h2>
-        <p className="text-xs text-gray-400">Lance as compras em fardo fechado recebidas dos fornecedores para reabastecer o estoque e gerar as duplicatas financeiras.</p>
-      </div>
-
-      {/* Sugestões Inteligentes de Reposição Baseadas na Curva ABC e Lead Time */}
-      <div className={`p-5 rounded-xl border flex flex-col gap-4 ${
-        theme === 'dark' ? 'bg-[#111111] border-[#1A1A1A]' : 'bg-white border-gray-200 shadow-sm'
-      }`}>
-        <div className="flex justify-between items-center border-b pb-2.5" style={{ borderColor: theme === 'dark' ? '#1A1A1A' : '#E5E5E5' }}>
-          <div className="flex items-center gap-2">
-            <Zap className="w-4 h-4 text-[#18F2A4]" />
-            <span className={`text-xs uppercase font-extrabold tracking-wider ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
-              Sugestões Inteligentes de Reposição (Curva ABC & Lead Time)
-            </span>
-          </div>
-          <span className={`text-[10px] font-bold ${theme === 'dark' ? 'text-[#18F2A4]' : 'text-emerald-700'} bg-[#18F2A4]/10 border border-[#18F2A4]/20 px-2 py-0.5 rounded-full`}>
-            Reabastecimento Automático
-          </span>
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 w-full font-sans">
+      {/* Entrada de Notas Fiscais Form */}
+      <form 
+        onSubmit={handleSaveReceipt}
+        className={`p-4 rounded-xl border lg:col-span-2 flex flex-col gap-4 ${
+          isDark ? 'bg-[#121212]/30 border-[#1C1C1C]' : 'bg-white border-gray-100'
+        }`}
+      >
+        <div className="flex items-center gap-2 border-b pb-3" style={{ borderColor: isDark ? '#1C1C1C' : '#F0F0F0' }}>
+          <FileText className={`w-4 h-4 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`} />
+          <h3 className={`text-xs font-bold tracking-wide uppercase ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+            Registro de Nota Fiscal (Compra de Insumos)
+          </h3>
         </div>
 
-        {replenishmentSuggestions.length === 0 ? (
-          <div className="text-center py-6 text-xs text-gray-500 flex flex-col items-center gap-2">
-            <CheckCircle className="w-8 h-8 text-emerald-400" />
-            <span>Todos os itens estão com estoques adequados para o Lead Time estimado. Sem alertas de Curva ABC no momento!</span>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {replenishmentSuggestions.map((item, idx) => {
-              const p = item.product;
-              const ratio = Math.min(100, (item.currentStock / item.reorderPoint) * 100);
-              
-              return (
-                <div key={idx} className={`p-3.5 rounded-xl border flex flex-col justify-between gap-3 text-xs transition-all ${
-                  theme === 'dark' ? 'bg-[#080808] border-[#1A1A1A] hover:bg-[#0E0E0E]' : 'bg-gray-50 border-gray-150 hover:bg-gray-100 shadow-sm'
-                }`}>
-                  <div>
-                    <div className="flex justify-between items-start gap-1.5 mb-1">
-                      <span className="font-bold text-sm leading-tight block truncate" style={{ color: theme === 'dark' ? 'white' : '#111' }}>
-                        {p.name}
-                      </span>
-                      <span className={`px-2 py-0.5 rounded text-[8px] font-extrabold border shrink-0 ${
-                        item.abcClass === 'A'
-                          ? theme === 'dark' ? 'bg-red-950/40 text-red-400 border-red-900/30' : 'bg-red-100 text-red-800 border-red-200'
-                          : item.abcClass === 'B'
-                            ? theme === 'dark' ? 'bg-amber-950/40 text-amber-400 border-amber-900/30' : 'bg-amber-100 text-amber-800 border-amber-200'
-                            : theme === 'dark' ? 'bg-sky-950/40 text-sky-400 border-sky-900/30' : 'bg-sky-100 text-sky-800 border-sky-200'
-                      }`}>
-                        Curva {item.abcClass}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 text-[10px] text-gray-400 mb-2">
-                      <Truck className="w-3.5 h-3.5 text-gray-500" />
-                      <span>Lead Time: <strong>{item.leadTime} dias</strong></span>
-                      <span className="text-gray-600">•</span>
-                      <span>Giro diário: <strong>{item.dailyConsumption} un</strong></span>
-                    </div>
-
-                    {/* Stock Meter */}
-                    <div className="flex flex-col gap-1 mb-2">
-                      <div className="flex justify-between text-[10px] font-mono text-gray-400">
-                        <span>Estoque: <strong>{item.currentStock} un</strong></span>
-                        <span>Ponto Reab.: <strong>{item.reorderPoint} un</strong></span>
-                      </div>
-                      <div className={`w-full h-1.5 rounded-full overflow-hidden ${theme === 'dark' ? 'bg-gray-900' : 'bg-gray-200'}`}>
-                        <div 
-                          className={`h-full rounded-full transition-all ${
-                            ratio < 30 ? 'bg-red-500' : ratio < 70 ? 'bg-amber-500' : 'bg-emerald-500'
-                          }`} 
-                          style={{ width: `${ratio}%` }}
-                        />
-                      </div>
-                    </div>
-                    
-                    <span className="text-[10px] text-gray-500 block leading-tight">
-                      Estoque mínimo atingido. Risco de ruptura considerando tempo de entrega do fornecedor.
-                    </span>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => handleAddSuggestionToInvoice(p.id, item.suggestedBoxes)}
-                    className={`w-full py-2 rounded-lg font-bold text-[11px] flex items-center justify-center gap-1.5 transition-all cursor-pointer border ${
-                      theme === 'dark' 
-                        ? 'bg-[#18F2A4]/10 text-[#18F2A4] border-[#18F2A4]/20 hover:bg-[#18F2A4]/20' 
-                        : 'bg-[#10B981]/15 text-[#10B981] border-[#10B981]/25 hover:bg-[#10B981]/25'
-                    }`}
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    Sugestão: Compra {item.suggestedBoxes} cx
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
-        {/* Invoice Header Details */}
-        <div className={`p-4 rounded-xl border flex flex-col gap-4 ${
-          theme === 'dark' ? 'bg-[#111111] border-[#1A1A1A]' : 'bg-white border-gray-200'
-        }`}>
-          <div className="flex items-center gap-2 border-b border-[#1A1A1A] pb-2" style={{ borderColor: theme === 'dark' ? '#1A1A1A' : '#E5E5E5' }}>
-            <Truck className="w-4 h-4 text-[#18F2A4]" />
-            <span className="text-xs uppercase font-bold text-gray-400 tracking-wider">Dados da Nota Fiscal</span>
+        {/* Invoice details */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className={`text-[10px] font-bold uppercase block mb-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+              Número da Nota Fiscal (NF-e)
+            </label>
+            <input
+              type="text"
+              placeholder="Ex: 000.123.456"
+              value={invoiceNumber}
+              onChange={e => setInvoiceNumber(e.target.value)}
+              className={`w-full px-3 py-1.5 text-xs rounded-lg border outline-none font-sans ${
+                isDark ? 'bg-black/40 border-[#1C1C1C] text-gray-200 focus:border-emerald-500/50' : 'bg-white border-gray-200 text-gray-800'
+              }`}
+            />
           </div>
 
-          {/* Supplier dropdown */}
-          <div className="flex flex-col gap-1 text-xs">
-            <label className="text-gray-400 font-semibold">Fornecedor Emitente</label>
+          <div>
+            <label className={`text-[10px] font-bold uppercase block mb-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+              Fornecedor Responsável
+            </label>
             <select
               value={selectedSupplierId}
-              onChange={(e) => setSelectedSupplierId(e.target.value)}
-              className="p-2 rounded border focus:outline-none"
-              style={{ backgroundColor: theme === 'dark' ? '#080808' : 'white', borderColor: theme === 'dark' ? '#1C1C1C' : '#E5E5E5', color: theme === 'dark' ? 'white' : 'black' }}
+              onChange={e => setSelectedSupplierId(e.target.value)}
+              className={`w-full px-3 py-1.5 text-xs rounded-lg border outline-none font-sans ${
+                isDark ? 'bg-black/40 border-[#1C1C1C] text-gray-200' : 'bg-white border-gray-200'
+              }`}
             >
               {suppliers.map(s => (
                 <option key={s.id} value={s.id}>{s.companyName}</option>
               ))}
             </select>
           </div>
-
-          {/* NF input */}
-          <div className="flex flex-col gap-1 text-xs">
-            <label className="text-gray-400 font-semibold">Número NF-e *</label>
-            <input
-              type="text"
-              required
-              placeholder="Ex: 002.341.109"
-              value={invoiceNumber}
-              onChange={(e) => setInvoiceNumber(e.target.value)}
-              className="p-2 rounded border focus:outline-none font-mono"
-              style={{ backgroundColor: theme === 'dark' ? '#080808' : 'white', borderColor: theme === 'dark' ? '#1C1C1C' : '#E5E5E5', color: theme === 'dark' ? 'white' : 'black' }}
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3 text-xs">
-            <div className="flex flex-col gap-1">
-              <label className="text-gray-400 font-semibold">Frete da NF (R$)</label>
-              <input
-                type="number"
-                min="0"
-                value={freight || ''}
-                onChange={(e) => setFreight(Number(e.target.value))}
-                className="p-2 rounded border focus:outline-none font-mono"
-                style={{ backgroundColor: theme === 'dark' ? '#080808' : 'white', borderColor: theme === 'dark' ? '#1C1C1C' : '#E5E5E5', color: theme === 'dark' ? 'white' : 'black' }}
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-gray-400 font-semibold">Desconto NF (R$)</label>
-              <input
-                type="number"
-                min="0"
-                value={discount || ''}
-                onChange={(e) => setDiscount(Number(e.target.value))}
-                className="p-2 rounded border focus:outline-none font-mono"
-                style={{ backgroundColor: theme === 'dark' ? '#080808' : 'white', borderColor: theme === 'dark' ? '#1C1C1C' : '#E5E5E5', color: theme === 'dark' ? 'white' : 'black' }}
-              />
-            </div>
-          </div>
-
-          <div className={`p-3 rounded-lg border text-[10px] leading-relaxed text-gray-400 flex gap-2 ${
-            theme === 'dark' ? 'bg-[#080808] border-[#1C1C1C]' : 'bg-gray-50 border-gray-200'
-          }`}>
-            <Info className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-            <div>
-              <span className="font-bold text-gray-200" style={{ color: theme === 'dark' ? 'white' : '#333' }}>Contas a Pagar:</span><br />
-              O recebimento gerará automaticamente uma duplicata a pagar com vencimento padrão de <span className="font-semibold text-[#18F2A4]">14 dias</span> vinculada a este fornecedor.
-            </div>
-          </div>
         </div>
 
-        {/* Item additions & Invoice Cart */}
-        <div className={`p-4 rounded-xl border flex flex-col gap-4 lg:col-span-2 ${
-          theme === 'dark' ? 'bg-[#111111] border-[#1A1A1A]' : 'bg-white border-gray-200'
+        {/* Add Products Sub-Form */}
+        <div className={`p-3 rounded-xl border flex flex-col gap-3 ${
+          isDark ? 'bg-black/20 border-[#1A1A1A]' : 'bg-gray-50 border-gray-200'
         }`}>
-          <div className="flex items-center gap-2 border-b border-[#1A1A1A] pb-2" style={{ borderColor: theme === 'dark' ? '#1A1A1A' : '#E5E5E5' }}>
-            <ClipboardList className="w-4 h-4 text-sky-400" />
-            <span className="text-xs uppercase font-bold text-gray-400 tracking-wider">Itens Integrantes da Nota</span>
-          </div>
-
-          {/* Quick Item Addition Fields row */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end p-3 rounded-lg bg-black/20 text-xs border" style={{ borderColor: theme === 'dark' ? '#1C1C1C' : '#E5E5E5' }}>
-            <div className="flex flex-col gap-1 md:col-span-2">
-              <label className="text-gray-400 font-semibold">Produto</label>
+          <span className={`text-[10px] font-bold uppercase tracking-wider block ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+            Adicionar Item à Nota
+          </span>
+          
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5 items-end">
+            <div className="sm:col-span-2">
+              <label className="text-[9px] text-gray-500 block mb-1 uppercase font-bold">Produto</label>
               <select
-                value={currentItemId}
-                onChange={(e) => handleItemSelect(e.target.value)}
-                className="p-1.5 rounded border focus:outline-none"
-                style={{ backgroundColor: theme === 'dark' ? '#111' : 'white', borderColor: theme === 'dark' ? '#222' : '#E5E5E5', color: theme === 'dark' ? 'white' : 'black' }}
+                value={tempProductId}
+                onChange={e => handleProductSelect(e.target.value)}
+                className={`w-full px-2.5 py-1.5 text-xs rounded-lg border outline-none ${
+                  isDark ? 'bg-black/50 border-[#1C1C1C] text-gray-200' : 'bg-white border-gray-200'
+                }`}
               >
-                {products.map(p => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
+                <option value="">Selecione um produto...</option>
+                {activeProducts.map(p => (
+                  <option key={p.id} value={p.id}>{p.name} (Fardo {p.boxQuantity} un)</option>
                 ))}
               </select>
             </div>
 
-            <div className="flex flex-col gap-1">
-              <label className="text-gray-400 font-semibold">Qtd Caixas (Fardos)</label>
+            <div>
+              <label className="text-[9px] text-gray-500 block mb-1 uppercase font-bold">Custo Unitário (R$)</label>
               <input
                 type="number"
-                min="1"
-                value={currentBoxes}
-                onChange={(e) => setCurrentBoxes(Number(e.target.value))}
-                className="p-1.5 rounded border focus:outline-none text-center font-mono"
-                style={{ backgroundColor: theme === 'dark' ? '#111' : 'white', borderColor: theme === 'dark' ? '#222' : '#E5E5E5', color: theme === 'dark' ? 'white' : 'black' }}
+                step="0.01"
+                min="0"
+                value={tempCostPrice || ''}
+                onChange={e => setTempCostPrice(Math.max(0, parseFloat(e.target.value) || 0))}
+                className={`w-full px-2.5 py-1 text-xs rounded-lg border outline-none font-mono ${
+                  isDark ? 'bg-black/50 border-[#1C1C1C] text-gray-200' : 'bg-white border-gray-200'
+                }`}
               />
             </div>
 
-            <button
-              onClick={handleAddItemToInvoice}
-              className={`p-1.5 rounded font-semibold text-center cursor-pointer transition-all ${
-                theme === 'dark' ? 'bg-sky-500 hover:bg-sky-600 text-black' : 'bg-sky-600 hover:bg-sky-700 text-white'
-              }`}
-            >
-              Adicionar Item
-            </button>
-          </div>
-
-          {/* Invoice Items table lists */}
-          <div className="flex-1 overflow-y-auto max-h-48 min-h-24">
-            <table className="w-full text-left border-collapse text-[11px]">
-              <thead>
-                <tr className="border-b text-gray-500 uppercase font-bold tracking-wider">
-                  <th className="pb-1.5">Produto Alvo</th>
-                  <th className="pb-1.5 text-center">Fardos/Cx</th>
-                  <th className="pb-1.5 text-center">Qtd Total (UN)</th>
-                  <th className="pb-1.5 font-mono text-right">Custo Unitário (UN)</th>
-                  <th className="pb-1.5 font-mono text-right">Subtotal Custo</th>
-                  <th className="pb-1.5 text-right">Ação</th>
-                </tr>
-              </thead>
-              <tbody>
-                {cartItems.map((item, idx) => {
-                  const prod = products.find(p => p.id === item.productId);
-                  const totalUnits = item.boxes * (prod ? prod.boxQuantity : 12);
-                  const rowSubtotal = item.costPrice * totalUnits;
-
-                  return (
-                    <tr key={idx} className={`border-b ${
-                      theme === 'dark' ? 'border-[#1C1C1C]' : 'border-gray-50'
-                    }`}>
-                      <td className="py-2 font-semibold text-gray-200" style={{ color: theme === 'dark' ? 'white' : '#222' }}>{prod ? prod.name : 'Produto'}</td>
-                      <td className="py-2 text-center text-[#18F2A4] font-semibold">{item.boxes} cx</td>
-                      <td className="py-2 text-center text-sky-400 font-mono">{totalUnits} un</td>
-                      <td className="py-2 font-mono text-right text-gray-400">R$ {item.costPrice.toFixed(2)}</td>
-                      <td className="py-2 font-mono text-right font-bold text-gray-200" style={{ color: theme === 'dark' ? 'white' : '#222' }}>R$ {rowSubtotal.toFixed(2)}</td>
-                      <td className="py-2 text-right">
-                        <button
-                          onClick={() => handleRemoveItem(idx)}
-                          className="text-gray-500 hover:text-red-500 transition-colors"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-                {cartItems.length === 0 && (
-                  <tr>
-                    <td colSpan={6} className="text-center py-10 text-gray-500">
-                      Nenhum item lançado na Nota Fiscal. Adicione itens acima.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Checkout Invoice bottom summary */}
-          <div className="flex flex-col gap-2 pt-3 border-t border-[#1C1C1C]" style={{ borderColor: theme === 'dark' ? '#1C1C1C' : '#E5E5E5' }}>
-            <div className="flex justify-between text-xs text-gray-400 font-mono">
-              <span>Subtotal Nota: R$ {invoiceSubtotal.toFixed(2)}</span>
-              {freight > 0 && <span>Frete: + R$ {freight.toFixed(2)}</span>}
-              {discount > 0 && <span className="text-red-500">Desconto: - R$ {discount.toFixed(2)}</span>}
-            </div>
-
-            <div className="flex justify-between items-center">
-              <div className="flex flex-col text-xs">
-                <span className="text-[10px] uppercase text-gray-400 font-bold">Total Geral da Nota</span>
-                <span className={`text-lg font-mono font-bold ${theme === 'dark' ? 'text-[#18F2A4]' : 'text-[#10B981]'}`}>
-                  R$ {invoiceTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
+            <div>
+              <label className="text-[9px] text-gray-500 block mb-1 uppercase font-bold">Qtd Caixas / Fardos</label>
+              <div className="flex gap-1">
+                <input
+                  type="number"
+                  min="1"
+                  value={tempQtyBoxes || ''}
+                  onChange={e => setTempQtyBoxes(Math.max(1, parseInt(e.target.value) || 1))}
+                  className={`w-full px-2.5 py-1 text-xs rounded-lg border outline-none font-mono ${
+                    isDark ? 'bg-black/50 border-[#1C1C1C] text-gray-200' : 'bg-white border-gray-200'
+                  }`}
+                />
+                <button
+                  type="button"
+                  onClick={handleAddItem}
+                  className="px-3 py-1 rounded-lg bg-emerald-500 text-black font-bold text-xs hover:bg-emerald-400 cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
               </div>
-
-              <button
-                disabled={cartItems.length === 0}
-                onClick={handleReceiveInvoice}
-                className={`py-2 px-4 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition-all cursor-pointer ${
-                  cartItems.length === 0
-                    ? 'opacity-40 cursor-not-allowed'
-                    : theme === 'dark'
-                      ? 'bg-[#18F2A4] text-black hover:bg-[#12d58f]'
-                      : 'bg-[#10B981] text-white hover:bg-[#0e9f6e]'
-                }`}
-              >
-                <CheckCircle className="w-4 h-4" />
-                Receber Mercadoria (NF-e)
-              </button>
             </div>
           </div>
         </div>
 
+        {/* Invoice Summary and Submit */}
+        <div className="flex justify-between items-center mt-3 pt-3 border-t" style={{ borderColor: isDark ? '#1C1C1C' : '#F0F0F0' }}>
+          <div>
+            <span className={`text-[10px] uppercase font-bold block ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Total da NF</span>
+            <span className={`text-sm font-mono font-bold ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>
+              R$ {purchaseTotal.toFixed(2)}
+            </span>
+          </div>
+
+          <button
+            type="submit"
+            className="px-4 py-2 bg-emerald-500 text-black font-bold text-xs uppercase tracking-wide rounded-xl hover:bg-emerald-400 cursor-pointer flex items-center gap-1.5"
+          >
+            <ShieldCheck className="w-4 h-4" />
+            Salvar Nota Fiscal e Lançar Estoques
+          </button>
+        </div>
+      </form>
+
+      {/* Added Items List Side Panel */}
+      <div className={`p-4 rounded-xl border flex flex-col justify-between ${
+        isDark ? 'bg-[#121212]/30 border-[#1C1C1C]' : 'bg-white border-gray-100'
+      }`}>
+        <div>
+          <h3 className={`text-xs font-bold tracking-wide uppercase mb-3 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+            Itens Adicionados ({purchaseItems.length})
+          </h3>
+
+          {purchaseItems.length === 0 ? (
+            <div className="text-center py-20 text-xs text-gray-500">
+              Nenhum insumo adicionado a esta Nota Fiscal ainda.
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2 max-h-96 overflow-y-auto pr-1">
+              {purchaseItems.map((item, idx) => {
+                const totalUnits = item.qtyBoxes * item.product.boxQuantity;
+                const costSum = item.costPrice * totalUnits;
+                return (
+                  <div 
+                    key={idx}
+                    className={`p-2.5 rounded-lg border flex justify-between items-center ${
+                      isDark ? 'bg-black/20 border-[#1A1A1A]' : 'bg-gray-50 border-gray-200'
+                    }`}
+                  >
+                    <div className="min-w-0 flex-1 pr-2">
+                      <p className={`text-xs font-semibold truncate ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>
+                        {item.product.name}
+                      </p>
+                      <p className="text-[10px] text-gray-500">
+                        {item.qtyBoxes} cx ({totalUnits} un) @ R$ {item.costPrice.toFixed(2)}/un
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs font-mono font-bold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                        R$ {costSum.toFixed(2)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveItem(idx)}
+                        className="p-1 text-red-400 hover:text-red-500 cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
