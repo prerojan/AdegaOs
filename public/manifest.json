@@ -1,12 +1,39 @@
 {
+  "id": "/",
   "short_name": "FluxOS",
   "name": "FluxOS - Operating System para Adegas e PDV",
+  "description": "Sistema de Gestão e Ponto de Venda (PDV) para Adegas e Comércio",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#000000",
+  "theme_color": "#18F2A4",
+  "categories": ["business", "productivity", "utilities"],
   "icons": [
     {
       "src": "/icon.png",
       "type": "image/png",
-      "sizes": "512x512 192x192 64x64 32x32",
-      "purpose": "any maskable"
+      "sizes": "192x192",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icon.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "maskable"
     },
     {
       "src": "/logo-bw.png",
@@ -14,10 +41,5 @@
       "sizes": "512x512",
       "purpose": "monochrome"
     }
-  ],
-  "start_url": "/",
-  "background_color": "#000000",
-  "theme_color": "#18F2A4",
-  "display": "standalone",
-  "orientation": "any"
+  ]
 }
