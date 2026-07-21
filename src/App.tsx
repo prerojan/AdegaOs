@@ -1105,6 +1105,7 @@ export default function App() {
             <Menu className="w-5 h-5 text-[#18F2A4]" />
           </button>
           <div className="flex items-center gap-1.5">
+            <img src="/logo.png" alt="FluxOS" className="w-4.5 h-4.5 object-contain shrink-0" />
             <span className="font-extrabold text-xs tracking-tight">Flux<span className="text-transparent bg-clip-text bg-gradient-to-r from-violet-400 via-blue-400 to-[#18F2A4]">OS</span></span>
           </div>
           <div className="w-8"></div>
@@ -1137,6 +1138,7 @@ export default function App() {
               <div className="flex flex-col gap-1.5 overflow-y-auto flex-1">
                 {/* Brand Header inside Sidebar */}
                 <div className="p-4 flex items-center gap-2 border-b border-gray-800/20" style={{ borderColor: theme === 'dark' ? '#161616' : '#E2E8F0' }}>
+                  <img src="/logo.png" alt="FluxOS Logo" className="w-5 h-5 object-contain shrink-0" />
                   <span className="font-extrabold text-sm tracking-tight">Flux<span className="text-transparent bg-clip-text bg-gradient-to-r from-violet-400 via-blue-400 to-[#18F2A4]">OS</span></span>
                 </div>
 
