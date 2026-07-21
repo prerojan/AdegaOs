@@ -1,9 +1,11 @@
-const CACHE_NAME = 'adegaos-cache-v2';
+const CACHE_NAME = 'adegaos-cache-v3';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
   '/manifest.json',
-  '/icon.svg'
+  '/icon.png',
+  '/logo.png',
+  '/logo-bw.png'
 ];
 
 // Install Event

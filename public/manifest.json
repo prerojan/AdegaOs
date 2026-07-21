@@ -3,14 +3,14 @@
   "name": "FluxOS - Operating System para Adegas e PDV",
   "icons": [
     {
-      "src": "/icon.svg",
-      "type": "image/svg+xml",
+      "src": "/icon.png",
+      "type": "image/png",
       "sizes": "512x512 192x192 64x64 32x32",
       "purpose": "any maskable"
     },
     {
-      "src": "/logo-bw.svg",
-      "type": "image/svg+xml",
+      "src": "/logo-bw.png",
+      "type": "image/png",
       "sizes": "512x512",
       "purpose": "monochrome"
     }
