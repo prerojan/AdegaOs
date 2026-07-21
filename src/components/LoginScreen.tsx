@@ -172,7 +172,7 @@ export default function LoginScreen({
           }}
           title="Clique 5 vezes para voltar à Landing Page"
         >
-          <img src="/logo.svg" alt="FluxOS Logo" className="w-5.5 h-5.5 object-contain shrink-0" />
+          <img src="/logo.png" alt="FluxOS Logo" className="w-5.5 h-5.5 object-contain shrink-0" />
           <span className="font-extrabold text-sm tracking-tight">
             Flux<span className="text-transparent bg-clip-text bg-gradient-to-r from-violet-400 via-blue-400 to-[#18F2A4]">OS</span>
           </span>

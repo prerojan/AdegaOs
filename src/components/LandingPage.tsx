@@ -276,7 +276,7 @@ export default function LandingPage({ theme, onEnterSystem, onEnterAdmin, onTogg
         theme === 'dark' ? 'bg-[#000000]/80 border-[#111111]' : 'bg-white/80 border-gray-200'
       }`}>
         <div className="flex items-center gap-2 cursor-default select-none group">
-          <img src="/logo.svg" alt="FluxOS Logo" className="w-5.5 h-5.5 object-contain shrink-0 group-hover:scale-105 transition-transform" />
+          <img src="/logo.png" alt="FluxOS Logo" className="w-5.5 h-5.5 object-contain shrink-0 group-hover:scale-105 transition-transform" />
           <span className={`font-extrabold text-sm tracking-tight ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
             Flux<span className="text-transparent bg-clip-text bg-gradient-to-r from-violet-400 via-blue-400 to-[#18F2A4]">OS</span>
           </span>
@@ -1570,7 +1570,7 @@ export default function LandingPage({ theme, onEnterSystem, onEnterAdmin, onTogg
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-6 font-sans">
           <div className="flex flex-col items-center sm:items-start gap-1.5">
             <div className="flex items-center gap-2 cursor-default select-none group">
-              <img src="/logo.svg" alt="FluxOS Logo" className="w-5 h-5 object-contain shrink-0 group-hover:rotate-12 transition-transform duration-300" />
+              <img src="/logo.png" alt="FluxOS Logo" className="w-5 h-5 object-contain shrink-0 group-hover:rotate-12 transition-transform duration-300" />
               <span className={`font-extrabold tracking-tight ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
                 Flux<span className="text-transparent bg-clip-text bg-gradient-to-r from-violet-400 via-blue-400 to-[#18F2A4]">OS</span>
               </span>
