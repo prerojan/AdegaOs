@@ -348,10 +348,15 @@ export default function App() {
     try {
       localStorage.setItem('adegaos_theme', theme);
     } catch {}
+    const themeColor = theme === 'dark' ? '#000000' : '#FFFFFF';
     if (theme === 'dark') {
       document.documentElement.classList.add('dark');
     } else {
       document.documentElement.classList.remove('dark');
+    }
+    const metaThemeColor = document.querySelector('meta[name="theme-color"]');
+    if (metaThemeColor) {
+      metaThemeColor.setAttribute('content', themeColor);
     }
   }, [theme]);
 
