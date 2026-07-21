@@ -16,6 +16,24 @@
     <link rel="icon" type="image/png" href="/icon.png" />
     <link rel="apple-touch-icon" href="/icon.png" />
     
+    <!-- Initial theme application to avoid status bar color flashing -->
+    <script>
+      (function() {
+        try {
+          var saved = localStorage.getItem('adegaos_theme');
+          var theme = saved || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+          var color = theme === 'dark' ? '#000000' : '#FFFFFF';
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) meta.setAttribute('content', color);
+          if (theme === 'dark') {
+            document.documentElement.classList.add('dark');
+          } else {
+            document.documentElement.classList.remove('dark');
+          }
+        } catch(e) {}
+      })();
+    </script>
+
     <!-- Service Worker registration script -->
     <script>
       if ('serviceWorker' in navigator) {
@@ -35,5 +53,6 @@
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
+</html>  </body>
 </html>  </body>
 </html>
