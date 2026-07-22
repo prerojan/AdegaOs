@@ -54,7 +54,7 @@ export interface EnterprisePrinterConfig {
   
   // 1. Conexão Condicional
   connection: {
-    type: 'usb' | 'serial' | 'network' | 'bluetooth';
+    type: 'system' | 'usb' | 'serial' | 'network' | 'bluetooth';
     // USB
     usbDeviceId?: string;
     usbVendorId?: string;
@@ -154,7 +154,7 @@ export const DEFAULT_ENTERPRISE_CONFIGS: EnterprisePrinterConfig[] = [
     name: 'IMP-01 [CAIXA PRINCIPAL]',
     enabled: true,
     connection: {
-      type: 'usb',
+      type: 'system',
       usbDeviceId: '',
       usbVendorId: '',
       usbProductId: '',
@@ -943,12 +943,20 @@ export default function EnterprisePrinterControlCenter({ theme }: EnterprisePrin
                 <select
                   id="protocol-select"
                   value={currentConfig.connection.type}
-                  onChange={(e) => updateCurrentConfig(d => { d.connection.type = e.target.value as any; })}
+                  onChange={(e) => updateCurrentConfig(d => {
+                    const val = e.target.value as any;
+                    d.connection.type = val;
+                    if (val === 'system') d.hardware.driver = 'system';
+                    else if (val === 'usb') d.hardware.driver = 'webusb';
+                    else if (val === 'network') d.hardware.driver = 'raw_tcp';
+                    else if (val === 'serial') d.hardware.driver = 'serial_com';
+                  })}
                   className={`px-3 py-1.5 rounded-lg border text-xs font-bold outline-none cursor-pointer transition-all ${
                     isDark ? 'bg-[#141414] border-gray-800 text-[#18F2A4] hover:border-gray-700' : 'bg-white border-gray-300 text-emerald-800'
                   }`}
                 >
-                  <option value="usb">USB (Direct WebUSB / Spooler)</option>
+                  <option value="system">Driver do Sistema (Spooler Windows / Impressão Silenciosa Kiosk)</option>
+                  <option value="usb">USB Direct (WebUSB Raw ESC/POS)</option>
                   <option value="network">TCP/IP (Rede Ethernet / Wi-Fi)</option>
                   <option value="serial">Serial RS-232 / COM</option>
                   <option value="bluetooth">Bluetooth (Wireless POS)</option>
@@ -959,6 +967,37 @@ export default function EnterprisePrinterControlCenter({ theme }: EnterprisePrin
               <div className={`p-4 rounded-xl border ${
                 isDark ? 'bg-[#0B0B0B] border-[#161616]' : 'bg-gray-50 border-gray-200'
               }`}>
+
+                {/* 0. System Driver Fields */}
+                {currentConfig.connection.type === 'system' && (
+                  <div className="flex flex-col gap-3">
+                    <div className="flex items-center justify-between border-b border-gray-800 pb-2">
+                      <span className="font-bold text-xs uppercase text-[#18F2A4] flex items-center gap-1.5">
+                        <Printer className="w-4 h-4" /> Driver do Sistema Operacional (Spooler Windows / Linux / Mac)
+                      </span>
+                      <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/40 border border-emerald-900/50 px-2 py-0.5 rounded font-bold">
+                        MAIS ESTÁVEL E RECOMENDADO
+                      </span>
+                    </div>
+
+                    <div className={`p-3.5 rounded-xl border text-xs leading-relaxed flex flex-col gap-2 ${
+                      isDark ? 'bg-[#121212] border-gray-800/80 text-gray-300' : 'bg-white border-gray-200 text-slate-800'
+                    }`}>
+                      <div className="font-bold text-emerald-400 flex items-center gap-1.5">
+                        <Check className="w-4 h-4 shrink-0 text-[#18F2A4]" />
+                        <span>Ideal para impressoras USB instaladas no sistema</span>
+                      </div>
+                      <p className="text-[11px] text-gray-400">
+                        O envio é feito pelo Gerenciador de Impressão nativo do sistema. Com o atalho do PWA/Navegador configurado com o parâmetro <code className="bg-black/40 px-1 py-0.5 rounded text-[#18F2A4] font-mono">--kiosk-printing</code>, o cupom sai <strong>automaticamente e instantaneamente</strong> sem abrir nenhuma caixa de diálogo.
+                      </p>
+                      <ul className="text-[11px] text-gray-400 list-disc list-inside gap-1 flex flex-col">
+                        <li>Não sofre bloqueios de "Access Denied" do WebUSB do navegador.</li>
+                        <li>Permite que a impressora continue configurada no painel de controle do sistema.</li>
+                        <li>Garante impressão em 1 clique sem requerer religar a impressora.</li>
+                      </ul>
+                    </div>
+                  </div>
+                )}
 
                 {/* 1. USB Fields */}
                 {currentConfig.connection.type === 'usb' && (
