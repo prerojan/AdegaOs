@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Users, Store, ShieldAlert, Key, Plus, Save, ToggleLeft, ToggleRight, X, Trash2, Shield, Download, Laptop, Printer, Sliders, Play, Check, AlertCircle, FileText, Sparkles, RefreshCw, Volume2, Wifi, Usb, Bluetooth, HelpCircle, Award, Mail, Phone, Lock, Edit3, CheckCircle2, Server, Globe } from 'lucide-react';
+import { Settings, Users, Store, ShieldAlert, Key, Plus, Save, ToggleLeft, ToggleRight, X, Trash2, Shield, Download, Laptop, Printer, Sliders, Play, Check, AlertCircle, FileText, Sparkles, RefreshCw, Volume2, Wifi, Usb, Bluetooth, HelpCircle, Award, Mail, Phone, Lock, Edit3, CheckCircle2, Server, Globe, Tablet } from 'lucide-react';
 import { CashierUser } from '../types';
 import { triggerThermalPrint } from '../lib/thermalPrinter';
 
@@ -50,8 +50,8 @@ export default function ManagerSettings({
   }, []);
 
   // Global Printer Config States
-  const [printerMode, setPrinterMode] = useState<'virtual' | 'bluetooth' | 'browser' | 'network'>(() => {
-    return (localStorage.getItem('adegaos_printer_mode') as any) || 'virtual';
+  const [printerMode, setPrinterMode] = useState<'system' | 'webusb' | 'webserial' | 'bluetooth' | 'network' | 'virtual'>(() => {
+    return (localStorage.getItem('adegaos_printer_mode') as any) || 'system';
   });
   const [paperSize, setPaperSize] = useState<'58mm' | '80mm'>(() => {
     return (localStorage.getItem('adegaos_paper_size') as any) || '58mm';
@@ -167,22 +167,35 @@ export default function ManagerSettings({
   };
 
   // PWA/Chrome Install states
-  const [deferredPrompt, setDeferredPrompt] = React.useState<any>(null);
+  const [deferredPrompt, setDeferredPrompt] = React.useState<any>(() => (window as any).deferredPwaPrompt || null);
   const [isAppInstalled, setIsAppInstalled] = React.useState(false);
 
   React.useEffect(() => {
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
+      (window as any).deferredPwaPrompt = e;
       setDeferredPrompt(e);
+    };
+
+    const handlePromptAvailable = () => {
+      if ((window as any).deferredPwaPrompt) {
+        setDeferredPrompt((window as any).deferredPwaPrompt);
+      }
     };
 
     const handleAppInstalled = () => {
       setIsAppInstalled(true);
       setDeferredPrompt(null);
+      (window as any).deferredPwaPrompt = null;
     };
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('pwa-prompt-available', handlePromptAvailable);
     window.addEventListener('appinstalled', handleAppInstalled);
+
+    if ((window as any).deferredPwaPrompt) {
+      setDeferredPrompt((window as any).deferredPwaPrompt);
+    }
 
     if (window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone) {
       setIsAppInstalled(true);
@@ -190,17 +203,27 @@ export default function ManagerSettings({
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('pwa-prompt-available', handlePromptAvailable);
       window.removeEventListener('appinstalled', handleAppInstalled);
     };
   }, []);
 
   const handleTriggerInstall = async () => {
-    if (!deferredPrompt) return;
-    deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
+    const promptEvent = deferredPrompt || (window as any).deferredPwaPrompt;
+    if (!promptEvent) {
+      if (window.self !== window.top) {
+        alert('Para instalar o aplicativo nativo FluxOS, abra o link do sistema em uma nova aba diretamente no navegador (fora do visualizador/iFrame do AI Studio).');
+      } else {
+        alert('O aplicativo já está instalado ou o seu navegador já registrou a instalação. Acesse o menu do navegador em "Instalar FluxOS" ou procure o ícone na tela inicial.');
+      }
+      return;
+    }
+    promptEvent.prompt();
+    const { outcome } = await promptEvent.userChoice;
     if (outcome === 'accepted') {
       setIsAppInstalled(true);
       setDeferredPrompt(null);
+      (window as any).deferredPwaPrompt = null;
     }
   };
 
@@ -464,7 +487,7 @@ export default function ManagerSettings({
                 <Printer className="w-4 h-4 text-[#18F2A4]" />
                 Automação e Roteamento de Impressoras Por Setor
               </h3>
-              <p className="text-xs text-gray-500 mt-0.5">Cadastre e teste impressoras térmicas conectadas via USB, IP de Rede TCP/IP ou Bluetooth para cada setor do estabelecimento.</p>
+              <p className="text-xs text-gray-500 mt-0.5">Cadastre e teste impressoras térmicas conectadas via USB (Windows Spooler / USB005 / HPRT-II), IP de Rede TCP/IP ou Bluetooth para cada setor.</p>
             </div>
 
             <div className="flex items-center gap-3">
@@ -484,6 +507,175 @@ export default function ManagerSettings({
                 <Save className="w-4 h-4" />
                 Salvar Rede de Impressoras
               </button>
+            </div>
+          </div>
+
+          {/* Primary Connection Engine Selector */}
+          <div className={`p-5 rounded-2xl border flex flex-col gap-4 ${
+            theme === 'dark' ? 'bg-[#080808] border-[#111]' : 'bg-white border-gray-200 shadow-sm'
+          }`}>
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b pb-3" style={{ borderColor: theme === 'dark' ? '#161616' : '#F3F4F6' }}>
+              <div>
+                <h4 className="text-sm font-extrabold flex items-center gap-2">
+                  <Printer className="w-4 h-4 text-[#18F2A4]" />
+                  Modo de Conexão Principal da Impressora
+                </h4>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Selecione o método de comunicação com sua impressora térmica (HPRT-II, Bematech, Elgin, Epson, Pos58, etc.).
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => handleTriggerSectorTestPrint('caixa', 'Impressora de Teste HPRT-II/Sistema')}
+                className={`px-4 py-2 rounded-xl text-xs font-bold border flex items-center gap-1.5 cursor-pointer ${
+                  theme === 'dark' ? 'bg-[#111] border-gray-800 text-[#18F2A4] hover:bg-[#1A1A1A]' : 'bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100'
+                }`}
+              >
+                <Play className="w-3.5 h-3.5 text-[#18F2A4]" />
+                Testar Impressora do Sistema (HPRT-II / USB)
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {/* Option 1: System Driver / Windows Spooler */}
+              <div
+                onClick={() => setPrinterMode('system')}
+                className={`p-4 rounded-xl border cursor-pointer transition-all flex flex-col gap-2 ${
+                  printerMode === 'system' || (printerMode as string) === 'browser'
+                    ? 'border-[#18F2A4] bg-[#18F2A4]/10 shadow-sm'
+                    : theme === 'dark' ? 'bg-[#111] border-gray-800 hover:border-gray-700' : 'bg-gray-50 border-gray-200 hover:border-gray-300'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-extrabold text-xs flex items-center gap-1.5">
+                    <Laptop className="w-4 h-4 text-[#18F2A4]" />
+                    Driver do Sistema / Windows
+                  </span>
+                  {(printerMode === 'system' || (printerMode as string) === 'browser') && (
+                    <Check className="w-4 h-4 text-[#18F2A4]" />
+                  )}
+                </div>
+                <p className="text-[11px] text-gray-400 leading-snug">
+                  Conecta em qualquer impressora instalada no Windows (incluindo HPRT-II na porta USB005, USB001, Spooler, Impressora Padrão).
+                  <strong className="text-emerald-400 block mt-1">✓ Recomendado para USB sem IP</strong>
+                </p>
+              </div>
+
+              {/* Option 2: WebUSB Direct */}
+              <div
+                onClick={() => setPrinterMode('webusb')}
+                className={`p-4 rounded-xl border cursor-pointer transition-all flex flex-col gap-2 ${
+                  printerMode === 'webusb'
+                    ? 'border-[#18F2A4] bg-[#18F2A4]/10 shadow-sm'
+                    : theme === 'dark' ? 'bg-[#111] border-gray-800 hover:border-gray-700' : 'bg-gray-50 border-gray-200 hover:border-gray-300'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-extrabold text-xs flex items-center gap-1.5">
+                    <Usb className="w-4 h-4 text-[#18F2A4]" />
+                    USB Direto (WebUSB)
+                  </span>
+                  {printerMode === 'webusb' && (
+                    <Check className="w-4 h-4 text-[#18F2A4]" />
+                  )}
+                </div>
+                <p className="text-[11px] text-gray-400 leading-snug">
+                  Comunicação direta USB nativa sem necessidade de driver via caixa de dispositivos do navegador (HPRT, Elgin, Bematech, POS-58).
+                </p>
+              </div>
+
+              {/* Option 3: Web Serial */}
+              <div
+                onClick={() => setPrinterMode('webserial')}
+                className={`p-4 rounded-xl border cursor-pointer transition-all flex flex-col gap-2 ${
+                  printerMode === 'webserial'
+                    ? 'border-[#18F2A4] bg-[#18F2A4]/10 shadow-sm'
+                    : theme === 'dark' ? 'bg-[#111] border-gray-800 hover:border-gray-700' : 'bg-gray-50 border-gray-200 hover:border-gray-300'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-extrabold text-xs flex items-center gap-1.5">
+                    <Key className="w-4 h-4 text-[#18F2A4]" />
+                    Porta COM / Serial USB
+                  </span>
+                  {printerMode === 'webserial' && (
+                    <Check className="w-4 h-4 text-[#18F2A4]" />
+                  )}
+                </div>
+                <p className="text-[11px] text-gray-400 leading-snug">
+                  Conexão por porta COM virtual (COM1..COM10) para impressoras térmicas mapeadas como dispositivo serial USB.
+                </p>
+              </div>
+
+              {/* Option 4: Bluetooth */}
+              <div
+                onClick={() => setPrinterMode('bluetooth')}
+                className={`p-4 rounded-xl border cursor-pointer transition-all flex flex-col gap-2 ${
+                  printerMode === 'bluetooth'
+                    ? 'border-[#18F2A4] bg-[#18F2A4]/10 shadow-sm'
+                    : theme === 'dark' ? 'bg-[#111] border-gray-800 hover:border-gray-700' : 'bg-gray-50 border-gray-200 hover:border-gray-300'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-extrabold text-xs flex items-center gap-1.5">
+                    <Bluetooth className="w-4 h-4 text-[#18F2A4]" />
+                    Bluetooth Sem Fio
+                  </span>
+                  {printerMode === 'bluetooth' && (
+                    <Check className="w-4 h-4 text-[#18F2A4]" />
+                  )}
+                </div>
+                <p className="text-[11px] text-gray-400 leading-snug">
+                  Pareamento sem fio ESC/POS com impressoras térmicas portáteis Bluetooth.
+                </p>
+              </div>
+
+              {/* Option 5: Network IP */}
+              <div
+                onClick={() => setPrinterMode('network')}
+                className={`p-4 rounded-xl border cursor-pointer transition-all flex flex-col gap-2 ${
+                  printerMode === 'network'
+                    ? 'border-[#18F2A4] bg-[#18F2A4]/10 shadow-sm'
+                    : theme === 'dark' ? 'bg-[#111] border-gray-800 hover:border-gray-700' : 'bg-gray-50 border-gray-200 hover:border-gray-300'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-extrabold text-xs flex items-center gap-1.5">
+                    <Wifi className="w-4 h-4 text-[#18F2A4]" />
+                    Rede IP TCP/IP
+                  </span>
+                  {printerMode === 'network' && (
+                    <Check className="w-4 h-4 text-[#18F2A4]" />
+                  )}
+                </div>
+                <p className="text-[11px] text-gray-400 leading-snug">
+                  Transmissão por IP fixo de rede local (Porta 9100) para impressoras com cabo de rede Ethernet ou Wi-Fi.
+                </p>
+              </div>
+
+              {/* Option 6: Virtual */}
+              <div
+                onClick={() => setPrinterMode('virtual')}
+                className={`p-4 rounded-xl border cursor-pointer transition-all flex flex-col gap-2 ${
+                  printerMode === 'virtual'
+                    ? 'border-[#18F2A4] bg-[#18F2A4]/10 shadow-sm'
+                    : theme === 'dark' ? 'bg-[#111] border-gray-800 hover:border-gray-700' : 'bg-gray-50 border-gray-200 hover:border-gray-300'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-extrabold text-xs flex items-center gap-1.5">
+                    <Tablet className="w-4 h-4 text-[#18F2A4]" />
+                    Simulador na Tela
+                  </span>
+                  {printerMode === 'virtual' && (
+                    <Check className="w-4 h-4 text-[#18F2A4]" />
+                  )}
+                </div>
+                <p className="text-[11px] text-gray-400 leading-snug">
+                  Exibe o rolo de papel virtualmente na tela para testes sem gastar bobina.
+                </p>
+              </div>
             </div>
           </div>
 
