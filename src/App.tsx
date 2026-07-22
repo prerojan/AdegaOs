@@ -55,6 +55,7 @@ import ProductionPanel from './components/ProductionPanel';
 import LandingPage from './components/LandingPage';
 import AdminPanel from './components/AdminPanel';
 import ManagerImportPortal from './components/ManagerImportPortal';
+import ThermalPrinterControlModal from './components/ThermalPrinterControlModal';
 
 export default function App() {
   // Global Shared States
@@ -1520,6 +1521,9 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Global Thermal Printer Control Modal */}
+      <ThermalPrinterControlModal theme={theme} />
 
     </div>
   );
