@@ -652,7 +652,7 @@ export default function ManagerImportPortal({
                     ? 'bg-[#18F2A4]/5 border-[#18F2A4]/10 text-[#18F2A4]' 
                     : 'bg-emerald-50 border-emerald-200 text-emerald-800'
                 }`}>
-                  <span className="font-bold text-[10px] block">📂 Novas Categorias Detectadas ({newCategoriesToRegister.length}):</span>
+                  <span className="font-bold text-[10px] flex items-center gap-1">Novas Categorias Detectadas ({newCategoriesToRegister.length}):</span>
                   <p className={`text-[9px] mt-1 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
                     Serão cadastradas automaticamente: <span className={`font-mono font-bold ${theme === 'dark' ? 'text-white' : 'text-emerald-950'}`}>{newCategoriesToRegister.join(', ')}</span>
                   </p>
@@ -968,8 +968,8 @@ export default function ManagerImportPortal({
                                 : 'bg-white text-emerald-900 border-emerald-100 shadow-2xs'
                             }`}
                           >
-                            <span className="truncate max-w-[240px] font-semibold">
-                              ✓ {item.productName}
+                            <span className="truncate max-w-[240px] font-semibold flex items-center gap-1">
+                              <Check className="w-3 h-3 text-[#18F2A4]" /> {item.productName}
                             </span>
                             <div className="flex items-center gap-2 shrink-0 font-mono text-[8px] text-gray-400">
                               <span className={theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}>{item.barcode}</span>
