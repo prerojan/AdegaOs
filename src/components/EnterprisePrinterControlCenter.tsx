@@ -765,22 +765,22 @@ export default function EnterprisePrinterControlCenter({ theme }: EnterprisePrin
     }`}>
       
       {/* =========================================================================
-          TOP COMMAND BAR: PROFILE SELECTOR & GLOBAL REAL ACTION (MOBILE OPTIMIZED)
+          TOP COMMAND BAR: PROFILE SELECTOR & GLOBAL REAL ACTION (PIXEL-PERFECT DESKTOP & MOBILE)
           ========================================================================= */}
       <div className={`p-3 border-b flex flex-col md:flex-row md:items-center justify-between gap-3 w-full min-w-0 ${
         isDark ? 'bg-[#0B0B0B] border-[#1A1A1A]' : 'bg-gray-50 border-gray-200'
       }`}>
-        {/* Mobile Header Layout: Grid with full touch targets */}
+        {/* Left: Device Selector & Quick Profile Actions */}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 min-w-0 flex-1">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="p-2 rounded-xl bg-[#18F2A4]/10 text-[#18F2A4] border border-[#18F2A4]/20 shrink-0">
+          <div className="flex items-center gap-2 min-w-0 flex-1 sm:flex-none">
+            <div className="w-10 h-10 rounded-xl bg-[#18F2A4]/10 text-[#18F2A4] border border-[#18F2A4]/20 flex items-center justify-center shrink-0">
               <Printer className="w-4 h-4" />
             </div>
 
             <select
               value={selectedId}
               onChange={(e) => setSelectedId(e.target.value)}
-              className={`w-full sm:w-auto px-3 py-2.5 sm:py-2 rounded-xl border text-xs font-bold outline-none transition-all cursor-pointer truncate min-h-[42px] sm:min-h-0 ${
+              className={`w-full sm:w-auto h-10 px-3 rounded-xl border text-xs font-bold outline-none transition-all cursor-pointer truncate ${
                 isDark ? 'bg-[#141414] border-gray-800 text-[#18F2A4] hover:border-gray-700' : 'bg-white border-gray-300 text-emerald-800'
               }`}
             >
@@ -793,33 +793,35 @@ export default function EnterprisePrinterControlCenter({ theme }: EnterprisePrin
           </div>
 
           {/* Quick Profile Actions Bar */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
               onClick={handleOpenNewProfileModal}
-              className={`flex-1 sm:flex-none h-10 sm:h-auto px-3 rounded-xl border transition-all cursor-pointer flex items-center justify-center gap-1.5 font-bold text-xs shrink-0 active:scale-95 ${
+              className={`flex-1 sm:flex-none h-10 px-3 rounded-xl border transition-all cursor-pointer flex items-center justify-center gap-1.5 font-bold text-xs shrink-0 active:scale-95 ${
                 isDark ? 'border-gray-800 bg-[#141414] hover:bg-gray-800 text-gray-300 hover:text-white' : 'border-gray-300 bg-white hover:bg-gray-100 text-slate-700 hover:text-slate-900'
               }`}
             >
-              <Plus className="w-3.5 h-3.5 text-[#18F2A4]" /> Novo Perfil
+              <Plus className="w-3.5 h-3.5 text-[#18F2A4] shrink-0" />
+              <span>Novo Perfil</span>
             </button>
 
             <button
               type="button"
               onClick={handleOpenDeleteModal}
-              className={`h-10 sm:h-auto px-3 rounded-xl border transition-all cursor-pointer text-xs font-bold flex items-center justify-center gap-1 shrink-0 active:scale-95 ${
+              className={`h-10 px-3 rounded-xl border transition-all cursor-pointer text-xs font-bold flex items-center justify-center gap-1.5 shrink-0 active:scale-95 ${
                 isDark ? 'border-red-950 bg-red-950/20 hover:bg-red-900/40 text-red-400' : 'border-red-200 bg-red-50 hover:bg-red-100 text-red-600'
               }`}
+              title="Excluir Perfil Atual"
             >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span className="hidden xs:inline sm:inline">Excluir</span>
+              <Trash2 className="w-3.5 h-3.5 shrink-0" />
+              <span>Excluir</span>
             </button>
           </div>
         </div>
 
-        {/* Right / Bottom: Status Badge & Primary Test Execution Button */}
-        <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0 pt-1 sm:pt-0 border-t sm:border-t-0 border-gray-800/50">
-          <div className="shrink-0">
+        {/* Right: Status Badge & Primary Test Execution Button */}
+        <div className="flex items-center justify-between sm:justify-end gap-2.5 shrink-0 pt-2.5 sm:pt-0 border-t sm:border-t-0 border-gray-800/40 md:border-t-0">
+          <div className="shrink-0 flex items-center h-10">
             {renderStatusBadge()}
           </div>
 
@@ -830,7 +832,7 @@ export default function EnterprisePrinterControlCenter({ theme }: EnterprisePrin
             disabled={isTestPrinting}
             className="h-10 px-4 rounded-xl font-bold text-xs bg-[#18F2A4] text-black hover:bg-[#12d58f] active:bg-[#0fe399] transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md disabled:opacity-50 shrink-0"
           >
-            <Play className="w-4 h-4 fill-black" />
+            <Play className="w-4 h-4 fill-black shrink-0" />
             <span>{isTestPrinting ? 'Executando...' : 'Testar Impressão'}</span>
           </motion.button>
         </div>
@@ -891,7 +893,7 @@ export default function EnterprisePrinterControlCenter({ theme }: EnterprisePrin
               key={tab.id}
               type="button"
               onClick={() => setActiveTab(tab.id as any)}
-              className={`relative px-3 py-2 rounded-t-lg text-xs font-bold tracking-tight flex items-center gap-2 cursor-pointer transition-all border-t border-x ${
+              className={`relative h-10 px-3.5 py-2 rounded-t-xl text-xs font-bold tracking-tight flex items-center gap-2 cursor-pointer transition-all border-t border-x shrink-0 whitespace-nowrap ${
                 isActive
                   ? isDark
                     ? 'bg-[#080808] border-[#1A1A1A] border-b-[#080808] text-[#18F2A4] z-10'
@@ -901,7 +903,7 @@ export default function EnterprisePrinterControlCenter({ theme }: EnterprisePrin
                     : 'border-transparent text-gray-600 hover:text-slate-900 hover:bg-gray-200'
               }`}
             >
-              <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-[#18F2A4]' : 'text-gray-400'}`} />
+              <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-[#18F2A4]' : 'text-gray-400'}`} />
               <span>{tab.label}</span>
               {isActive && (
                 <motion.div
@@ -2167,15 +2169,23 @@ export default function EnterprisePrinterControlCenter({ theme }: EnterprisePrin
                 </div>
               </div>
 
-              <p className="text-xs text-gray-300 leading-relaxed bg-red-950/20 p-3 rounded-xl border border-red-900/30">
-                Tem certeza que deseja remover permanentemente o perfil <strong className="text-white">"{profileToDelete.name}"</strong>? O roteamento de impressões para este dispositivo será interrompido.
+              <p className={`text-xs leading-relaxed p-3.5 rounded-xl border font-medium ${
+                isDark
+                  ? 'bg-red-950/40 border-red-900/50 text-red-200'
+                  : 'bg-red-50 border-red-200 text-red-900'
+              }`}>
+                Tem certeza que deseja remover permanentemente o perfil <strong className={`font-bold ${isDark ? 'text-white' : 'text-red-950'}`}>"{profileToDelete.name}"</strong>? O roteamento de impressões para este dispositivo será interrompido.
               </p>
 
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-800/60">
+              <div className={`flex items-center justify-end gap-2 pt-2 border-t ${isDark ? 'border-gray-800/60' : 'border-gray-200'}`}>
                 <button
                   type="button"
                   onClick={() => setProfileToDelete(null)}
-                  className="px-3.5 py-2 rounded-xl border border-gray-700 hover:bg-gray-800 text-gray-300 font-bold text-xs cursor-pointer transition-all"
+                  className={`px-3.5 py-2 rounded-xl border font-bold text-xs cursor-pointer transition-all ${
+                    isDark
+                      ? 'border-gray-700 hover:bg-gray-800 text-gray-300'
+                      : 'border-gray-300 hover:bg-gray-100 text-slate-700'
+                  }`}
                 >
                   Cancelar
                 </button>
