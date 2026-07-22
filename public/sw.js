@@ -1,4 +1,4 @@
-const CACHE_NAME = 'adegaos-cache-v6';
+const CACHE_NAME = 'fluxos-cache-v11';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
@@ -6,17 +6,19 @@ const ASSETS_TO_CACHE = [
   '/icon.png',
   '/icon-192.png',
   '/icon-512.png',
-  '/icon.svg',
   '/logo.png',
   '/logo-bw.png'
 ];
 
 // Install Event
 self.addEventListener('install', (event) => {
+  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS_TO_CACHE);
-    }).then(() => self.skipWaiting())
+      return cache.addAll(ASSETS_TO_CACHE).catch((err) => {
+        console.warn('[SW] Caching failed:', err);
+      });
+    })
   );
 });
 
@@ -35,6 +37,36 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+// Fetch Event (Network-First with Cache Fallback)
+self.addEventListener('fetch', (event) => {
+  if (event.request.method !== 'GET') return;
+
+  const url = new URL(event.request.url);
+  if (url.origin !== self.location.origin) return;
+
+  event.respondWith(
+    fetch(event.request)
+      .then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
+          const responseToCache = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, responseToCache);
+          });
+        }
+        return networkResponse;
+      })
+      .catch(() => {
+        return caches.match(event.request).then((cachedResponse) => {
+          if (cachedResponse) {
+            return cachedResponse;
+          }
+          if (event.request.headers.get('accept')?.includes('text/html')) {
+            return caches.match('/') || caches.match('/index.html');
+          }
+        });
+      })
+  );
+});
 // Fetch Event (Network-First with Cache Fallback to ensure latest real-time updates)
 self.addEventListener('fetch', (event) => {
   // Only intercept HTTP/HTTPS GET requests (prevent caching Firestore/WebSocket traffic directly)
