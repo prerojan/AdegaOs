@@ -11,17 +11,20 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="application-name" content="FluxOS" />
     
-    <!-- iOS WebApp capability (Stand-alone window mode support) -->
+    <!-- iOS WebApp capability -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black" />
     <meta name="apple-mobile-web-app-title" content="FluxOS" />
+    
+    <!-- Favicons & Icons -->
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
     <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
     <link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png" />
-    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <link rel="apple-touch-icon" href="/icon-512.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/icon-192.png" />
     <link rel="apple-touch-icon" sizes="512x512" href="/icon-512.png" />
     
-    <!-- Initial theme application to avoid status bar color flashing -->
+    <!-- Initial theme application -->
     <script>
       (function() {
         try {
@@ -58,25 +61,4 @@
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
-</html>    <!-- Service Worker registration script -->
-    <script>
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js')
-            .then((reg) => {
-              console.log('PWA Service Worker registered successfully:', reg.scope);
-            })
-            .catch((err) => {
-              console.error('PWA Service Worker registration failed:', err);
-            });
-        });
-      }
-    </script>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
-</html>  </body>
-</html>  </body>
 </html>
