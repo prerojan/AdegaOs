@@ -356,12 +356,7 @@ export default function ProductionPanel({
           theme === 'dark' ? 'bg-[#0E0E0E] border-[#1C1C1C]' : 'bg-gray-50 border-gray-200 shadow-sm'
         }`}>
           <div className="flex items-center gap-2">
-            <img 
-              src={localStorage.getItem('adegaos_store_logo') || '/logo.svg'} 
-              onError={(e) => { (e.target as HTMLImageElement).src = '/logo.svg'; }} 
-              alt="FluxOS" 
-              className="w-4.5 h-4.5 object-contain" 
-            />
+           <img src="/logo.png" alt="FluxOS" className="w-4.5 h-4.5 object-contain" />
             <span className="font-semibold text-xs tracking-tight">Terminal de Produção • Flux<span className="text-transparent bg-clip-text bg-gradient-to-r from-violet-400 via-blue-400 to-[#18F2A4]">OS</span></span>
           </div>
 
