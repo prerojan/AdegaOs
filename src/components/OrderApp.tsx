@@ -524,7 +524,12 @@ export default function OrderApp({
       }`}>
         {/* Left Side: App Name and interactive user badge */}
         <div className="flex items-center gap-2 shrink-0">
-          <Smartphone className="w-4 h-4 text-[#18F2A4]" />
+          <img 
+            src={localStorage.getItem('adegaos_store_logo') || '/logo.png'} 
+            onError={(e) => { (e.target as HTMLImageElement).src = '/logo.png'; }} 
+            alt="FluxOS" 
+            className="w-4 h-4 object-contain shrink-0" 
+          />
           <span className="font-extrabold text-xs tracking-tight">
             Flux<span className="text-transparent bg-clip-text bg-gradient-to-r from-violet-400 via-blue-400 to-[#18F2A4]">OS</span> Order
           </span>
