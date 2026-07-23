@@ -29,13 +29,13 @@ export default function ProductionPanel({
   // - 'kitchen' role locks to 'cozinha'
   // - 'bar' role locks to 'bar'
   // - Other roles (admin, manager, cashier) default to 'bar' but cannot switch on screen since toggle is removed.
-  const initialSector = useMemo(() => {
+  const initialSector = useMemo<'todos' | 'bar' | 'cozinha'>(() => {
     if (currentUser?.role === 'kitchen') return 'cozinha';
     if (currentUser?.role === 'bar') return 'bar';
-    return 'bar';
+    return 'todos';
   }, [currentUser]);
 
-  const [activeSector, setActiveSector] = useState<'bar' | 'cozinha'>(initialSector);
+  const [activeSector, setActiveSector] = useState<'todos' | 'bar' | 'cozinha'>(initialSector);
   const [filterStatus, setFilterStatus] = useState<'ativos' | 'finalizados'>('ativos');
   const [searchFilter, setSearchFilter] = useState('');
   const [beepSimulated, setBeepSimulated] = useState(false);
@@ -193,11 +193,12 @@ export default function ProductionPanel({
         const prodName = prod ? prod.name : 'Produto Desconhecido';
         const category = prod ? prod.category : 'Outros';
 
-        // Filter sector: "Petiscos" category goes to Cozinha, others go to Bar
-        const belongsToKitchen = category === 'Petiscos';
+        // Filter sector: Kitchen categories go to Cozinha, others go to Bar
+        const kitchenCategories = ['petisco', 'cozinha', 'lanche', 'porção', 'porcao', 'pizza', 'prato', 'comida', 'sobremesa'];
+        const belongsToKitchen = kitchenCategories.some(cat => category.toLowerCase().includes(cat));
         const itemSector = belongsToKitchen ? 'cozinha' : 'bar';
 
-        if (itemSector !== activeSector) return;
+        if (activeSector !== 'todos' && itemSector !== activeSector) return;
 
         // Filter status: active is anything not delivered/canceled
         const isDone = item.status === 'entregue' || item.status === 'cancelado';
@@ -355,7 +356,7 @@ export default function ProductionPanel({
           theme === 'dark' ? 'bg-[#0E0E0E] border-[#1C1C1C]' : 'bg-gray-50 border-gray-200 shadow-sm'
         }`}>
           <div className="flex items-center gap-2">
-            <img src="/logo.svg" alt="FluxOS" className="w-4.5 h-4.5 object-contain" />
+           <img src="/logo.svg" alt="FluxOS" className="w-4.5 h-4.5 object-contain" />
             <span className="font-semibold text-xs tracking-tight">Terminal de Produção • Flux<span className="text-transparent bg-clip-text bg-gradient-to-r from-violet-400 via-blue-400 to-[#18F2A4]">OS</span></span>
           </div>
 
@@ -438,6 +439,40 @@ export default function ProductionPanel({
           </button>
 
 
+
+          {/* Sector selector buttons */}
+          <div className="flex rounded-lg border p-1" style={{ borderColor: theme === 'dark' ? '#1C1C1C' : '#E5E5E5' }}>
+            <button
+              onClick={() => setActiveSector('todos')}
+              className={`text-[10px] uppercase font-bold px-2.5 py-1 rounded cursor-pointer ${
+                activeSector === 'todos'
+                  ? (theme === 'dark' ? 'bg-[#18F2A4]/20 text-[#18F2A4]' : 'bg-emerald-600 text-white')
+                  : 'text-gray-400'
+              }`}
+            >
+              Todos
+            </button>
+            <button
+              onClick={() => setActiveSector('bar')}
+              className={`text-[10px] uppercase font-bold px-2.5 py-1 rounded cursor-pointer ${
+                activeSector === 'bar'
+                  ? (theme === 'dark' ? 'bg-sky-500/20 text-sky-400' : 'bg-sky-600 text-white')
+                  : 'text-gray-400'
+              }`}
+            >
+              Bar
+            </button>
+            <button
+              onClick={() => setActiveSector('cozinha')}
+              className={`text-[10px] uppercase font-bold px-2.5 py-1 rounded cursor-pointer ${
+                activeSector === 'cozinha'
+                  ? (theme === 'dark' ? 'bg-amber-500/20 text-amber-400' : 'bg-amber-600 text-white')
+                  : 'text-gray-400'
+              }`}
+            >
+              Cozinha
+            </button>
+          </div>
 
           {/* Quick status view tabs */}
           <div className="flex rounded-lg border p-1" style={{ borderColor: theme === 'dark' ? '#1C1C1C' : '#E5E5E5' }}>
