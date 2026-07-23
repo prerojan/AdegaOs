@@ -29,7 +29,7 @@ import {
   saveUserToDb,
   deleteUserFromDb,
   isFirebaseEnabled,
-  subscribeProducts,
+  subimg srcscribeProducts,
   subscribeSales,
   subscribeSuppliers,
   subscribeTransactions,
@@ -315,6 +315,13 @@ export default function App() {
   // Product Shell Layout controls
   const [activeProductView, setActiveProductView] = useState<'manager' | 'order' | 'production' | 'landing' | 'admin'>(() => {
     try {
+      const savedView = localStorage.getItem('adegaos_active_view');
+      if (savedView && ['manager', 'order', 'production', 'landing', 'admin'].includes(savedView)) {
+        return savedView as any;
+      }
+    } catch {}
+
+    try {
       const stored = localStorage.getItem('cashier_session_user');
       if (stored) {
         const user = JSON.parse(stored);
@@ -334,8 +341,30 @@ export default function App() {
     // If no session, default to the marketing landing page
     return 'landing';
   });
-  const [managerActiveTab, setManagerActiveTab] = useState<string>('dashboard');
+
+  const [managerActiveTab, setManagerActiveTab] = useState<string>(() => {
+    try {
+      const stored = localStorage.getItem('adegaos_manager_active_tab');
+      if (stored) return stored;
+    } catch {}
+    return 'dashboard';
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('adegaos_active_view', activeProductView);
+    } catch {}
+  }, [activeProductView]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('adegaos_manager_active_tab', managerActiveTab);
+    } catch {}
+  }, [managerActiveTab]);
+
   const [isQuickSaleOpen, setIsQuickSaleOpen] = useState<boolean>(false);
+
+
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     try {
       const stored = localStorage.getItem('adegaos_theme');
@@ -454,8 +483,14 @@ export default function App() {
       } else if (search.includes('admin') || hash === '#admin') {
         setActiveProductView('admin');
       } else {
-        // If no explicit route, restore session-based view if user is logged in
+        // If no explicit route, restore saved active view or session-based view if user is logged in
         try {
+          const savedView = localStorage.getItem('adegaos_active_view');
+          if (savedView && ['manager', 'order', 'production', 'landing', 'admin'].includes(savedView)) {
+            setActiveProductView(savedView as any);
+            return;
+          }
+
           const stored = localStorage.getItem('cashier_session_user');
           if (stored) {
             const user = JSON.parse(stored);
@@ -1111,8 +1146,8 @@ export default function App() {
             <Menu className="w-5 h-5 text-[#18F2A4]" />
           </button>
           <div className="flex items-center gap-1.5">
-            <img src="/logo.png" alt="FluxOS" className="w-4.5 h-4.5 object-contain shrink-0" />
-            <span className="font-extrabold text-xs tracking-tight">Flux<span className="text-transparent bg-clip-text bg-gradient-to-r from-violet-400 via-blue-400 to-[#18F2A4]">OS</span></span>
+         <img src="/logo.png" alt="FluxOS" className="w-4.5 h-4.5 object-contain shrink-0" />
+         <span className="font-extrabold text-xs tracking-tight">Flux<span className="text-transparent bg-clip-text bg-gradient-to-r from-violet-400 via-blue-400 to-[#18F2A4]">OS</span></span>
           </div>
           <div className="w-8"></div>
         </div>
@@ -1144,8 +1179,8 @@ export default function App() {
               <div className="flex flex-col gap-1.5 overflow-y-auto flex-1">
                 {/* Brand Header inside Sidebar */}
                 <div className="p-4 flex items-center gap-2 border-b border-gray-800/20" style={{ borderColor: theme === 'dark' ? '#161616' : '#E2E8F0' }}>
-                  <img src="/logo.png" alt="FluxOS Logo" className="w-5 h-5 object-contain shrink-0" />
-                  <span className="font-extrabold text-sm tracking-tight">Flux<span className="text-transparent bg-clip-text bg-gradient-to-r from-violet-400 via-blue-400 to-[#18F2A4]">OS</span></span>
+                <img src="/logo.png" alt="FluxOS Logo" className="w-5 h-5 object-contain shrink-0" />
+                <span className="font-extrabold text-sm tracking-tight">Flux<span className="text-transparent bg-clip-text bg-gradient-to-r from-violet-400 via-blue-400 to-[#18F2A4]">OS</span></span>
                 </div>
 
                 <div className="p-3 flex flex-col gap-1">
