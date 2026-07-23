@@ -363,6 +363,17 @@ export default function App() {
   }, [managerActiveTab]);
 
   const [isQuickSaleOpen, setIsQuickSaleOpen] = useState<boolean>(false);
+  const [appLogo, setAppLogo] = useState<string>(() => {
+    return localStorage.getItem('adegaos_store_logo') || '/logo.png';
+  });
+
+  useEffect(() => {
+    const updateLogo = () => {
+      setAppLogo(localStorage.getItem('adegaos_store_logo') || '/logo.png');
+    };
+    window.addEventListener('adegaos_settings_updated', updateLogo);
+    return () => window.removeEventListener('adegaos_settings_updated', updateLogo);
+  }, []);
 
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     try {
