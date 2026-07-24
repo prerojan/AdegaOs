@@ -55,9 +55,24 @@ export default function ProductionPanel({
   } | null>(null);
   const [cancelReasonInput, setCancelReasonInput] = useState('');
 
-  // Register operational sector context for audio routing
+  // Register operational sector context for audio routing and listen for cancellations
   useEffect(() => {
     notificationService.setSector('producao');
+
+    const unsubCancelled = eventBus.subscribe('ORDER_CANCELLED', (payload) => {
+      if (payload.origin === 'order' || payload.origin === 'remote_sync') {
+        const prodName = payload.productName || 'Produto';
+        const tableStr = payload.table || 'Mesa/Comanda';
+        const reasonStr = payload.reason ? `Motivo: ${payload.reason}` : 'Cancelado pelo Garçom';
+
+        audioManager.play('order_cancelled');
+        addToast(`PEDIDO CANCELADO: ${prodName} em ${tableStr}. ${reasonStr}`, 'error');
+      }
+    });
+
+    return () => {
+      unsubCancelled();
+    };
   }, []);
 
   // Toasts local state
@@ -313,20 +328,6 @@ export default function ProductionPanel({
 
         // Render in virtual tape scroll
         setVirtualReceipts(prev => [newReceipt, ...prev].slice(0, 3));
-
-        // Publish PRINT_REQUESTED event to PrintService
-        eventBus.publish('PRINT_REQUESTED', {
-          type: 'comanda',
-          sector: activeSector,
-          data: {
-            date: new Date().toLocaleDateString('pt-BR'),
-            time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-            table: tableStr,
-            sector: activeSector,
-            items: items.map(it => ({ name: it.productName, qty: it.quantity, notes: it.notes }))
-          },
-          jobKey: `comanda_${first.tableId}_${activeSector}_${Date.now()}`
-        });
       });
     }
   }, [activeItems, printedItems, activeSector]);

@@ -92,6 +92,7 @@ export interface TableItem {
   unitPrice: number;
   notes?: string;
   status?: string;
+  cancelReason?: string;
   timestamp?: string;
   statusHistory?: any[];
 }

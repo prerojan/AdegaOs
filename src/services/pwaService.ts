@@ -67,23 +67,37 @@ class PwaService {
       if (!granted) return false;
     }
 
-    const payloadOptions: NotificationOptions = {
+    const payloadOptions: any = {
       body: options.body,
       icon: options.icon || '/icon.png',
       badge: options.badge || '/logo-bw.png',
       tag: options.tag || `fluxos_notif_${Date.now()}`,
-      vibrate: options.vibrate || [200, 100, 200, 100, 200],
+      vibrate: options.vibrate || [300, 150, 300, 150, 300],
+      renotify: true,
+      requireInteraction: true,
       data: options.data || { url: window.location.href }
     };
 
     try {
-      // 1. Try Service Worker showNotification if active
+      // 1. Try stored Service Worker showNotification if active
       if (this.swRegistration && this.swRegistration.active) {
         await this.swRegistration.showNotification(title, payloadOptions as any);
         return true;
       }
 
-      // 2. Fallback to standard window Notification instance
+      // 2. Try ready Service Worker registration
+      if ('serviceWorker' in navigator) {
+        try {
+          const reg = await navigator.serviceWorker.ready;
+          if (reg && reg.showNotification) {
+            await reg.showNotification(title, payloadOptions as any);
+            this.swRegistration = reg;
+            return true;
+          }
+        } catch (e) {}
+      }
+
+      // 3. Fallback to standard window Notification instance
       const notif = new Notification(title, payloadOptions);
       notif.onclick = (event) => {
         event.preventDefault();

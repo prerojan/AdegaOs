@@ -139,7 +139,14 @@ class NotificationService {
       audioManager.play(params.sound);
     }
 
-    // B. Visual Toast Dispatch (for UI Toast Containers)
+    // B. Physical Haptic Vibration Motor (Android / Mobile)
+    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+      try {
+        navigator.vibrate([300, 150, 300, 150, 300]);
+      } catch (e) {}
+    }
+
+    // C. Visual Toast Dispatch (for UI Toast Containers)
     if (typeof window !== 'undefined') {
       const toastDetail: ToastMessage = {
         id: `toast_${Date.now()}_${Math.random()}`,
@@ -151,14 +158,12 @@ class NotificationService {
       window.dispatchEvent(new CustomEvent('adegaos_show_toast', { detail: toastDetail }));
     }
 
-    // C. PWA System/Background Notification if minimized/unfocused
-    if (typeof document !== 'undefined' && (document.visibilityState === 'hidden' || !document.hasFocus())) {
-      pwaService.sendNotification(params.title, {
-        body: params.message,
-        tag: `notif_${Date.now()}`,
-        vibrate: params.sound === 'order_created' ? [200, 100, 200] : [100, 50, 100]
-      });
-    }
+    // D. PWA System/Background/LockScreen Notification (Delivered by OS)
+    pwaService.sendNotification(params.title, {
+      body: params.message,
+      tag: `notif_${Date.now()}`,
+      vibrate: params.sound === 'order_created' ? [300, 150, 300, 150, 300] : [200, 100, 200]
+    });
   }
 }
 

@@ -93,9 +93,10 @@ self.addEventListener('push', (event) => {
       body: data.message || data.body || 'Novo evento no sistema',
       icon: data.icon || '/icon.png',
       badge: data.badge || '/logo-bw.png',
-      vibrate: data.vibrate || [200, 100, 200, 100, 200],
+      vibrate: data.vibrate || [300, 150, 300, 150, 300],
       tag: data.tag || 'fluxos-push-notification',
       renotify: true,
+      requireInteraction: true,
       data: data.data || { url: '/' }
     };
     event.waitUntil(self.registration.showNotification(title, options));

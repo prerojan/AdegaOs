@@ -10,6 +10,7 @@ import {
   Play,
   RefreshCw,
   Check,
+  CheckCircle,
   X,
   Plus,
   Trash2,
@@ -116,6 +117,7 @@ export interface EnterprisePrinterConfig {
     inverted: boolean;
     align: 'left' | 'center' | 'right';
     leftMarginOffset: number; // ESC/POS Physical Alignment Offset
+    safeMarginDots?: number; // Physical dot margin calibration (0-120 dots / 0-15mm)
     lineSpacing: number; // dots
     blockSpacing: number; // blank lines
     density: 'low' | 'medium' | 'high' | 'ultra';
@@ -746,6 +748,101 @@ export default function EnterprisePrinterControlCenter({ theme }: EnterprisePrin
       updateCurrentConfig(draft => {
         draft.diagnostics.status = 'error';
         draft.diagnostics.lastErrorCode = errText;
+      });
+    } finally {
+      setIsTestPrinting(false);
+    }
+  };
+
+  // Calibration Ruler Print Routine (Bug 3 - Margem Segura Dots Calibration)
+  const handleTriggerCalibrationPrint = async (isPostCalibration: boolean = false) => {
+    setIsTestPrinting(true);
+    setTestResult(null);
+    const startTime = performance.now();
+
+    try {
+      const currentDots = currentConfig.layout.safeMarginDots ?? ((currentConfig.layout.leftMarginOffset || 0) * 12);
+      const effectiveLayout = isPostCalibration
+        ? { ...currentConfig.layout, safeMarginDots: currentDots }
+        : { ...currentConfig.layout, safeMarginDots: 0, leftMarginOffset: 0 };
+
+      const profile = getPhysicalPrinterProfile(currentConfig.hardware.paperSize, currentConfig.hardware, effectiveLayout);
+      const matrix = buildDocumentMatrix('calibration', { isPostCalibration }, profile, currentConfig.document);
+
+      const receiptText = renderMatrixToText(matrix, profile);
+      const escPosBuffer = renderMatrixToEscPosBuffer(matrix, profile, effectiveLayout);
+      const testHtml = generateReceiptHtmlFromMatrix(matrix, profile, currentConfig.document, effectiveLayout);
+
+      let res: { success: boolean; durationMs: number; bytesCount: number; errorMsg?: string } = {
+        success: false,
+        durationMs: 0,
+        bytesCount: escPosBuffer.length
+      };
+
+      const connType = currentConfig.connection.type;
+      const driver = currentConfig.hardware.driver;
+
+      if (connType === 'usb' || driver === 'webusb') {
+        if (!('usb' in navigator)) {
+          res = {
+            success: false,
+            durationMs: Math.round(performance.now() - startTime),
+            bytesCount: escPosBuffer.length,
+            errorMsg: 'ERR_WEBUSB_NOT_SUPPORTED: Navegador sem suporte a WebUSB.'
+          };
+        } else {
+          const usbRes = await connectAndPrintWebUSB(escPosBuffer, false);
+          res = {
+            success: usbRes.success,
+            durationMs: usbRes.durationMs,
+            bytesCount: escPosBuffer.length,
+            errorMsg: usbRes.errorMsg || (usbRes.success ? undefined : 'ERR_WEBUSB_NO_DEVICE: Dispositivo não conectado.')
+          };
+        }
+      } else if (connType === 'serial' || driver === 'serial_com') {
+        if (!('serial' in navigator)) {
+          res = {
+            success: false,
+            durationMs: Math.round(performance.now() - startTime),
+            bytesCount: escPosBuffer.length,
+            errorMsg: 'ERR_WEBSERIAL_NOT_SUPPORTED: Navegador sem suporte a WebSerial.'
+          };
+        } else {
+          const serialRes = await connectAndPrintWebSerial(escPosBuffer, currentConfig.connection.baudRate);
+          res = {
+            success: serialRes.success,
+            durationMs: serialRes.durationMs,
+            bytesCount: escPosBuffer.length,
+            errorMsg: serialRes.errorMsg
+          };
+        }
+      } else {
+        const { printViaSystemBrowser } = await import('../lib/thermalPrinter');
+        const ok = await printViaSystemBrowser(receiptText, currentConfig.hardware.paperSize, testHtml);
+        res = {
+          success: ok,
+          durationMs: Math.round(performance.now() - startTime),
+          bytesCount: escPosBuffer.length
+        };
+      }
+
+      setTestResult(res);
+
+      setStreamLogs(prev => [
+        {
+          id: Date.now().toString(),
+          time: new Date().toLocaleTimeString(),
+          level: res.success ? 'info' : 'error',
+          text: `CALIBRATION PRINT ${isPostCalibration ? 'PÓS' : 'RAW'}: ${res.bytesCount} bytes transmitidos para ${currentConfig.name}`
+        },
+        ...prev
+      ]);
+    } catch (err: any) {
+      setTestResult({
+        success: false,
+        durationMs: Math.round(performance.now() - startTime),
+        bytesCount: 0,
+        errorMsg: err.message
       });
     } finally {
       setIsTestPrinting(false);
@@ -1540,44 +1637,73 @@ export default function EnterprisePrinterControlCenter({ theme }: EnterprisePrin
                 </div>
 
                 <div className="col-span-1 sm:col-span-2">
-                  <label className="text-[10px] font-bold uppercase text-gray-400">Offset Margem Esquerda (Deslocamento Físico)</label>
+                  <label className="text-[10px] font-bold uppercase text-gray-400">Margem Segura Física (Deslocamento em Dots / mm)</label>
                   <div className="flex items-center gap-2 mt-1">
                     <input
                       type="number"
-                      value={currentConfig.layout.leftMarginOffset || 0}
-                      onChange={(e) => updateCurrentConfig(d => { d.layout.leftMarginOffset = Number(e.target.value) || 0; })}
+                      value={currentConfig.layout.safeMarginDots !== undefined ? currentConfig.layout.safeMarginDots : ((currentConfig.layout.leftMarginOffset || 0) * 12)}
+                      onChange={(e) => {
+                        const dots = Math.max(0, Number(e.target.value) || 0);
+                        updateCurrentConfig(d => {
+                          d.layout.safeMarginDots = dots;
+                          d.layout.leftMarginOffset = Math.round(dots / 12);
+                        });
+                      }}
                       className={`w-full p-2 rounded-lg border font-mono font-bold text-xs outline-none ${
                         isDark ? 'bg-[#111] border-gray-800 text-white' : 'bg-gray-50 border-gray-300 text-slate-900'
                       }`}
                       placeholder="0"
                     />
-                    <span className="text-[10px] text-gray-400 font-mono shrink-0">colunas</span>
+                    <span className="text-[10px] text-gray-400 font-mono shrink-0">dots</span>
+                    <span className="text-[10px] text-[#18F2A4] font-mono font-bold shrink-0">
+                      (~{(((currentConfig.layout.safeMarginDots !== undefined ? currentConfig.layout.safeMarginDots : ((currentConfig.layout.leftMarginOffset || 0) * 12)) || 0) / 8).toFixed(1)} mm)
+                    </span>
                   </div>
                   <span className="text-[10px] text-gray-500 block mt-1">
-                    Soma/subtrai colunas no ESC/POS para compensar desvio físico do cabeçote (ex: Impressora Oivida).
+                    Aplica o comando de margem esquerda ESC/POS no hardware (GS L nL nH). Elimina cortes na borda esquerda e impede o desvio de colunas no papel.
                   </span>
                 </div>
               </div>
 
-              {/* TEST PRINT OFFSET & RULER ACTION BANNER */}
-              <div className={`p-3.5 rounded-xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 ${
+              {/* CALIBRATION & SAFE MARGIN RULER ACTIONS */}
+              <div className={`p-4 rounded-xl border flex flex-col gap-3 ${
                 isDark ? 'bg-[#18F2A4]/5 border-[#18F2A4]/20' : 'bg-emerald-50 border-emerald-200'
               }`}>
                 <div>
                   <h4 className={`text-xs font-bold flex items-center gap-1.5 ${isDark ? 'text-[#18F2A4]' : 'text-emerald-800'}`}>
-                    <Printer className="w-4 h-4" /> Validar Ajuste de Margem Físico na Impressora
+                    <Printer className="w-4 h-4" /> Calibração de Margem Física ("Margem Segura")
                   </h4>
                   <p className={`text-[11px] mt-0.5 ${isDark ? 'text-gray-300' : 'text-slate-600'}`}>
-                    Dispara uma impressão de diagnóstico com a régua de colunas numerada (1 até o limite) aplicando o offset configurado ({currentConfig.layout.leftMarginOffset || 0} cols).
+                    1º Imprima a régua raw sem margem para identificar a marca de corte do papel. 2º Insira o número de dots no campo acima. 3º Valide a impressão pós-calibração.
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleTriggerFullTestPrint}
-                  className="px-4 py-2 rounded-lg bg-[#18F2A4] text-black font-bold text-xs hover:bg-[#15d892] cursor-pointer shrink-0 transition-all shadow-sm"
-                >
-                  Testar Impressão de Offset
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleTriggerCalibrationPrint(false)}
+                    className={`px-3.5 py-2 rounded-lg font-bold text-xs cursor-pointer transition-all border ${
+                      isDark ? 'bg-black border-[#18F2A4]/40 text-[#18F2A4] hover:bg-[#18F2A4]/20' : 'bg-white border-emerald-300 text-emerald-800 hover:bg-emerald-100'
+                    }`}
+                  >
+                    1. Imprimir Régua Raw (0 Margem)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleTriggerCalibrationPrint(true)}
+                    className="px-4 py-2 rounded-lg bg-[#18F2A4] text-black font-bold text-xs hover:bg-[#15d892] cursor-pointer transition-all shadow-sm flex items-center gap-1.5"
+                  >
+                    <CheckCircle className="w-3.5 h-3.5" /> 2. Validar Margem Segura Aplicada
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleTriggerFullTestPrint}
+                    className={`px-3.5 py-2 rounded-lg font-bold text-xs cursor-pointer transition-all border ${
+                      isDark ? 'bg-[#111] border-gray-700 text-gray-300 hover:bg-gray-800' : 'bg-gray-100 border-gray-300 text-slate-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    Imprimir Cupom Diagnóstico Completo
+                  </button>
+                </div>
               </div>
 
               {/* LIVE ESC/POS BYTE HEX INSPECTOR */}

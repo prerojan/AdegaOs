@@ -68,22 +68,22 @@ export default function OrderApp({
 
     window.addEventListener('adegaos_show_toast', handleGlobalToast);
 
-    // Listen for cancellations originating from Production (Bug 4 Cenário B)
+    // Listen for cancellations originating from Production or Remote Sync
     const unsubCancelled = eventBus.subscribe('ORDER_CANCELLED', (payload) => {
-      if (payload.origin === 'producao') {
+      if (payload.origin === 'producao' || payload.origin === 'remote_sync') {
         const prodName = payload.productName || 'Produto';
         const tableStr = payload.table || 'Mesa/Comanda';
         const reasonStr = payload.reason ? `Motivo: ${payload.reason}` : 'Cancelado na Produção';
 
         audioManager.play('order_cancelled');
-        addToast(`CANCELAMENTO NA PRODUÇÃO: ${prodName} em ${tableStr}. ${reasonStr}`, 'error');
+        addToast(`CANCELAMENTO: ${prodName} em ${tableStr}. ${reasonStr}`, 'error');
 
         // If product is currently in waiter's orderCart, purge it immediately
         if (payload.productId) {
           setOrderCart(prev => {
             const exists = prev.some(item => item.product.id === payload.productId);
             if (exists) {
-              addToast(`Atenção: "${prodName}" foi cancelado pela Produção e removido do seu carrinho.`, 'warning');
+              addToast(`Atenção: "${prodName}" foi cancelado e removido do seu carrinho.`, 'warning');
             }
             return prev.filter(item => item.product.id !== payload.productId);
           });
@@ -467,10 +467,14 @@ export default function OrderApp({
 
       const tableStr = `${activeTable.type === 'mesa' ? 'Mesa' : 'Comanda'} ${activeTable.number}`;
 
+      const prodObj = products.find(p => p.id === productId);
+
       eventBus.publish('ORDER_CANCELLED', {
         id: selectedTableId,
         table: tableStr,
         reason,
+        productId,
+        productName: prodObj ? prodObj.name : 'Produto',
         origin: 'order'
       });
 

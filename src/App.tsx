@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   BarChart3, Package, Layers, FileDown, Receipt, ShieldAlert, Key, 
   Settings, ShoppingCart, User, Landmark, Sun, Moon, Sparkles, Monitor, Tablet, Truck, HelpCircle, Users,
@@ -631,6 +631,75 @@ export default function App() {
     };
   }, []);
 
+  const productsRef = useRef(products);
+  useEffect(() => {
+    productsRef.current = products;
+  }, [products]);
+
+  const prevItemStatusRef = useRef<Map<string, string>>(new Map());
+
+  const handleTablesRealtimeSync = (newTables: TableComandaState[]) => {
+    setTablesComandas(newTables);
+
+    const prevMap = prevItemStatusRef.current;
+    const isFirstLoad = prevMap.size === 0;
+    const currentMap = new Map<string, string>();
+
+    newTables.forEach(table => {
+      const tableStr = `${table.type === 'mesa' ? 'Mesa' : 'Comanda'} ${table.number}`;
+      (table.items || []).forEach((item, idx) => {
+        const itemKey = `${table.id}_${item.productId}_${item.timestamp || idx}`;
+        const prevStatus = prevMap.get(itemKey);
+        const currStatus = item.status;
+
+        currentMap.set(itemKey, currStatus);
+
+        // Real-time remote updates detection for new items, ready status, and cancellations
+        if (!isFirstLoad) {
+          const prodObj = productsRef.current.find(p => p.id === item.productId);
+
+          // 1. New Item / Order Created remotely
+          if (prevStatus === undefined && currStatus !== 'cancelado') {
+            eventBus.publish('ORDER_CREATED', {
+              id: table.id,
+              table: tableStr,
+              items: [{
+                name: prodObj ? prodObj.name : 'Produto',
+                qty: item.quantity,
+                notes: item.notes,
+                price: item.unitPrice
+              }],
+              origin: 'remote_sync'
+            });
+          }
+
+          // 2. Item Status transitioned to 'pronto' (Order Ready)
+          if (prevStatus && prevStatus !== 'pronto' && currStatus === 'pronto') {
+            eventBus.publish('ORDER_READY', {
+              id: table.id,
+              table: tableStr,
+              itemNames: [prodObj ? prodObj.name : 'Produto']
+            });
+          }
+
+          // 3. Item Status transitioned to 'cancelado'
+          if (prevStatus && prevStatus !== 'cancelado' && currStatus === 'cancelado') {
+            eventBus.publish('ORDER_CANCELLED', {
+              id: table.id,
+              table: tableStr,
+              reason: item.cancelReason,
+              productId: item.productId,
+              productName: prodObj ? prodObj.name : 'Produto',
+              origin: 'remote_sync'
+            });
+          }
+        }
+      });
+    });
+
+    prevItemStatusRef.current = currentMap;
+  };
+
   // Load database on mount and subscribe to real-time updates
   useEffect(() => {
     let unsubProducts: (() => void) | null = null;
@@ -658,6 +727,7 @@ export default function App() {
         setSuppliers(sup);
         setFinancialTransactions(tx);
         setTablesComandas(tc);
+        handleTablesRealtimeSync(tc);
         setUsersList(u);
         if (c && c.length > 0) setProductCategories(c);
         setLoading(false);
@@ -667,7 +737,7 @@ export default function App() {
         unsubSales = subscribeSales(setSales);
         unsubSuppliers = subscribeSuppliers(setSuppliers);
         unsubTransactions = subscribeTransactions(setFinancialTransactions);
-        unsubTables = subscribeTablesComandas(setTablesComandas);
+        unsubTables = subscribeTablesComandas(handleTablesRealtimeSync);
         unsubUsers = subscribeUsers(setUsersList);
         unsubCategories = subscribeCategories(setProductCategories);
       } catch (err) {

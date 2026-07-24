@@ -14,6 +14,7 @@ export interface PhysicalPrinterProfile {
   columnsCount: number; // total calculated columns (e.g. 32, 42, 48, 64)
   leftMarginCols: number;
   leftMarginOffset: number; // ESC/POS physical alignment offset
+  safeMarginDots: number; // Hardware ESC/POS left margin in dots (e.g. 0 to 120 dots / 0 to 15mm)
   rightMarginCols: number;
   usableColumns: number; // columnsCount - leftMarginCols - rightMarginCols
   lineSpacingDots: number; // e.g. 30 dots
@@ -124,11 +125,22 @@ export function getPhysicalPrinterProfile(
 
   const rightMarginCols = hardwareConfig?.rightMarginCols ? Math.max(0, Number(hardwareConfig.rightMarginCols)) : 0;
   
-  // Total left margin adds base left margin + user physical offset
-  const leftMarginCols = Math.max(0, baseLeftMargin + leftMarginOffset);
+  // Safe Physical Dot Margin (hardware ESC/POS left margin)
+  const safeMarginDots = Math.max(
+    0,
+    Number(
+      layoutConfig?.safeMarginDots !== undefined
+        ? layoutConfig.safeMarginDots
+        : (hardwareConfig?.safeMarginDots !== undefined
+            ? hardwareConfig.safeMarginDots
+            : (leftMarginOffset * fontWidthDots))
+    ) || 0
+  );
 
-  // Column capacity stays strictly computed from physical paper width and font metrics
-  const usableColumns = Math.max(8, columnsCount - leftMarginCols - rightMarginCols);
+  const leftMarginCols = Math.round(safeMarginDots / fontWidthDots);
+
+  // Column capacity dynamically reduces available columns based on safe physical dot margin
+  const usableColumns = Math.max(8, Math.floor((printableWidthDots - safeMarginDots) / fontWidthDots));
 
   return {
     paperSize: paperSize as '58mm' | '80mm',
@@ -142,6 +154,7 @@ export function getPhysicalPrinterProfile(
     columnsCount,
     leftMarginCols,
     leftMarginOffset,
+    safeMarginDots,
     rightMarginCols,
     usableColumns,
     lineSpacingDots: layoutConfig?.lineSpacing || 30,
@@ -470,6 +483,35 @@ export function buildDocumentMatrix(
     return matrix;
   }
 
+  // Calibration Mode (Margem Segura Physical Dot Ruler Test)
+  if (type === 'calibration') {
+    const isPost = data?.isPostCalibration === true;
+    matrix.push({ type: 'text', text: '================================', align: 'center', style: { bold: true } });
+    if (isPost) {
+      matrix.push({ type: 'text', text: 'CONFIRMAÇÃO PÓS-CALIBRAÇÃO', align: 'center', style: { bold: true } });
+      matrix.push({ type: 'text', text: `Margem Segura: ${profile.safeMarginDots} dots (${(profile.safeMarginDots / profile.dotsPerMm).toFixed(1)}mm)`, align: 'center' });
+      matrix.push({ type: 'text', text: `Largura Útil: ${profile.usableColumns} colunas`, align: 'center' });
+      matrix.push({ type: 'divider' });
+      matrix.push({ type: 'text', text: '[ALINHAMENTO PERFEITO SEM CORTE]', align: 'left', style: { bold: true } });
+      matrix.push({ type: 'text', text: '|12345678901234567890123456789012|', align: 'left' });
+      matrix.push({ type: 'text', text: '|======== CONTEÚDO 100% OK ========|', align: 'left', style: { bold: true } });
+    } else {
+      matrix.push({ type: 'text', text: 'RÉGUA CALIBRAÇÃO MARGEM FÍSICA', align: 'center', style: { bold: true } });
+      matrix.push({ type: 'text', text: `Papel: ${profile.paperSize} | Área: ${profile.printableWidthDots} dots (${profile.printableWidthMm}mm)`, align: 'center' });
+      matrix.push({ type: 'text', text: 'ESC/POS GS L 0 0 (0 Margem Hardware)', align: 'center' });
+      matrix.push({ type: 'divider' });
+      matrix.push({ type: 'text', text: 'RÉGUA DE POSIÇÃO DE DOTS/MM:', align: 'left', style: { bold: true } });
+      matrix.push({ type: 'text', text: '00..08..16..24..32..40..48..56..64..72..80 (dots)', align: 'left', style: { bold: true } });
+      matrix.push({ type: 'text', text: '0mm.1mm.2mm.3mm.4mm.5mm.6mm.7mm.8mm.9mm.10mm', align: 'left' });
+      matrix.push({ type: 'divider' });
+      matrix.push({ type: 'text', text: 'Observe onde a impressão começa legível no papel e digite o valor em "Margem Segura (Dots)".', align: 'left' });
+    }
+    matrix.push({ type: 'text', text: '================================', align: 'center', style: { bold: true } });
+    if (profile.autoCut) matrix.push({ type: 'cut' });
+    matrix.push({ type: 'blank', count: 4 });
+    return matrix;
+  }
+
   // Header
   if (isVis('header')) {
     const hStyle = doc.header || {};
@@ -777,16 +819,20 @@ export function renderMatrixToEscPosBuffer(
   // Density Command
   if (profile.density === 'ultra') chunks.push(new Uint8Array([0x1D, 0x28, 0x4B, 0x02, 0x00, 0x31, 0x02]));
 
-  // Physical ESC/POS Left Margin Command (GS L nL nH)
-  if (profile.leftMarginCols > 0) {
-    const marginDots = Math.round(profile.leftMarginCols * profile.fontWidthDots);
-    const nL = marginDots % 256;
-    const nH = Math.floor(marginDots / 256);
+  // Safe Physical Dot Margin (GS L nL nH)
+  const safeMarginDots = profile.safeMarginDots || 0;
+  const nL = safeMarginDots % 256;
+  const nH = Math.floor(safeMarginDots / 256);
+
+  console.log(
+    `[Printer Engine ESC/POS Buffer] Paper: ${profile.paperSize}, safeMarginDots: ${safeMarginDots} dots (${(safeMarginDots / profile.dotsPerMm).toFixed(1)}mm), Usable Columns: ${profile.usableColumns}, GS L Bytes: [0x1D, 0x4C, 0x${nL.toString(16).padStart(2, '0').toUpperCase()}, 0x${nH.toString(16).padStart(2, '0').toUpperCase()}]`
+  );
+
+  if (safeMarginDots > 0) {
     chunks.push(new Uint8Array([0x1D, 0x4C, nL, nH]));
   }
 
   const cols = engine.getUsableColumns();
-  const leftPad = ' '.repeat(profile.leftMarginCols);
 
   for (const item of matrix) {
     if (item.type === 'blank') {
@@ -797,12 +843,12 @@ export function renderMatrixToEscPosBuffer(
       chunks.push(state.transitionTo({ align: 'left', bold: false }));
       const char = item.char || (item.double ? '=' : '-');
       const divLine = engine.renderDivider(char, item.style);
-      chunks.push(textEncoder.encode(leftPad + divLine + '\n'));
+      chunks.push(textEncoder.encode(divLine + '\n'));
     } else if (item.type === 'text') {
       chunks.push(state.transitionTo({ align: item.align || 'left', ...item.style }));
       const wrapped = engine.fitText(item.text, cols, { mode: 'wrap', align: item.align || 'left', style: item.style });
       wrapped.forEach(w => {
-        chunks.push(textEncoder.encode(leftPad + w + '\n'));
+        chunks.push(textEncoder.encode(w + '\n'));
       });
       if (item.style?.bold || item.style?.doubleHeight) {
         chunks.push(state.transitionTo({ bold: false, doubleHeight: false, doubleWidth: false }));
@@ -812,7 +858,7 @@ export function renderMatrixToEscPosBuffer(
       chunks.push(state.transitionTo({ align: 'left', bold: isBold, ...item.style }));
       const formatted = engine.renderFlexRow(item.leftText, item.rightText, item.style);
       formatted.forEach(f => {
-        chunks.push(textEncoder.encode(leftPad + f + '\n'));
+        chunks.push(textEncoder.encode(f + '\n'));
       });
       if (isBold) {
         chunks.push(state.transitionTo({ bold: false }));
@@ -822,7 +868,7 @@ export function renderMatrixToEscPosBuffer(
       chunks.push(state.transitionTo({ align: 'left', bold: isBold, ...item.style }));
       const formatted = engine.renderRow(item.cols, item.style);
       formatted.forEach(f => {
-        chunks.push(textEncoder.encode(leftPad + f + '\n'));
+        chunks.push(textEncoder.encode(f + '\n'));
       });
       if (isBold) {
         chunks.push(state.transitionTo({ bold: false }));
@@ -927,7 +973,7 @@ export function generateReceiptHtmlFromMatrix(
             width: ${widthCss};
             max-width: ${widthCss};
             margin: 0 auto;
-            padding: 0 1mm 4mm ${(1 + Math.round(profile.leftMarginCols * (profile.fontWidthDots / profile.dotsPerMm)))}mm;
+            padding: 0 1mm 4mm ${(1 + Math.round((profile.safeMarginDots || 0) / profile.dotsPerMm))}mm;
             font-family: 'Courier New', 'Consolas', 'Liberation Mono', monospace;
             font-size: ${fontSizeCss};
             font-weight: ${globalBold ? '900' : '700'};
