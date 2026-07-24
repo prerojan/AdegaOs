@@ -157,7 +157,7 @@ export function getPhysicalPrinterProfile(
     safeMarginDots,
     rightMarginCols,
     usableColumns,
-    lineSpacingDots: layoutConfig?.lineSpacing || 30,
+    lineSpacingDots: Number(layoutConfig?.lineSpacing || hardwareConfig?.lineSpacing || 38),
     density: layoutConfig?.density || 'high',
     autoCut: hardwareConfig?.autoCut !== false,
     cashDrawer: hardwareConfig?.cashDrawer === true
@@ -732,7 +732,7 @@ export class EscPosStyleState {
   doubleWidth: boolean = false;
   doubleHeight: boolean = false;
 
-  getInitBytes(): Uint8Array {
+  getInitBytes(lineSpacingDots: number = 38): Uint8Array {
     this.align = 'left';
     this.font = 'font_a';
     this.bold = false;
@@ -740,9 +740,10 @@ export class EscPosStyleState {
     this.invert = false;
     this.doubleWidth = false;
     this.doubleHeight = false;
+    const spacing = Math.min(255, Math.max(20, Math.round(lineSpacingDots)));
     return new Uint8Array([
       0x1B, 0x40,             // ESC @ (Reset Printer)
-      0x1B, 0x33, 30,         // ESC 3 30 (Line spacing 30 dots)
+      0x1B, 0x33, spacing,    // ESC 3 n (Line spacing n dots)
       0x1B, 0x61, 0x00,       // Align left
       0x1B, 0x4D, 0x00,       // Font A
       0x1B, 0x45, 0x00,       // Bold OFF
@@ -814,7 +815,7 @@ export function renderMatrixToEscPosBuffer(
   const state = new EscPosStyleState();
 
   // Initialize Printer
-  chunks.push(state.getInitBytes());
+  chunks.push(state.getInitBytes(profile.lineSpacingDots));
 
   // Density Command
   if (profile.density === 'ultra') chunks.push(new Uint8Array([0x1D, 0x28, 0x4B, 0x02, 0x00, 0x31, 0x02]));
@@ -825,7 +826,7 @@ export function renderMatrixToEscPosBuffer(
   const nH = Math.floor(safeMarginDots / 256);
 
   console.log(
-    `[Printer Engine ESC/POS Buffer] Paper: ${profile.paperSize}, safeMarginDots: ${safeMarginDots} dots (${(safeMarginDots / profile.dotsPerMm).toFixed(1)}mm), Usable Columns: ${profile.usableColumns}, GS L Bytes: [0x1D, 0x4C, 0x${nL.toString(16).padStart(2, '0').toUpperCase()}, 0x${nH.toString(16).padStart(2, '0').toUpperCase()}]`
+    `[PRINT_MARGIN_LOG] Paper: ${profile.paperSize}, safeMarginDots: ${safeMarginDots} dots (${(safeMarginDots / profile.dotsPerMm).toFixed(1)}mm), Usable Columns: ${profile.usableColumns}, lineSpacingDots: ${profile.lineSpacingDots}, GS L Bytes: [0x1D, 0x4C, 0x${nL.toString(16).padStart(2, '0').toUpperCase()}, 0x${nH.toString(16).padStart(2, '0').toUpperCase()}]`
   );
 
   if (safeMarginDots > 0) {
@@ -1279,7 +1280,9 @@ export async function triggerThermalPrint(
         if (rawConfigs) {
           const parsed = JSON.parse(rawConfigs);
           if (Array.isArray(parsed)) {
-            enterpriseConfig = parsed.find((c: any) => c.id === printer.id) || parsed[0];
+            enterpriseConfig = parsed.find((c: any) => c.id === printer.id) ||
+                               parsed.find((c: any) => c.sector?.toLowerCase() === printer.sector?.toLowerCase()) ||
+                               parsed[0];
           }
         }
       } catch (e) {}

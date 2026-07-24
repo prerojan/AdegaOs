@@ -3,6 +3,7 @@ import { Search, ShoppingBag, Trash2, Calendar, FileText, Printer, CheckCircle, 
 import { Sale, Product } from '../types';
 import { triggerThermalPrint } from '../lib/thermalPrinter';
 import { eventBus } from '../services/eventBus';
+import { ToastContainer, useToastSubscription } from './ToastNotification';
 
 const alert = (window as any).alert;
 
@@ -19,6 +20,7 @@ export default function ManagerSales({
   onCancelSale,
   theme
 }: ManagerSalesProps) {
+  const { toasts, removeToast } = useToastSubscription('caixa');
   const isDark = theme === 'dark';
   const [searchTerm, setSearchTerm] = useState('');
   const [dateFilter, setDateFilter] = useState('');
@@ -286,6 +288,7 @@ export default function ManagerSales({
             </div>
           )}
         </div>
+      <ToastContainer toasts={toasts} onRemove={removeToast} theme={theme} />
     </div>
   );
 }

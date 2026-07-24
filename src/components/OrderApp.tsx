@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Key, Smartphone, Wifi, WifiOff, RefreshCw, ShoppingCart, Search, Plus, Minus, Check, ArrowRight, User, AlertTriangle, TableProperties, DollarSign, X, CheckSquare, Layers, Sun, Moon, LogOut, Maximize2, Trash2, GlassWater, Info } from 'lucide-react';
 import { Product, TableComandaState, Sale, FinancialTransaction, CashierUser, SyncQueueItem } from '../types';
 import ProductCard from './ProductCard';
-import { ToastContainer, ToastItem, ToastType, playPremiumSound } from './ToastNotification';
+import { ToastContainer, ToastItem, ToastType, playPremiumSound, useToastSubscription } from './ToastNotification';
 import { triggerThermalPrint } from '../lib/thermalPrinter';
 import { eventBus } from '../services/eventBus';
 import { notificationService } from '../services/notificationService';
@@ -45,28 +45,12 @@ export default function OrderApp({
   onLogout,
   onGoToManager
 }: OrderAppProps) {
-  // Toast list state for animated, non-blocking notifications on this screen
-  const [toasts, setToasts] = useState<ToastItem[]>([]);
-  const addToast = (message: string, type: ToastType) => {
-    const id = `toast-${Date.now()}-${Math.random()}`;
-    setToasts(prev => [...prev, { id, message, type }]);
-  };
-  const removeToast = (id: string) => {
-    setToasts(prev => prev.filter(t => t.id !== id));
-  };
+  // Toast list state for animated, non-blocking notifications on Order screen
+  const { toasts, addToast, removeToast } = useToastSubscription('order');
 
-  // Register operational sector context for audio routing and listen for global toast & cancellation events
+  // Register operational sector context for audio routing and listen for cancellation events
   useEffect(() => {
     notificationService.setSector('order');
-
-    const handleGlobalToast = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (detail && detail.message) {
-        addToast(`${detail.title ? `${detail.title}: ` : ''}${detail.message}`, detail.type || 'info');
-      }
-    };
-
-    window.addEventListener('adegaos_show_toast', handleGlobalToast);
 
     // Listen for cancellations originating from Production or Remote Sync
     const unsubCancelled = eventBus.subscribe('ORDER_CANCELLED', (payload) => {
@@ -74,9 +58,6 @@ export default function OrderApp({
         const prodName = payload.productName || 'Produto';
         const tableStr = payload.table || 'Mesa/Comanda';
         const reasonStr = payload.reason ? `Motivo: ${payload.reason}` : 'Cancelado na Produção';
-
-        audioManager.play('order_cancelled');
-        addToast(`CANCELAMENTO: ${prodName} em ${tableStr}. ${reasonStr}`, 'error');
 
         // If product is currently in waiter's orderCart, purge it immediately
         if (payload.productId) {
@@ -92,10 +73,9 @@ export default function OrderApp({
     });
 
     return () => {
-      window.removeEventListener('adegaos_show_toast', handleGlobalToast);
       unsubCancelled();
     };
-  }, []);
+  }, [addToast]);
 
   // Item cancellation modal state (Mandatory reason)
   const [cancelModalData, setCancelModalData] = useState<{

@@ -1,6 +1,7 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { Bell, CheckCircle, AlertTriangle, AlertCircle, X } from 'lucide-react';
 import { audioManager, SoundType } from '../services/audioManager';
+import { ToastMessage, SectorContext } from '../services/notificationService';
 
 export type ToastType = 'info' | 'success' | 'warning' | 'error' | 'ready';
 
@@ -8,6 +9,48 @@ export interface ToastItem {
   id: string;
   message: string;
   type: ToastType;
+}
+
+export function useToastSubscription(screenSector: SectorContext) {
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+
+  const addToast = useCallback((message: string, type: ToastType) => {
+    const id = `t_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    setToasts(prev => [...prev, { id, message, type }]);
+  }, []);
+
+  const removeToast = useCallback((id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  }, []);
+
+  useEffect(() => {
+    const handleGlobalToast = (e: any) => {
+      const detail: ToastMessage = e.detail;
+      if (!detail) return;
+      const target = detail.targetSector || 'all';
+
+      const sec = String(screenSector);
+      // Strict Sector Routing Filter
+      const isMatch =
+        target === 'all' ||
+        target === sec ||
+        sec === 'all' ||
+        sec === 'gerente' ||
+        (target === 'caixa' && (sec === 'caixa' || sec === 'gerente'));
+
+      if (isMatch) {
+        const text = detail.title ? `${detail.title}: ${detail.message}` : detail.message;
+        addToast(text, detail.type || 'info');
+      }
+    };
+
+    window.addEventListener('adegaos_show_toast', handleGlobalToast as EventListener);
+    return () => {
+      window.removeEventListener('adegaos_show_toast', handleGlobalToast as EventListener);
+    };
+  }, [screenSector, addToast]);
+
+  return { toasts, addToast, removeToast };
 }
 
 interface ToastContainerProps {

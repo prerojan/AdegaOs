@@ -1663,6 +1663,48 @@ export default function EnterprisePrinterControlCenter({ theme }: EnterprisePrin
                     Aplica o comando de margem esquerda ESC/POS no hardware (GS L nL nH). Elimina cortes na borda esquerda e impede o desvio de colunas no papel.
                   </span>
                 </div>
+
+                <div className="col-span-1 sm:col-span-2 mt-2">
+                  <label className="text-[10px] font-bold uppercase text-gray-400">Espaçamento entre Linhas (Dots / ESC 3 n)</label>
+                  <div className="flex items-center gap-3 mt-1">
+                    <input
+                      type="range"
+                      min="24"
+                      max="60"
+                      step="2"
+                      value={currentConfig.layout.lineSpacing || 38}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        updateCurrentConfig(d => {
+                          d.layout.lineSpacing = val;
+                        });
+                      }}
+                      className="flex-1 accent-[#18F2A4]"
+                    />
+                    <input
+                      type="number"
+                      min="24"
+                      max="60"
+                      value={currentConfig.layout.lineSpacing || 38}
+                      onChange={(e) => {
+                        const val = Math.min(60, Math.max(24, Number(e.target.value) || 38));
+                        updateCurrentConfig(d => {
+                          d.layout.lineSpacing = val;
+                        });
+                      }}
+                      className={`w-16 p-2 rounded-lg border font-mono font-bold text-xs outline-none text-center ${
+                        isDark ? 'bg-[#111] border-gray-800 text-white' : 'bg-gray-50 border-gray-300 text-slate-900'
+                      }`}
+                    />
+                    <span className="text-[10px] text-gray-400 font-mono shrink-0">dots</span>
+                    <span className="text-[10px] text-[#18F2A4] font-mono font-bold shrink-0">
+                      (~{(((currentConfig.layout.lineSpacing || 38)) / 8).toFixed(1)} mm)
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-gray-500 block mt-1">
+                    Define o espaçamento vertical entre linhas de texto da comanda (Comando ESC 3 n). Padrão ideal para leitura: 38 dots (~4.8mm).
+                  </span>
+                </div>
               </div>
 
               {/* CALIBRATION & SAFE MARGIN RULER ACTIONS */}

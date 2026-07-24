@@ -11,6 +11,7 @@ export interface ToastMessage {
   title: string;
   message: string;
   timestamp: number;
+  targetSector?: SectorContext;
 }
 
 export type SectorContext = 'producao' | 'order' | 'caixa' | 'gerente' | 'all';
@@ -42,12 +43,8 @@ class NotificationService {
     if (this.isSubscribed) return;
     this.isSubscribed = true;
 
-    // 1. ORDER_CREATED -> Audio MUST sound ONLY on Produção/Desktop (NOT Order/Mobile)
+    // 1. ORDER_CREATED -> Targeted ONLY to Produção
     eventBus.subscribe('ORDER_CREATED', (payload) => {
-      const current = this.getSector();
-      // Strictly suppress audio & toast on Mobile / OrderApp
-      if (current === 'order') return;
-
       const tableInfo = payload.table ? ` (Mesa/Comanda: ${payload.table})` : '';
       const itemCount = payload.items?.length || 0;
       const title = `Novo Pedido #${payload.id.slice(-6).toUpperCase()}`;
@@ -57,16 +54,13 @@ class NotificationService {
         title,
         message,
         sound: 'order_created',
-        toastType: 'info'
+        toastType: 'info',
+        targetSector: 'producao'
       });
     });
 
-    // 2. ORDER_READY -> Audio MUST sound ONLY on Order/Mobile (NOT Produção)
+    // 2. ORDER_READY -> Targeted ONLY to Order / Garçom
     eventBus.subscribe('ORDER_READY', (payload) => {
-      const current = this.getSector();
-      // Strictly suppress audio on Produção
-      if (current === 'producao') return;
-
       const tableInfo = payload.table ? ` (Mesa/Comanda: ${payload.table})` : '';
       const title = `Pedido Pronto #${payload.id.slice(-6).toUpperCase()}`;
       const message = `Pedido pronto para entrega${tableInfo}`;
@@ -75,19 +69,15 @@ class NotificationService {
         title,
         message,
         sound: 'order_ready',
-        toastType: 'success'
+        toastType: 'success',
+        targetSector: 'order'
       });
     });
 
-    // 3. ORDER_CANCELLED -> Bidirectional: notifies the opposite sector only
+    // 3. ORDER_CANCELLED -> Bidirectional: notifies opposite sector
     eventBus.subscribe('ORDER_CANCELLED', (payload) => {
-      const current = this.getSector();
       const origin = payload.origin || 'order';
-
-      // Do NOT play audio on the sector that originated the cancellation
-      if (origin === current && current !== 'all' && current !== 'gerente') {
-        return;
-      }
+      const targetSector: SectorContext = origin === 'order' ? 'producao' : origin === 'producao' ? 'order' : 'all';
 
       const title = `Pedido Cancelado #${payload.id.slice(-6).toUpperCase()}`;
       const message = payload.reason ? `Motivo: ${payload.reason}` : 'O pedido foi cancelado pelo operador.';
@@ -96,34 +86,26 @@ class NotificationService {
         title,
         message,
         sound: 'order_cancelled',
-        toastType: 'warning'
+        toastType: 'warning',
+        targetSector
       });
     });
 
-    // 4. NOTIFICATION_REQUESTED -> Filtered by event type and sector
+    // 4. NOTIFICATION_REQUESTED -> Filtered by target sector
     eventBus.subscribe('NOTIFICATION_REQUESTED', (payload) => {
-      const current = this.getSector();
-
-      // Cash flow sound plays ONLY at Caixa or Gerente
-      if (payload.type === 'cash_flow' && current !== 'caixa' && current !== 'gerente' && current !== 'all') {
-        return;
-      }
-
-      // Print error sound plays ONLY in the originating sector or Produção (NEVER Order/Mobile)
-      if (payload.type === 'print_error') {
-        if (current === 'order') return;
-      }
-
       let toastType: 'success' | 'error' | 'warning' | 'info' = 'info';
       if (payload.type === 'print_error') toastType = 'error';
       else if (payload.type === 'order_ready' || payload.type === 'cash_flow') toastType = 'success';
       else if (payload.type === 'warning') toastType = 'warning';
 
+      const targetSector: SectorContext = payload.type === 'cash_flow' ? 'caixa' : payload.type === 'print_error' ? 'producao' : 'all';
+
       this.triggerAlert({
         title: payload.title,
         message: payload.message,
         sound: payload.sound || (payload.type === 'print_error' ? 'print_error' : payload.type === 'cash_flow' ? 'cash_flow' : 'ding'),
-        toastType
+        toastType,
+        targetSector
       });
     });
   }
@@ -133,32 +115,41 @@ class NotificationService {
     message: string;
     sound?: SoundType;
     toastType: 'success' | 'error' | 'warning' | 'info';
+    targetSector?: SectorContext;
   }) {
-    // A. Foreground Sound Chime
+    const current = this.getSector();
+    const target = params.targetSector || 'all';
+
+    // A. Sound Chime (Play if current screen matches targetSector or targetSector is 'all')
     if (params.sound) {
-      audioManager.play(params.sound);
+      if (target === 'all' || current === 'all' || current === target || current === 'gerente') {
+        audioManager.play(params.sound);
+      }
     }
 
-    // B. Physical Haptic Vibration Motor (Android / Mobile)
+    // B. Physical Haptic Vibration
     if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-      try {
-        navigator.vibrate([300, 150, 300, 150, 300]);
-      } catch (e) {}
+      if (target === 'all' || current === 'all' || current === target || current === 'gerente') {
+        try {
+          navigator.vibrate([300, 150, 300, 150, 300]);
+        } catch (e) {}
+      }
     }
 
-    // C. Visual Toast Dispatch (for UI Toast Containers)
+    // C. Visual Toast Dispatch (With explicit targetSector payload)
     if (typeof window !== 'undefined') {
       const toastDetail: ToastMessage = {
         id: `toast_${Date.now()}_${Math.random()}`,
         type: params.toastType,
         title: params.title,
         message: params.message,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        targetSector: target
       };
       window.dispatchEvent(new CustomEvent('adegaos_show_toast', { detail: toastDetail }));
     }
 
-    // D. PWA System/Background/LockScreen Notification (Delivered by OS)
+    // D. PWA System Notification
     pwaService.sendNotification(params.title, {
       body: params.message,
       tag: `notif_${Date.now()}`,

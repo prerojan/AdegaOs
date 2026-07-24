@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { ChefHat, GlassWater, Clock, Check, Play, User, RefreshCw, Layers, CheckCircle2, Volume2, Search, LogOut, Sun, Moon, Printer, Sparkles, Wifi, Sliders, Tag, X } from 'lucide-react';
 import { TableComandaState, Product, CashierUser } from '../types';
-import { ToastContainer, ToastItem, ToastType, playPremiumSound } from './ToastNotification';
+import { ToastContainer, ToastItem, ToastType, playPremiumSound, useToastSubscription } from './ToastNotification';
 import { triggerThermalPrint } from '../lib/thermalPrinter';
 import { eventBus } from '../services/eventBus';
 import { notificationService } from '../services/notificationService';
@@ -55,6 +55,9 @@ export default function ProductionPanel({
   } | null>(null);
   const [cancelReasonInput, setCancelReasonInput] = useState('');
 
+  // Toasts subscription for Produção sector
+  const { toasts, addToast, removeToast } = useToastSubscription('producao');
+
   // Register operational sector context for audio routing and listen for cancellations
   useEffect(() => {
     notificationService.setSector('producao');
@@ -64,9 +67,6 @@ export default function ProductionPanel({
         const prodName = payload.productName || 'Produto';
         const tableStr = payload.table || 'Mesa/Comanda';
         const reasonStr = payload.reason ? `Motivo: ${payload.reason}` : 'Cancelado pelo Garçom';
-
-        audioManager.play('order_cancelled');
-        addToast(`PEDIDO CANCELADO: ${prodName} em ${tableStr}. ${reasonStr}`, 'error');
       }
     });
 
@@ -74,16 +74,6 @@ export default function ProductionPanel({
       unsubCancelled();
     };
   }, []);
-
-  // Toasts local state
-  const [toasts, setToasts] = useState<ToastItem[]>([]);
-  const addToast = (message: string, type: ToastType) => {
-    const id = `toast-${Date.now()}-${Math.random()}`;
-    setToasts(prev => [...prev, { id, message, type }]);
-  };
-  const removeToast = (id: string) => {
-    setToasts(prev => prev.filter(t => t.id !== id));
-  };
 
   // Bluetooth physical printer connection states
   const [pairedPrinter, setPairedPrinter] = useState<any | null>(null);

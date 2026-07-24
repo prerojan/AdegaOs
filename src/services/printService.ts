@@ -78,15 +78,29 @@ class PrintService {
   public enqueuePrint(params: EventPayloadMap['PRINT_REQUESTED']): string {
     const jobKey = params.jobKey || `job_${params.type}_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
 
-    // Deduplication check: ignore identical job within 30 seconds unless forced
+    // Compute content-based hash key for comanda items to prevent duplicate tickets across different event origins
+    let contentHashKey = '';
+    if (params.type === 'comanda' && params.data?.items) {
+      const itemsStr = (params.data.items || [])
+        .map((i: any) => `${(i.name || i.productName || '').trim()}_${i.qty || i.quantity || 1}`)
+        .sort()
+        .join('|');
+      const tableStr = (params.data.table || params.data.identifier || '').trim();
+      contentHashKey = `content_comanda_${tableStr}_${itemsStr}`;
+    }
+
+    // Deduplication check: ignore identical job or identical item content within 25 seconds unless forced
     const now = Date.now();
-    const lastTime = this.recentJobHashes.get(jobKey);
-    if (!params.force && lastTime && now - lastTime < 30000) {
-      console.log(`[PrintService] Deduplicated job ${jobKey} (already enqueued ${Math.round((now - lastTime)/1000)}s ago)`);
+    const lastTime = this.recentJobHashes.get(jobKey) || (contentHashKey ? this.recentJobHashes.get(contentHashKey) : undefined);
+    if (!params.force && lastTime && now - lastTime < 25000) {
+      console.log(`[PrintService] Deduplicated job (jobKey: ${jobKey}, contentHash: ${contentHashKey}) - already enqueued ${Math.round((now - lastTime)/1000)}s ago`);
       return jobKey;
     }
 
     this.recentJobHashes.set(jobKey, now);
+    if (contentHashKey) {
+      this.recentJobHashes.set(contentHashKey, now);
+    }
 
     const newItem: PrintQueueItem = {
       id: `PQ_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
