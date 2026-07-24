@@ -55,7 +55,7 @@ export default function OrderApp({
     setToasts(prev => prev.filter(t => t.id !== id));
   };
 
-  // Register operational sector context for audio routing and listen for global toast events
+  // Register operational sector context for audio routing and listen for global toast & cancellation events
   useEffect(() => {
     notificationService.setSector('order');
 
@@ -67,8 +67,33 @@ export default function OrderApp({
     };
 
     window.addEventListener('adegaos_show_toast', handleGlobalToast);
+
+    // Listen for cancellations originating from Production (Bug 4 Cenário B)
+    const unsubCancelled = eventBus.subscribe('ORDER_CANCELLED', (payload) => {
+      if (payload.origin === 'producao') {
+        const prodName = payload.productName || 'Produto';
+        const tableStr = payload.table || 'Mesa/Comanda';
+        const reasonStr = payload.reason ? `Motivo: ${payload.reason}` : 'Cancelado na Produção';
+
+        audioManager.play('order_cancelled');
+        addToast(`CANCELAMENTO NA PRODUÇÃO: ${prodName} em ${tableStr}. ${reasonStr}`, 'error');
+
+        // If product is currently in waiter's orderCart, purge it immediately
+        if (payload.productId) {
+          setOrderCart(prev => {
+            const exists = prev.some(item => item.product.id === payload.productId);
+            if (exists) {
+              addToast(`Atenção: "${prodName}" foi cancelado pela Produção e removido do seu carrinho.`, 'warning');
+            }
+            return prev.filter(item => item.product.id !== payload.productId);
+          });
+        }
+      }
+    });
+
     return () => {
       window.removeEventListener('adegaos_show_toast', handleGlobalToast);
+      unsubCancelled();
     };
   }, []);
 

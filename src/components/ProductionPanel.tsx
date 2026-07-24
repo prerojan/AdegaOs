@@ -374,10 +374,13 @@ export default function ProductionPanel({
         itemNames: [products.find(p => p.id === currentItem.productId)?.name || 'Item']
       });
     } else if (newStatus === 'cancelado') {
+      const prodObj = products.find(p => p.id === currentItem.productId);
       eventBus.publish('ORDER_CANCELLED', {
         id: tableId,
         table: tableStr,
         reason,
+        productId: currentItem.productId,
+        productName: prodObj ? prodObj.name : 'Produto',
         origin: 'producao'
       });
     } else {

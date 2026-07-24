@@ -128,7 +128,7 @@ export function getPhysicalPrinterProfile(
   const leftMarginCols = Math.max(0, baseLeftMargin + leftMarginOffset);
 
   // Column capacity stays strictly computed from physical paper width and font metrics
-  const usableColumns = Math.max(8, columnsCount - baseLeftMargin - rightMarginCols);
+  const usableColumns = Math.max(8, columnsCount - leftMarginCols - rightMarginCols);
 
   return {
     paperSize: paperSize as '58mm' | '80mm',
@@ -777,6 +777,14 @@ export function renderMatrixToEscPosBuffer(
   // Density Command
   if (profile.density === 'ultra') chunks.push(new Uint8Array([0x1D, 0x28, 0x4B, 0x02, 0x00, 0x31, 0x02]));
 
+  // Physical ESC/POS Left Margin Command (GS L nL nH)
+  if (profile.leftMarginCols > 0) {
+    const marginDots = Math.round(profile.leftMarginCols * profile.fontWidthDots);
+    const nL = marginDots % 256;
+    const nH = Math.floor(marginDots / 256);
+    chunks.push(new Uint8Array([0x1D, 0x4C, nL, nH]));
+  }
+
   const cols = engine.getUsableColumns();
   const leftPad = ' '.repeat(profile.leftMarginCols);
 
@@ -919,7 +927,7 @@ export function generateReceiptHtmlFromMatrix(
             width: ${widthCss};
             max-width: ${widthCss};
             margin: 0 auto;
-            padding: 0 1mm 4mm 1mm;
+            padding: 0 1mm 4mm ${(1 + Math.round(profile.leftMarginCols * (profile.fontWidthDots / profile.dotsPerMm)))}mm;
             font-family: 'Courier New', 'Consolas', 'Liberation Mono', monospace;
             font-size: ${fontSizeCss};
             font-weight: ${globalBold ? '900' : '700'};
@@ -1248,24 +1256,27 @@ export async function triggerThermalPrint(
 
       let res: { success: boolean; durationMs: number; errorMsg?: string } = { success: false, durationMs: 0 };
 
+      // Check if current sector or view is mobile/order terminal
+      const isOrderTerminal = typeof window !== 'undefined' && (
+        window.location.pathname.includes('order') || 
+        window.location.pathname.includes('mobile') || 
+        (window as any).adegaos_active_sector === 'order' ||
+        localStorage.getItem('adegaos_active_sector') === 'order' ||
+        (window as any).adegaos_active_view === 'order'
+      );
+
       if (printer.method === 'webusb') {
         res = await connectAndPrintWebUSB(escPosBuffer, true);
       } else if (printer.method === 'webserial') {
         res = await connectAndPrintWebSerial(escPosBuffer);
       } else if (printer.method === 'virtual') {
-        window.dispatchEvent(new CustomEvent('adegaos_thermal_print_requested', {
-          detail: { text: receiptText, payload: typeOrPayload, escPosBuffer, mode: 'virtual' }
-        }));
+        if (!isOrderTerminal) {
+          window.dispatchEvent(new CustomEvent('adegaos_thermal_print_requested', {
+            detail: { text: receiptText, payload: typeOrPayload, escPosBuffer, mode: 'virtual' }
+          }));
+        }
         res = { success: true, durationMs: Math.round(performance.now() - start) };
       } else {
-        // Check if current sector is mobile/order terminal
-        const isOrderTerminal = typeof window !== 'undefined' && (
-          window.location.pathname.includes('order') || 
-          window.location.pathname.includes('mobile') || 
-          (window as any).adegaos_active_sector === 'order' ||
-          localStorage.getItem('adegaos_active_sector') === 'order'
-        );
-
         if (isOrderTerminal) {
           console.log('[Printer Engine] Suppressed system browser print popup on mobile order terminal.');
           res = { success: true, durationMs: Math.round(performance.now() - start) };

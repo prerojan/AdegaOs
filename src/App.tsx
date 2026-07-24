@@ -60,6 +60,9 @@ import LandingPage from './components/LandingPage';
 import AdminPanel from './components/AdminPanel';
 import ManagerImportPortal from './components/ManagerImportPortal';
 import ThermalPrinterControlModal from './components/ThermalPrinterControlModal';
+import { shouldCategoryGoToProduction, getCategoryProductionSector } from './lib/productionCategories';
+import { eventBus } from './services/eventBus';
+import { audioManager } from './services/audioManager';
 
 export default function App() {
   // Global Shared States
@@ -357,8 +360,86 @@ export default function App() {
   useEffect(() => {
     try {
       localStorage.setItem('adegaos_active_view', activeProductView);
+      (window as any).adegaos_active_view = activeProductView;
     } catch {}
   }, [activeProductView]);
+
+  // Global Production Auto-Print Engine (Bug 2 Fix)
+  // Ensures items destined for production are automatically printed on desktop app regardless of active view/tab
+  const printedProductionKeysRef = React.useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!tablesComandas || tablesComandas.length === 0) return;
+
+    const newlyArrivedItems: {
+      tableId: string;
+      tableStr: string;
+      sector: string;
+      itemKey: string;
+      productName: string;
+      qty: number;
+      notes?: string;
+    }[] = [];
+
+    tablesComandas.forEach(table => {
+      if (!table.items) return;
+      table.items.forEach(item => {
+        if (item.status === 'pendente' || item.status === 'recebido') {
+          const prod = products.find(p => p.id === item.productId);
+          const category = prod ? prod.category : 'Outros';
+          if (!shouldCategoryGoToProduction(category)) return;
+
+          const sector = getCategoryProductionSector(category);
+          const tableStr = `${table.type === 'mesa' ? 'Mesa' : 'Comanda'} ${table.number}`;
+          const itemKey = `prod_${table.id}_${item.productId}_${item.quantity}_${item.notes || ''}_${item.statusHistory?.[0]?.timestamp || ''}`;
+
+          if (!printedProductionKeysRef.current.has(itemKey)) {
+            newlyArrivedItems.push({
+              tableId: table.id,
+              tableStr,
+              sector,
+              itemKey,
+              productName: prod ? prod.name : 'Item',
+              qty: item.quantity,
+              notes: item.notes
+            });
+          }
+        }
+      });
+    });
+
+    if (newlyArrivedItems.length > 0) {
+      // Mark keys immediately
+      newlyArrivedItems.forEach(it => printedProductionKeysRef.current.add(it.itemKey));
+
+      // Group newly arrived items by table and sector for single cohesive ticket
+      const grouped: Record<string, typeof newlyArrivedItems> = {};
+      newlyArrivedItems.forEach(it => {
+        const groupKey = `${it.tableStr}_${it.sector}`;
+        if (!grouped[groupKey]) grouped[groupKey] = [];
+        grouped[groupKey].push(it);
+      });
+
+      // Dispatch comanda print jobs to PrintService via EventBus
+      Object.keys(grouped).forEach(groupKey => {
+        const groupItems = grouped[groupKey];
+        const first = groupItems[0];
+
+        eventBus.publish('PRINT_REQUESTED', {
+          type: 'comanda',
+          sector: first.sector,
+          data: {
+            date: new Date().toLocaleDateString('pt-BR'),
+            time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+            table: first.tableStr,
+            sector: first.sector,
+            items: groupItems.map(gi => ({ name: gi.productName, qty: gi.qty, notes: gi.notes }))
+          },
+          jobKey: `comanda_${first.tableId}_${first.sector}_${Date.now()}`
+        });
+      });
+    }
+  }, [tablesComandas, products]);
 
   useEffect(() => {
     try {
@@ -1603,8 +1684,8 @@ export default function App() {
         </div>
       )}
 
-      {/* Global Thermal Printer Control Modal */}
-      <ThermalPrinterControlModal theme={theme} />
+      {/* Global Thermal Printer Control Modal (Suppressed in Order App) */}
+      {activeProductView !== 'order' && <ThermalPrinterControlModal theme={theme} />}
 
     </div>
   );

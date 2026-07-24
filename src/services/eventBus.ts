@@ -43,6 +43,8 @@ export interface EventPayloadMap {
     reason?: string;
     origin?: string;
     sector?: string;
+    productId?: string;
+    productName?: string;
   };
   PRINT_REQUESTED: {
     type: 'sale' | 'comanda' | 'cash_flow' | 'diagnostic' | string;
