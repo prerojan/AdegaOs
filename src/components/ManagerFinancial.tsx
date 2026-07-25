@@ -1292,7 +1292,7 @@ export default function ManagerFinancial({
                           </td>
                           <td className="py-3 text-center">
                             <button
-                              onClick={() => {
+                              onClick={async () => {
                                 const receiptData = {
                                   date: new Date(sh.openTime).toLocaleDateString('pt-BR'),
                                   cashierName: sh.openedBy,
@@ -1308,12 +1308,17 @@ export default function ManagerFinancial({
                                   totalExpenses: totalSangrias,
                                   finalBalance: expected
                                 };
-                                eventBus.publish('PRINT_REQUESTED', {
-                                  type: 'cash_flow',
-                                  data: receiptData,
-                                  jobKey: `reprint_shift_${sh.id}`
-                                });
-                                alert("Cupom de auditoria enviado para impressão!");
+
+                                try {
+                                  const printRes = await triggerThermalPrint('cash_flow', receiptData, 'caixa');
+                                  if (printRes.success) {
+                                    alert("Cupom de auditoria enviado à impressora com sucesso!");
+                                  } else {
+                                    alert(`Envio de impressão concluído com aviso: ${printRes.errorMsg || 'Verifique o spooler do navegador/PWA.'}`);
+                                  }
+                                } catch (err: any) {
+                                  alert(`Falha ao comunicar com a impressora térmica: ${err.message}`);
+                                }
                               }}
                               className={`px-2 py-1 rounded text-[10px] font-bold flex items-center justify-center gap-1 mx-auto transition-colors ${
                                 theme === 'dark' ? 'bg-[#1A1A1A] hover:bg-[#252525] text-gray-300' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'

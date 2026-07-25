@@ -13,6 +13,7 @@ export interface NotificationOptions {
 class PwaService {
   private swRegistration: ServiceWorkerRegistration | null = null;
   private permissionGranted: boolean = false;
+  private sentNotifications: Map<string, number> = new Map();
 
   constructor() {
     this.init();
@@ -60,6 +61,16 @@ class PwaService {
 
   public async sendNotification(title: string, options: NotificationOptions): Promise<boolean> {
     if (typeof window === 'undefined' || !('Notification' in window)) return false;
+
+    // Deduplicate identical title+body requests within 5000ms
+    const key = `${title}_${options.body}`;
+    const now = Date.now();
+    const lastSent = this.sentNotifications.get(key);
+    if (lastSent && now - lastSent < 5000) {
+      console.log(`[PWA Service] Duplicate notification skipped: "${title}"`);
+      return false;
+    }
+    this.sentNotifications.set(key, now);
 
     // Check if permission is granted
     if (Notification.permission !== 'granted') {

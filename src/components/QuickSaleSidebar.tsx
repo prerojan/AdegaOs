@@ -139,7 +139,7 @@ export default function QuickSaleSidebar({
     return received - cartTotal;
   }, [cashReceived, cartTotal, paymentMethod]);
 
-  const handleCheckout = () => {
+  const handleCheckout = async () => {
     if (cart.length === 0) {
       alert('Seu carrinho está vazio.', 'warning');
       return;
@@ -160,15 +160,21 @@ export default function QuickSaleSidebar({
 
     // 1. Create Sale Object
     const saleId = `v-${Date.now()}`;
+    const generatedSaleNum = Math.floor(100000 + Math.random() * 900000);
+    const operatorName = currentUser?.name || 'Operador Balcão';
+    const operatorId = currentUser?.id || currentUser?.name || 'u-balcao';
+
     const newSale: Sale = {
       id: saleId,
+      number: generatedSaleNum,
+      cashierId: operatorId,
+      openedBy: operatorName,
       status: 'pago',
       paymentMethod,
       total: cartTotal,
       discount: discountAmount,
       timestamp: new Date().toISOString(),
       clientName: 'Consumidor Final (PDV)',
-      openedBy: currentUser?.name || 'Operador',
       items: cart.map(item => ({
         productId: item.product.id,
         quantity: item.quantity,
@@ -201,12 +207,34 @@ export default function QuickSaleSidebar({
       onUpdateStock(item.product.id, 0, -item.quantity);
     });
 
-    // 5. Trigger printer via EventBus
-    eventBus.publish('PRINT_REQUESTED', {
-      type: 'sale',
-      data: { sale: newSale, transaction: newTx },
-      jobKey: `quicksale_${saleId}`
-    });
+    // 5. Trigger printer via real Thermal Printer Engine
+    try {
+      const receiptData = {
+        number: saleId.slice(-6).toUpperCase(),
+        date: new Date().toLocaleDateString('pt-BR'),
+        time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+        identifier: 'Balcão / Venda Direta',
+        cashierId: currentUser?.name || 'Operador',
+        subtotal: cartTotal + discountAmount,
+        discount: discountAmount,
+        total: cartTotal,
+        paymentMethod,
+        items: cart.map(i => ({
+          qty: i.quantity,
+          name: i.product.name,
+          unitPrice: i.product.sellPrice
+        }))
+      };
+
+      const printRes = await triggerThermalPrint('sale', receiptData, 'caixa');
+      if (printRes.success) {
+        alert('Venda registrada e cupom enviado à impressora com sucesso!', 'success');
+      } else {
+        alert(`Venda registrada, mas houve falha na impressora: ${printRes.errorMsg || 'Verifique o cabo/conexão.'}`, 'warning');
+      }
+    } catch (err: any) {
+      alert('Venda registrada com sucesso! (Aviso: falha ao conectar com impressora)', 'warning');
+    }
 
     eventBus.publish('NOTIFICATION_REQUESTED', {
       type: 'order_created',
@@ -220,7 +248,6 @@ export default function QuickSaleSidebar({
     setDiscountAmount(0);
     setCashReceived('');
     playPremiumSound('success');
-    alert('Venda registrada com sucesso! Cupom enviado para impressão.', 'success');
     onClose();
   };
 

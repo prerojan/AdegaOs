@@ -110,6 +110,8 @@ class NotificationService {
     });
   }
 
+  private recentNotifs: Map<string, number> = new Map();
+
   private triggerAlert(params: {
     title: string;
     message: string;
@@ -120,20 +122,19 @@ class NotificationService {
     const current = this.getSector();
     const target = params.targetSector || 'all';
 
-    // A. Sound Chime (Play if current screen matches targetSector or targetSector is 'all')
-    if (params.sound) {
-      if (target === 'all' || current === 'all' || current === target || current === 'gerente') {
-        audioManager.play(params.sound);
-      }
+    // Sector Check: If target is specific (e.g., 'producao' or 'order') and current sector doesn't match, block notification
+    const isTargetSectorMatched = (target === 'all' || current === 'all' || current === target || current === 'gerente');
+
+    // A. Sound Chime
+    if (params.sound && isTargetSectorMatched) {
+      audioManager.play(params.sound);
     }
 
     // B. Physical Haptic Vibration
-    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-      if (target === 'all' || current === 'all' || current === target || current === 'gerente') {
-        try {
-          navigator.vibrate([300, 150, 300, 150, 300]);
-        } catch (e) {}
-      }
+    if (typeof navigator !== 'undefined' && 'vibrate' in navigator && isTargetSectorMatched) {
+      try {
+        navigator.vibrate([300, 150, 300, 150, 300]);
+      } catch (e) {}
     }
 
     // C. Visual Toast Dispatch (With explicit targetSector payload)
@@ -149,12 +150,36 @@ class NotificationService {
       window.dispatchEvent(new CustomEvent('adegaos_show_toast', { detail: toastDetail }));
     }
 
-    // D. PWA System Notification
-    pwaService.sendNotification(params.title, {
-      body: params.message,
-      tag: `notif_${Date.now()}`,
-      vibrate: params.sound === 'order_created' ? [300, 150, 300, 150, 300] : [200, 100, 200]
-    });
+    // D. PWA System Notification (ONLY send if current sector matches targetSector!)
+    if (isTargetSectorMatched) {
+      const notifKey = `${params.title}_${params.message}`;
+      const now = Date.now();
+      const lastSent = this.recentNotifs.get(notifKey);
+
+      if (lastSent && now - lastSent < 5000) {
+        console.log(`[NotificationService] Suppressed duplicate PWA notification: ${params.title}`);
+        return;
+      }
+      this.recentNotifs.set(notifKey, now);
+
+      // Clean old entries
+      if (this.recentNotifs.size > 50) {
+        this.recentNotifs.forEach((time, key) => {
+          if (now - time > 10000) this.recentNotifs.delete(key);
+        });
+      }
+
+      // Generate stable tag derived from title/content to allow browser native deduplication
+      const stableTag = `flux_tag_${params.title.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+
+      pwaService.sendNotification(params.title, {
+        body: params.message,
+        tag: stableTag,
+        vibrate: params.sound === 'order_created' ? [300, 150, 300, 150, 300] : [200, 100, 200]
+      });
+    } else {
+      console.log(`[NotificationService] Suppressed notification for sector '${current}' (Target: '${target}')`);
+    }
   }
 }
 

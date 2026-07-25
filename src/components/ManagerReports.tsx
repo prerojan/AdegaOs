@@ -52,14 +52,20 @@ export default function ManagerReports({
         ];
 
         headers = ['ID Venda', 'Data/Hora', 'Operador', 'Método', 'Desconto', 'Total (R$)'];
-        rows = paidSales.map(s => [
-          `#${s.number}`,
-          s.timestamp ? new Date(s.timestamp).toLocaleString('pt-BR') : 'N/A',
-          s.cashierId || 'Sistema',
-          (s.paymentMethod || '').toUpperCase(),
-          `R$ ${(s.discount || 0).toFixed(2)}`,
-          `R$ ${(s.total || 0).toFixed(2)}`
-        ]);
+        rows = paidSales.map(s => {
+          const formattedNum = (s.number !== undefined && s.number !== null && String(s.number).trim() !== '' && String(s.number) !== 'undefined') 
+            ? String(s.number) 
+            : (s.id ? s.id.replace(/^v-|^sale-/, '').slice(-6).toUpperCase() : '000000');
+          const operatorDisplay = s.openedBy || s.cashierId || s.waiterName || 'Operador Balcão';
+          return [
+            `#${formattedNum}`,
+            s.timestamp ? new Date(s.timestamp).toLocaleString('pt-BR') : 'N/A',
+            operatorDisplay,
+            (s.paymentMethod || '').toUpperCase(),
+            `R$ ${(s.discount || 0).toFixed(2)}`,
+            `R$ ${(s.total || 0).toFixed(2)}`
+          ];
+        });
 
       } else if (reportId === 'r2') {
         // DRE Gerencial de Canais
@@ -184,14 +190,20 @@ export default function ManagerReports({
 
         headers = ['Referência ID', 'Tipo Evento', 'Data Registro', 'Categoria / Origem', 'Operador Responsável', 'Valor Retido (R$)'];
         
-        const rowsSales = cancelledSales.map(s => [
-          `#${s.number}`,
-          'Venda Cancelada',
-          s.timestamp ? new Date(s.timestamp).toLocaleString('pt-BR') : 'N/A',
-          'Balcão PDV',
-          s.cashierId || 'Sistema',
-          `R$ ${(s.total || 0).toFixed(2)}`
-        ]);
+        const rowsSales = cancelledSales.map(s => {
+          const formattedNum = (s.number !== undefined && s.number !== null && String(s.number).trim() !== '' && String(s.number) !== 'undefined') 
+            ? String(s.number) 
+            : (s.id ? s.id.replace(/^v-|^sale-/, '').slice(-6).toUpperCase() : '000000');
+          const operatorDisplay = s.openedBy || s.cashierId || s.waiterName || 'Operador Balcão';
+          return [
+            `#${formattedNum}`,
+            'Venda Cancelada',
+            s.timestamp ? new Date(s.timestamp).toLocaleString('pt-BR') : 'N/A',
+            'Balcão PDV',
+            operatorDisplay,
+            `R$ ${(s.total || 0).toFixed(2)}`
+          ];
+        });
 
         const rowsRefunds = refundTransactions.map(tx => [
           tx.id.slice(0, 8),
@@ -212,7 +224,7 @@ export default function ManagerReports({
       if (format === 'XLS') {
         exportStyledReport(reportId, title, headers, rows, summaryData)
           .then(() => {
-            alert(`Relatório "${title}" exportado com sucesso em formato Excel (.xlsx).`);
+            console.log(`[ManagerReports] Real Excel file generated & downloaded for "${title}"`);
           })
           .catch(err => {
             console.error('Erro ao gerar planilha Excel:', err);
@@ -240,7 +252,7 @@ export default function ManagerReports({
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
-            alert(`Relatório "${title}" exportado com sucesso em formato PDF.`);
+            console.log(`[ManagerReports] Real PDF vector document generated & downloaded for "${title}"`);
           })
           .catch(err => {
             console.error('Erro ao renderizar PDF:', err);

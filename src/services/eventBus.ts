@@ -83,6 +83,8 @@ export type EventCallback<T extends SystemEventType> = (payload: EventPayloadMap
 class EventBus {
   private listeners: Map<SystemEventType, Set<EventCallback<any>>> = new Map();
   private broadcastChannel: BroadcastChannel | null = null;
+  private instanceId: string = `bus_${Math.random().toString(36).substring(2, 9)}`;
+  private recentEvents: Map<string, number> = new Map();
 
   constructor() {
     // Cross-tab synchronization via BroadcastChannel
@@ -90,7 +92,7 @@ class EventBus {
       try {
         this.broadcastChannel = new BroadcastChannel('fluxos_event_bus_channel');
         this.broadcastChannel.onmessage = (event) => {
-          if (event.data && event.data.type && event.data.payload) {
+          if (event.data && event.data.type && event.data.payload && event.data.source !== this.instanceId) {
             this.emitLocal(event.data.type, event.data.payload, true);
           }
         };
@@ -99,11 +101,11 @@ class EventBus {
       }
     }
 
-    // Native Window Event fallback
+    // Native Window Event fallback (Filter out events dispatched by this same EventBus instance to avoid double emission)
     if (typeof window !== 'undefined') {
       window.addEventListener('fluxos_native_event_bus', (e: Event) => {
-        const customEv = e as CustomEvent<{ type: SystemEventType; payload: any }>;
-        if (customEv.detail) {
+        const customEv = e as CustomEvent<{ type: SystemEventType; payload: any; source?: string }>;
+        if (customEv.detail && customEv.detail.source !== this.instanceId) {
           this.emitLocal(customEv.detail.type, customEv.detail.payload, true);
         }
       });
@@ -126,13 +128,31 @@ class EventBus {
   }
 
   public publish<T extends SystemEventType>(type: T, payload: EventPayloadMap[T]): void {
+    // Deduplicate identical payload events published within 3000ms
+    const eventKey = `${type}_${JSON.stringify(payload)}`;
+    const now = Date.now();
+    const lastTime = this.recentEvents.get(eventKey);
+
+    if (lastTime && now - lastTime < 3000) {
+      console.log(`[EventBus] Deduplicated identical event publish: ${type}`);
+      return;
+    }
+    this.recentEvents.set(eventKey, now);
+
+    // Clean up stale cache
+    if (this.recentEvents.size > 100) {
+      this.recentEvents.forEach((time, key) => {
+        if (now - time > 10000) this.recentEvents.delete(key);
+      });
+    }
+
     // 1. Emit locally
     this.emitLocal(type, payload, false);
 
     // 2. Broadcast to other tabs/windows
     if (this.broadcastChannel) {
       try {
-        this.broadcastChannel.postMessage({ type, payload });
+        this.broadcastChannel.postMessage({ type, payload, source: this.instanceId });
       } catch (e) {
         console.warn('[EventBus] Failed to broadcast message:', e);
       }
@@ -141,7 +161,9 @@ class EventBus {
     // 3. Dispatch native DOM event
     if (typeof window !== 'undefined') {
       try {
-        window.dispatchEvent(new CustomEvent('fluxos_native_event_bus', { detail: { type, payload } }));
+        window.dispatchEvent(new CustomEvent('fluxos_native_event_bus', { 
+          detail: { type, payload, source: this.instanceId } 
+        }));
       } catch (e) {}
     }
   }

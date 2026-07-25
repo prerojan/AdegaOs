@@ -464,7 +464,7 @@ export default function OrderApp({
   };
 
   // Process checkout payments and wipe comanda table back to free
-  const handleProcessPayment = () => {
+  const handleProcessPayment = async () => {
     if (!selectedTableId || !activeTable) return;
     const totalToPay = activeTable.items.reduce((acc, i) => {
       const prod = products.find(p => p.id === i.productId);
@@ -490,7 +490,8 @@ export default function OrderApp({
       paymentMethod,
       cardBrand: paymentMethod === 'credito' || paymentMethod === 'debito' ? 'Stone Terminal' : undefined,
       status: 'pago',
-      cashierId: authorizedUser?.id || 'u3',
+      cashierId: authorizedUser?.id || authorizedUser?.name || 'u3',
+      openedBy: authorizedUser?.name || 'Operador PDV',
       waiterName: authorizedUser?.name
     };
 
@@ -529,12 +530,21 @@ export default function OrderApp({
       })
     };
 
-    // Publish PRINT_REQUESTED to background PrintService via EventBus
-    eventBus.publish('PRINT_REQUESTED', {
-      type: 'sale',
-      data: receiptData,
-      jobKey: `sale_receipt_${saleNumber}`
-    });
+    // Execute real ESC/POS thermal printing of non-fiscal sales coupon
+    try {
+      console.log(`[OrderApp] Dispatching sale receipt #${saleNumber} to thermal printer...`);
+      const printResult = await triggerThermalPrint('sale', receiptData, 'caixa');
+      console.log('[OrderApp] Thermal print result:', printResult);
+
+      if (printResult.success) {
+        addToast(`Mesa/Comanda ${activeTable.number} liquidada! Cupom não fiscal emitido e enviado à impressora.`, 'success');
+      } else {
+        addToast(`Mesa/Comanda ${activeTable.number} liquidada, mas a impressora respondeu com aviso: ${printResult.errorMsg || 'Verifique o papel/conexão.'}`, 'warning');
+      }
+    } catch (printErr: any) {
+      console.error('[OrderApp] Error executing thermal print:', printErr);
+      addToast(`Mesa/Comanda ${activeTable.number} liquidada! Falha na transmissão para a impressora.`, 'warning');
+    }
 
     // Reset temporary cashier inputs
     setCashReceived('');
@@ -555,7 +565,6 @@ export default function OrderApp({
       onUpdateTableStatus(selectedTableId, 'livre');
       setSelectedTableId(null);
       setActiveScreen('tables');
-      addToast('Modo OFFLINE ativo! Venda salva em cache e Cupom Impresso.', 'warning');
       return;
     }
 
@@ -567,7 +576,6 @@ export default function OrderApp({
 
     setSelectedTableId(null);
     setActiveScreen('tables');
-    addToast(`Mesa/Comanda ${activeTable.number} liquidada! Cupom não fiscal emitido com sucesso.`, 'success');
   };
 
   // Re-sync queue once online

@@ -167,11 +167,15 @@ export default function ManagerSettings({
     };
 
     try {
-      await triggerThermalPrint('sale', mockData, printer.id);
-      alert(`Comando de teste enviado com sucesso para "${printer.name}"!`);
+      const res = await triggerThermalPrint('sale', mockData, printer.id);
+      if (res.success) {
+        alert(`Comando de teste enviado com sucesso para "${printer.name}"! (${res.durationMs || 0}ms)`);
+      } else {
+        alert(`Falha no envio do teste de impressão para "${printer.name}": ${res.errorMsg || 'Impressora inacessível ou desconectada.'}`);
+      }
     } catch (err: any) {
       console.error("Erro no teste de impressão:", err);
-      alert(`Falha no envio da impressão: ${err.message}`);
+      alert(`Erro de comunicação com a impressora: ${err.message}`);
     } finally {
       setTestingPrinterId(null);
     }

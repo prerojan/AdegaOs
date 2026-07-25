@@ -1360,15 +1360,18 @@ export async function triggerThermalPrint(
       } else if (printer.method === 'webserial') {
         res = await connectAndPrintWebSerial(escPosBuffer);
       } else if (printer.method === 'virtual') {
-        if (!isOrderTerminal) {
-          window.dispatchEvent(new CustomEvent('adegaos_thermal_print_requested', {
-            detail: { text: receiptText, payload: typeOrPayload, escPosBuffer, mode: 'virtual' }
-          }));
-        }
+        window.dispatchEvent(new CustomEvent('adegaos_thermal_print_requested', {
+          detail: { text: receiptText, payload: typeOrPayload, escPosBuffer, mode: 'virtual' }
+        }));
         res = { success: true, durationMs: Math.round(performance.now() - start) };
       } else {
+        // Dispatch to central virtual spooler regardless of terminal so central cashier/server can print
+        window.dispatchEvent(new CustomEvent('adegaos_thermal_print_requested', {
+          detail: { text: receiptText, payload: typeOrPayload, escPosBuffer, mode: 'system' }
+        }));
+
         if (isOrderTerminal) {
-          console.log('[Printer Engine] Suppressed system browser print popup on mobile order terminal.');
+          console.log('[Printer Engine] Dispatched non-fiscal coupon ESC/POS print job to Central Spooler from mobile terminal.');
           res = { success: true, durationMs: Math.round(performance.now() - start) };
         } else {
           const ok = await printViaSystemBrowser(receiptText, printer.paperSize, receiptHtml);

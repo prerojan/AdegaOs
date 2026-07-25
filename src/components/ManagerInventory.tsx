@@ -79,13 +79,14 @@ export default function ManagerInventory({
   // Barcode simulation matching
   const handleBarcodeSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    const prod = products.find(p => p.barcode === barcodeSearch);
+    if (!barcodeSearch.trim()) return;
+    const searchClean = barcodeSearch.trim().toLowerCase();
+    const prod = products.find(p => p.barcode?.toLowerCase() === searchClean || p.sku?.toLowerCase() === searchClean || p.name.toLowerCase().includes(searchClean));
     if (prod) {
       setSelectedProductId(prod.id);
-      alert(`Produto encontrado: ${prod.name}`);
       setBarcodeSearch('');
     } else {
-      alert('Código de barras não cadastrado no sistema.');
+      alert(`Nenhum produto localizado para o código de barras "${barcodeSearch}".`);
     }
   };
 
@@ -108,7 +109,14 @@ export default function ManagerInventory({
       return;
     }
 
+    const updatedProduct: Product = {
+      ...selectedProduct,
+      stockBoxes: targetBoxes,
+      stockUnits: targetUnits
+    };
+
     onUpdateFullStock(selectedProduct.id, targetBoxes, targetUnits);
+    onUpdateProduct(updatedProduct);
 
     const logMsg: InventoryLog = {
       timestamp: new Date().toISOString(),
@@ -131,11 +139,18 @@ export default function ManagerInventory({
       return;
     }
 
-    // Convert 1 box into its constituent units
+    // Convert 1 box into its constituent units and persist to Firestore
     const targetBoxes = selectedProduct.stockBoxes - 1;
     const targetUnits = selectedProduct.stockUnits + selectedProduct.boxQuantity;
 
+    const updatedProduct: Product = {
+      ...selectedProduct,
+      stockBoxes: targetBoxes,
+      stockUnits: targetUnits
+    };
+
     onUpdateFullStock(selectedProduct.id, targetBoxes, targetUnits);
+    onUpdateProduct(updatedProduct);
 
     const logMsg: InventoryLog = {
       timestamp: new Date().toISOString(),
@@ -146,7 +161,7 @@ export default function ManagerInventory({
     };
 
     setInventoryLogs([logMsg, ...inventoryLogs]);
-    alert(`Conversão concluída. 1 caixa foi fracionada em +${selectedProduct.boxQuantity} unidades avulsas.`);
+    alert(`Conversão concluída e salva no banco de dados. 1 caixa foi fracionada em +${selectedProduct.boxQuantity} unidades avulsas.`);
   };
 
   const handleAddBatch = (e: React.FormEvent) => {

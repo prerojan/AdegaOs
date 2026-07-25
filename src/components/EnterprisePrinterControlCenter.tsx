@@ -2521,12 +2521,35 @@ export default function EnterprisePrinterControlCenter({ theme }: EnterprisePrin
                     <button
                       type="button"
                       onClick={async () => {
+                        if (typeof window === 'undefined' || !('Notification' in window)) {
+                          alert('Seu navegador não suporta Notificações nativas.');
+                          return;
+                        }
+
+                        let perm = Notification.permission;
+                        if (perm !== 'granted') {
+                          perm = await Notification.requestPermission();
+                          setPwaPermission(perm);
+                        }
+
+                        if (perm !== 'granted') {
+                          alert('Permissão para notificações do navegador foi negada pelo usuário.');
+                          return;
+                        }
+
+                        // Verify ServiceWorker or Browser Notification Engine status
+                        const reg = 'serviceWorker' in navigator ? await navigator.serviceWorker.getRegistration().catch(() => null) : null;
+                        const isSWActive = !!(reg && reg.active);
+
                         const sent = await pwaService.sendNotification('FluxOS Teste de Notificação', {
-                          body: 'Alerta de teste do sistema operacional.',
+                          body: `Alerta de teste do sistema [SW Status: ${isSWActive ? 'Ativo' : 'Nativo Direct'}].`,
                           tag: `test_${Date.now()}`
                         });
-                        if (!sent && pwaPermission !== 'granted') {
-                          alert('Solicite e permita as Notificações do Navegador primeiro.');
+
+                        if (sent) {
+                          alert(`Notificação PWA enviada com sucesso! (${isSWActive ? 'Via Service Worker' : 'Via API Nativa do Navegador'})`);
+                        } else {
+                          alert('Não foi possível exibir a notificação. Verifique se o modo Não Perturbe do sistema operacional está ativo.');
                         }
                       }}
                       className={`py-2.5 px-4 rounded-xl border font-bold text-xs transition-all cursor-pointer flex items-center justify-center gap-1.5 active:scale-95 ${
