@@ -252,9 +252,13 @@ class PrintService {
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) {
-          // Reset stuck processing items back to pending on restart
+          const now = Date.now();
+          // Clear or mark old/stuck items so page refresh (F5) does not auto-print old jobs
           this.queue = parsed.map((item: PrintQueueItem) => {
-            if (item.status === 'processing') item.status = 'pending';
+            if (item.status === 'processing' || (item.status === 'pending' && now - item.createdTime > 60000)) {
+              item.status = 'error';
+              item.errorMsg = item.errorMsg || 'Cancelado pela reinicialização da página';
+            }
             return item;
           });
         }

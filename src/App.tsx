@@ -364,12 +364,26 @@ export default function App() {
     } catch {}
   }, [activeProductView]);
 
-  // Global Production Auto-Print Engine (Bug 2 Fix)
+  // Global Production Auto-Print Engine
   // Ensures items destined for production are automatically printed on desktop app regardless of active view/tab
   const printedProductionKeysRef = React.useRef<Set<string>>(new Set());
+  const isInitialTableLoadRef = React.useRef<boolean>(true);
 
   useEffect(() => {
     if (!tablesComandas || tablesComandas.length === 0) return;
+
+    // Seed existing keys on initial load/F5 refresh so existing items are not re-printed on startup
+    if (isInitialTableLoadRef.current) {
+      tablesComandas.forEach(table => {
+        if (!table.items) return;
+        table.items.forEach(item => {
+          const itemKey = `prod_${table.id}_${item.productId}_${item.quantity}_${item.notes || ''}_${item.statusHistory?.[0]?.timestamp || ''}`;
+          printedProductionKeysRef.current.add(itemKey);
+        });
+      });
+      isInitialTableLoadRef.current = false;
+      return;
+    }
 
     const newlyArrivedItems: {
       tableId: string;

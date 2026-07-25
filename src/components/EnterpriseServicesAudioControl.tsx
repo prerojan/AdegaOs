@@ -197,16 +197,16 @@ export default function EnterpriseServicesAudioControl({ theme = 'dark' }: Enter
           <div>
             <div className="flex items-center gap-2">
               <h2 className={`font-black text-base tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                Serviços em Segundo Plano & Áudio Operacional
+                Serviços em Segundo Plano
               </h2>
               <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase border flex items-center gap-1 ${
                 isDark ? 'bg-[#18F2A4]/15 text-[#18F2A4] border-[#18F2A4]/30' : 'bg-emerald-100 text-emerald-800 border-emerald-300'
               }`}>
-                <Activity className="w-3 h-3" /> Worker Ativo
+                <Activity className="w-3 h-3" /> Ativo
               </span>
             </div>
             <p className={`text-xs mt-1 ${isDark ? 'text-gray-400' : 'text-slate-600'}`}>
-              Gerenciador centralizado do sintetizador Web Audio API, notificações nativas PWA, fila de impressão e barramento de eventos do FluxOS.
+              Áudio, notificações e fila de impressão.
             </p>
           </div>
         </div>
@@ -219,7 +219,7 @@ export default function EnterpriseServicesAudioControl({ theme = 'dark' }: Enter
               : (isDark ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' : 'bg-amber-100 border-amber-300 text-amber-900')
           }`}>
             <Volume2 className="w-4 h-4" />
-            <span>{soundSettings.isUnlocked ? 'Áudio Habilitado (Unlocked)' : 'Áudio Aguardando Toque'}</span>
+            <span>{soundSettings.isUnlocked ? 'Áudio Habilitado' : 'Áudio Inativo'}</span>
           </div>
 
           <div className={`px-3 py-1.5 rounded-xl border font-mono text-[11px] font-bold flex items-center gap-2 ${

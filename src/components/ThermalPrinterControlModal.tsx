@@ -7,6 +7,16 @@ interface ThermalPrinterControlModalProps {
 }
 
 export default function ThermalPrinterControlModal({ theme }: ThermalPrinterControlModalProps) {
+  const isOrderView = typeof window !== 'undefined' && (
+    (window as any).adegaos_active_view === 'order' ||
+    localStorage.getItem('adegaos_active_view') === 'order' ||
+    window.location.pathname.includes('order')
+  );
+
+  if (isOrderView) {
+    return null;
+  }
+
   const [isOpen, setIsOpen] = useState(false);
   const [printDetail, setPrintDetail] = useState<{
     text: string;

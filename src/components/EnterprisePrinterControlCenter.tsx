@@ -2204,15 +2204,15 @@ export default function EnterprisePrinterControlCenter({ theme }: EnterprisePrin
                   </div>
                   <div>
                     <h3 className="font-bold text-sm flex items-center gap-2">
-                      <span className={isDark ? 'text-white' : 'text-slate-900'}>Serviços de Segundo Plano</span>
+                      <span className={isDark ? 'text-white' : 'text-slate-900'}>Serviços em Segundo Plano</span>
                       <span className={`px-2 py-0.5 rounded text-[10px] font-mono border ${
                         isDark ? 'bg-[#18F2A4]/15 text-[#18F2A4] border-[#18F2A4]/30' : 'bg-emerald-100 text-emerald-800 border-emerald-300'
                       }`}>
-                        Serviço Ativo
+                        Ativo
                       </span>
                     </h3>
                     <p className={`text-xs mt-0.5 ${isDark ? 'text-gray-400' : 'text-slate-600'}`}>
-                      Módulo de Áudio, Fila de Impressão e Notificações do Sistema.
+                      Áudio, notificações e fila de impressão.
                     </p>
                   </div>
                 </div>
@@ -2224,7 +2224,7 @@ export default function EnterprisePrinterControlCenter({ theme }: EnterprisePrin
                       : (isDark ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' : 'bg-amber-100 border-amber-300 text-amber-900')
                   }`}>
                     <Volume2 className="w-4 h-4" />
-                    <span>{soundSettings.isUnlocked ? 'Áudio Habilitado' : 'Aguardando Interação do Usuário'}</span>
+                    <span>{soundSettings.isUnlocked ? 'Áudio Habilitado' : 'Áudio Inativo'}</span>
                   </span>
                 </div>
               </div>

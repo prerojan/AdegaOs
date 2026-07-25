@@ -843,11 +843,11 @@ export class EscPosStyleState {
   transitionTo(targetStyle?: TextStyle): Uint8Array {
     const bytes: number[] = [];
 
-    const targetAlign = targetStyle?.align || 'left';
-    if (this.align !== targetAlign) {
-      this.align = targetAlign;
-      const alignCode = targetAlign === 'center' ? 0x01 : targetAlign === 'right' ? 0x02 : 0x00;
-      bytes.push(0x1B, 0x61, alignCode);
+    // Physical ESC/POS hardware alignment is locked to ESC a 0 (Align Left)
+    // Centering and right alignment are computed by software space padding
+    if (this.align !== 'left') {
+      this.align = 'left';
+      bytes.push(0x1B, 0x61, 0x00);
     }
 
     const targetFont = targetStyle?.font || 'font_a';
@@ -912,24 +912,11 @@ export function renderMatrixToEscPosBuffer(
   // Density Command
   if (profile.density === 'ultra') chunks.push(new Uint8Array([0x1D, 0x28, 0x4B, 0x02, 0x00, 0x31, 0x02]));
 
-  // Safe Physical Dot Margin (GS L nL nH) and Print Area Width (GS W wL wH)
-  const safeMarginDots = profile.safeMarginDots || 0;
-  const nL = safeMarginDots % 256;
-  const nH = Math.floor(safeMarginDots / 256);
-
-  // Set printing area width (GS W wL wH) so ESC a alignment commands calculate center relative to printable area after left margin
-  const rightMarginDots = (profile.rightMarginCols || 0) * profile.fontWidthDots;
-  const printAreaWidthDots = Math.max(100, profile.printableWidthDots - safeMarginDots - rightMarginDots);
-  const wL = printAreaWidthDots % 256;
-  const wH = Math.floor(printAreaWidthDots / 256);
-
-  console.log(
-    `[PRINT_MARGIN_LOG] Paper: ${profile.paperSize}, safeMarginDots: ${safeMarginDots} dots (${(safeMarginDots / profile.dotsPerMm).toFixed(1)}mm), printAreaWidthDots: ${printAreaWidthDots} dots, Usable Columns: ${profile.usableColumns}, lineSpacingDots: ${profile.lineSpacingDots}, GS L: [0x1D, 0x4C, ${nL}, ${nH}], GS W: [0x1D, 0x57, ${wL}, ${wH}]`
-  );
-
-  chunks.push(new Uint8Array([0x1D, 0x4C, nL, nH, 0x1D, 0x57, wL, wH]));
+  // Hardware left margin reset to 0 (GS L 0 0) - software space margin handles physical displacement
+  chunks.push(new Uint8Array([0x1D, 0x4C, 0x00, 0x00]));
 
   const cols = engine.getUsableColumns();
+  const marginPadding = ' '.repeat(profile.leftMarginCols);
 
   for (const item of matrix) {
     if (item.type === 'blank') {
@@ -940,16 +927,14 @@ export function renderMatrixToEscPosBuffer(
       chunks.push(state.transitionTo({ align: 'left', bold: false }));
       const char = item.char || (item.double ? '=' : '-');
       const divLine = engine.renderDivider(char, item.style);
-      chunks.push(textEncoder.encode(divLine + '\n'));
+      chunks.push(textEncoder.encode(marginPadding + divLine + '\n'));
     } else if (item.type === 'text') {
       const align = item.align || 'left';
-      chunks.push(state.transitionTo({ align, ...item.style }));
+      chunks.push(state.transitionTo({ align: 'left', ...item.style }));
       const maxChars = engine.getMaxChars(item.style);
-      const modeAlign = align === 'center' || align === 'right' ? 'left' : align;
-      const wrapped = engine.fitText(item.text, maxChars, { mode: 'wrap', align: modeAlign, style: item.style });
+      const wrapped = engine.fitText(item.text, maxChars, { mode: 'wrap', align, style: item.style });
       wrapped.forEach(w => {
-        const lineStr = align === 'center' || align === 'right' ? w.trim() : w;
-        chunks.push(textEncoder.encode(lineStr + '\n'));
+        chunks.push(textEncoder.encode(marginPadding + w + '\n'));
       });
       if (item.style?.bold || item.style?.doubleHeight || item.style?.doubleWidth) {
         chunks.push(state.transitionTo({ bold: false, doubleHeight: false, doubleWidth: false }));
@@ -959,7 +944,7 @@ export function renderMatrixToEscPosBuffer(
       chunks.push(state.transitionTo({ align: 'left', bold: isBold, ...item.style }));
       const formatted = engine.renderFlexRow(item.leftText, item.rightText, item.style);
       formatted.forEach(f => {
-        chunks.push(textEncoder.encode(f + '\n'));
+        chunks.push(textEncoder.encode(marginPadding + f + '\n'));
       });
       if (isBold) {
         chunks.push(state.transitionTo({ bold: false }));
@@ -969,7 +954,7 @@ export function renderMatrixToEscPosBuffer(
       chunks.push(state.transitionTo({ align: 'left', bold: isBold, ...item.style }));
       const formatted = engine.renderRow(item.cols, item.style);
       formatted.forEach(f => {
-        chunks.push(textEncoder.encode(f + '\n'));
+        chunks.push(textEncoder.encode(marginPadding + f + '\n'));
       });
       if (isBold) {
         chunks.push(state.transitionTo({ bold: false }));
@@ -997,6 +982,43 @@ export function renderMatrixToEscPosBuffer(
   }
 
   return finalBuffer;
+}
+
+/**
+ * Generates an isolated raw ESC/POS test buffer to test if physical printer firmware obeys GS L / GS W.
+ * Sequence: ESC @ (Init) + GS P 203 203 (Set motion unit 1/203 inch) + GS L marginDots + GS W printArea + Text + Cut
+ */
+export function generateRawIsolationTestBuffer(marginMm: number = 10, paperSize: '58mm' | '80mm' = '58mm'): Uint8Array {
+  const dotsPerMm = 8;
+  const marginDots = Math.round(marginMm * dotsPerMm); // 10mm = 80 dots
+  const printableWidthDots = paperSize === '80mm' ? 576 : 384;
+  const printAreaWidthDots = Math.max(100, printableWidthDots - marginDots);
+
+  const nL = marginDots % 256;
+  const nH = Math.floor(marginDots / 256);
+  const wL = printAreaWidthDots % 256;
+  const wH = Math.floor(printAreaWidthDots / 256);
+
+  const testHeader = `=== TESTE ISOLADO MARGEM ===\n`;
+  const testBody = `Margem configurada: ${marginMm}mm (${marginDots} dots)\nESC @ -> GS P [203,203]\nGS L [${nL},${nH}] -> GS W [${wL},${wH}]\n--------------------------------\nTexto alinhado a esquerda para testar deslocamento fisico.\n--------------------------------\n`;
+
+  const bytes: number[] = [
+    0x1B, 0x40,             // ESC @ (Initialize)
+    0x1D, 0x50, 0xCB, 0xCB, // GS P 203 203 (Set motion unit to 1 dot = 1/203 inch)
+    0x1D, 0x4C, nL, nH,     // GS L (Set left margin)
+    0x1D, 0x57, wL, wH,     // GS W (Set printable area width)
+    0x1B, 0x61, 0x00        // ESC a 0 (Align Left)
+  ];
+
+  const enc = new TextEncoder();
+  const textBytes = enc.encode(testHeader + testBody);
+  textBytes.forEach(b => bytes.push(b));
+
+  // Paper Feed & Cut
+  bytes.push(0x1B, 0x64, 0x06, 0x0A, 0x0A, 0x0A);
+  bytes.push(0x1D, 0x56, 0x42, 0x00);
+
+  return new Uint8Array(bytes);
 }
 
 // -----------------------------------------------------------------------------
@@ -1175,6 +1197,20 @@ export function bufferToHexPreview(buffer: Uint8Array, maxBytes: number = 32): s
 // -----------------------------------------------------------------------------
 
 export function printViaSystemBrowser(receiptTextOrHtml: string, paperSize: string = '58mm', customHtml?: string): Promise<boolean> {
+  const isOrderTerminal = typeof window !== 'undefined' && (
+    window.location.pathname.includes('order') || 
+    window.location.pathname.includes('mobile') || 
+    (window as any).adegaos_active_sector === 'order' ||
+    localStorage.getItem('adegaos_active_sector') === 'order' ||
+    (window as any).adegaos_active_view === 'order' ||
+    localStorage.getItem('adegaos_active_view') === 'order'
+  );
+
+  if (isOrderTerminal) {
+    console.log('[Printer Engine] System browser print dialog suppressed on Order terminal.');
+    return Promise.resolve(true);
+  }
+
   return new Promise((resolve) => {
     const profile = getPhysicalPrinterProfile(paperSize);
     const widthCss = `${profile.printableWidthMm}mm`;
