@@ -167,10 +167,9 @@ export function getPhysicalPrinterProfile(
 
   const leftMarginCols = Math.round(safeMarginDots / fontWidthDots);
 
-  // Column capacity dynamically reduces available columns based on safe physical dot margin and right margin
+  // Apply margin strictly via hardware (GS L / GS W), without reducing usableColumns by safeMarginDots in software to prevent double margin shift/cut.
   const rightMarginDots = rightMarginCols * fontWidthDots;
-  const totalOccupiedMarginDots = safeMarginDots + rightMarginDots;
-  const usableColumns = Math.max(8, Math.floor((printableWidthDots - totalOccupiedMarginDots) / fontWidthDots));
+  const usableColumns = Math.max(8, Math.floor((printableWidthDots - rightMarginDots) / fontWidthDots));
 
   return {
     paperSize: paperSize as '58mm' | '80mm',
@@ -505,10 +504,43 @@ export function buildDocumentMatrix(
 
   const matrix: MatrixLine[] = [];
 
-  // Diagnostic Mode
+  // Diagnostic Mode - Full Document Layout Test
   if (type === 'diagnostic') {
-    const diagReport = engine.generateDiagnosticReport(data.model);
+    // 1. Store Header
+    matrix.push({ type: 'text', text: storeName, align: 'center', style: { bold: true, doubleHeight: true } });
+    if (cnpj) matrix.push({ type: 'text', text: `CNPJ: ${cnpj}`, align: 'center' });
+    if (headerText) {
+      headerText.split('\n').forEach((h: string) => {
+        if (h.trim()) matrix.push({ type: 'text', text: h.trim(), align: 'center' });
+      });
+    }
+    matrix.push({ type: 'divider' });
+
+    // 2. Diagnostic Technical Metrics & Ruler
+    const diagReport = engine.generateDiagnosticReport(data?.model);
     diagReport.matrixLines.forEach(l => matrix.push(l));
+
+    // 3. Custom Logo Text if configured
+    if (customLogoText) {
+      matrix.push({ type: 'divider' });
+      matrix.push({ type: 'text', text: customLogoText, align: 'center', style: { bold: true } });
+    }
+
+    // 4. Configured QR Code / Pix
+    if (customQrCodeText) {
+      matrix.push({ type: 'divider' });
+      matrix.push({ type: 'text', text: 'QR CODE / CHAVE PIX CONFIGURADA:', align: 'center', style: { bold: true } });
+      matrix.push({ type: 'qrcode', text: customQrCodeText, style: { align: 'center' } });
+    }
+
+    // 5. Store Footer Text
+    if (footerText) {
+      matrix.push({ type: 'divider' });
+      footerText.split('\n').forEach((f: string) => {
+        if (f.trim()) matrix.push({ type: 'text', text: f.trim(), align: 'center' });
+      });
+    }
+
     if (profile.cashDrawer) matrix.push({ type: 'drawer' });
     if (profile.autoCut) matrix.push({ type: 'cut' });
     matrix.push({ type: 'blank', count: 2 });
@@ -857,18 +889,21 @@ export function renderMatrixToEscPosBuffer(
   // Density Command
   if (profile.density === 'ultra') chunks.push(new Uint8Array([0x1D, 0x28, 0x4B, 0x02, 0x00, 0x31, 0x02]));
 
-  // Safe Physical Dot Margin (GS L nL nH)
+  // Safe Physical Dot Margin (GS L nL nH) and Print Area Width (GS W wL wH)
   const safeMarginDots = profile.safeMarginDots || 0;
   const nL = safeMarginDots % 256;
   const nH = Math.floor(safeMarginDots / 256);
 
+  // Set printing area width (GS W wL wH) so ESC a alignment commands calculate center relative to printable area after left margin
+  const printAreaWidthDots = Math.max(100, profile.printableWidthDots - safeMarginDots);
+  const wL = printAreaWidthDots % 256;
+  const wH = Math.floor(printAreaWidthDots / 256);
+
   console.log(
-    `[PRINT_MARGIN_LOG] Paper: ${profile.paperSize}, safeMarginDots: ${safeMarginDots} dots (${(safeMarginDots / profile.dotsPerMm).toFixed(1)}mm), Usable Columns: ${profile.usableColumns}, lineSpacingDots: ${profile.lineSpacingDots}, GS L Bytes: [0x1D, 0x4C, 0x${nL.toString(16).padStart(2, '0').toUpperCase()}, 0x${nH.toString(16).padStart(2, '0').toUpperCase()}]`
+    `[PRINT_MARGIN_LOG] Paper: ${profile.paperSize}, safeMarginDots: ${safeMarginDots} dots (${(safeMarginDots / profile.dotsPerMm).toFixed(1)}mm), printAreaWidthDots: ${printAreaWidthDots} dots, Usable Columns: ${profile.usableColumns}, lineSpacingDots: ${profile.lineSpacingDots}, GS L: [0x1D, 0x4C, ${nL}, ${nH}], GS W: [0x1D, 0x57, ${wL}, ${wH}]`
   );
 
-  if (safeMarginDots > 0) {
-    chunks.push(new Uint8Array([0x1D, 0x4C, nL, nH]));
-  }
+  chunks.push(new Uint8Array([0x1D, 0x4C, nL, nH, 0x1D, 0x57, wL, wH]));
 
   const cols = engine.getUsableColumns();
 
@@ -951,8 +986,23 @@ export function generateReceiptHtmlFromMatrix(
   customLayoutSettings?: any
 ): string {
   const widthCss = `${profile.printableWidthMm}mm`;
-  const fontSizeCss = profile.paperSize === '80mm' ? '12px' : '10px';
   const globalBold = customLayoutSettings?.bold === true;
+
+  const safeMarginMm = ((profile.safeMarginDots || 0) / profile.dotsPerMm).toFixed(2);
+  const lineSpacingDots = profile.lineSpacingDots || 38;
+  const fontHeightDots = profile.fontHeightDots || 24;
+  const lineHeightCss = (lineSpacingDots / fontHeightDots).toFixed(2);
+
+  let fontFamilyCss = "'Courier New', 'Consolas', 'Liberation Mono', monospace";
+  let fontSizeCss = profile.paperSize === '80mm' ? '12px' : '10px';
+
+  if (profile.fontFamily === 'font_b') {
+    fontFamilyCss = "'Consolas', 'Courier New', monospace";
+    fontSizeCss = profile.paperSize === '80mm' ? '10px' : '8.5px';
+  } else if (profile.fontFamily === 'font_c') {
+    fontFamilyCss = "'Liberation Mono', 'Consolas', 'Courier New', monospace";
+    fontSizeCss = profile.paperSize === '80mm' ? '9px' : '7.5px';
+  }
 
   let bodyHtml = '';
 
@@ -1015,11 +1065,11 @@ export function generateReceiptHtmlFromMatrix(
             width: ${widthCss};
             max-width: ${widthCss};
             margin: 0 auto;
-            padding: 0 1mm 4mm ${(1 + Math.round((profile.safeMarginDots || 0) / profile.dotsPerMm))}mm;
-            font-family: 'Courier New', 'Consolas', 'Liberation Mono', monospace;
+            padding: 0 0mm 4mm ${safeMarginMm}mm;
+            font-family: ${fontFamilyCss};
             font-size: ${fontSizeCss};
             font-weight: ${globalBold ? '900' : '700'};
-            line-height: 1.25;
+            line-height: ${lineHeightCss};
             white-space: normal;
             word-break: break-word;
             overflow-wrap: break-word;
@@ -1054,7 +1104,7 @@ export function generateEscPosBuffer(
   receiptTextOrMatrix: any,
   options?: any
 ): Uint8Array {
-  const profile = getPhysicalPrinterProfile(options?.paperSize, options);
+  const profile = getPhysicalPrinterProfile(options?.paperSize, options?.hardware, options?.layout, options?.printerId || options?.sector);
   let matrix: MatrixLine[];
   
   if (Array.isArray(receiptTextOrMatrix)) {
@@ -1102,6 +1152,21 @@ export function printViaSystemBrowser(receiptTextOrHtml: string, paperSize: stri
   return new Promise((resolve) => {
     const profile = getPhysicalPrinterProfile(paperSize);
     const widthCss = `${profile.printableWidthMm}mm`;
+    const safeMarginMm = ((profile.safeMarginDots || 0) / profile.dotsPerMm).toFixed(2);
+    const lineSpacingDots = profile.lineSpacingDots || 38;
+    const fontHeightDots = profile.fontHeightDots || 24;
+    const lineHeightCss = (lineSpacingDots / fontHeightDots).toFixed(2);
+
+    let fontFamilyCss = "'Courier New', 'Consolas', 'Liberation Mono', monospace";
+    let fontSizeCss = paperSize === '80mm' ? '12px' : '10px';
+
+    if (profile.fontFamily === 'font_b') {
+      fontFamilyCss = "'Consolas', 'Courier New', monospace";
+      fontSizeCss = paperSize === '80mm' ? '10px' : '8.5px';
+    } else if (profile.fontFamily === 'font_c') {
+      fontFamilyCss = "'Liberation Mono', 'Consolas', 'Courier New', monospace";
+      fontSizeCss = paperSize === '80mm' ? '9px' : '7.5px';
+    }
 
     let printIframe = document.getElementById('adegaos-print-iframe') as HTMLIFrameElement;
     if (!printIframe) {
@@ -1133,13 +1198,13 @@ export function printViaSystemBrowser(receiptTextOrHtml: string, paperSize: stri
             }
             body {
               margin: 0;
-              padding: 0 1mm 4mm 1mm;
+              padding: 0 0mm 4mm ${safeMarginMm}mm;
               width: ${widthCss};
               max-width: ${widthCss};
-              font-family: 'Courier New', 'Consolas', monospace;
-              font-size: ${paperSize === '80mm' ? '12px' : '10px'};
+              font-family: ${fontFamilyCss};
+              font-size: ${fontSizeCss};
               font-weight: 700;
-              line-height: 1.25;
+              line-height: ${lineHeightCss};
               color: #000000;
               white-space: pre-wrap;
               word-break: break-word;
@@ -1263,6 +1328,24 @@ export function clearSpoolQueue() {
 
 export function getSavedPrinters(): PrinterDevice[] {
   try {
+    const rawEnterprise = localStorage.getItem('adegaos_enterprise_printer_configs_v2');
+    if (rawEnterprise) {
+      const parsed = JSON.parse(rawEnterprise);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.map((e: any) => ({
+          id: e.id || `prn_${Math.random()}`,
+          name: e.name || 'Impressora',
+          sector: e.sector || 'caixa',
+          method: e.connection?.method || e.connection?.type || 'system',
+          connectionIp: e.connection?.connectionIp,
+          paperSize: e.hardware?.paperSize || '58mm',
+          enabled: e.enabled !== false,
+          autoCut: e.hardware?.autoCut !== false,
+          copies: e.connection?.copies || 1
+        }));
+      }
+    }
+
     const raw = localStorage.getItem('adegaos_printers_list');
     if (raw) return JSON.parse(raw);
   } catch (e) {}
@@ -1271,6 +1354,47 @@ export function getSavedPrinters(): PrinterDevice[] {
 
 export function savePrinters(printers: PrinterDevice[]) {
   localStorage.setItem('adegaos_printers_list', JSON.stringify(printers));
+
+  try {
+    let enterpriseConfigs: any[] = [];
+    const raw = localStorage.getItem('adegaos_enterprise_printer_configs_v2');
+    if (raw) {
+      enterpriseConfigs = JSON.parse(raw);
+    }
+    if (!Array.isArray(enterpriseConfigs)) {
+      enterpriseConfigs = [];
+    }
+
+    const updatedEnterprise = printers.map(p => {
+      const existing = enterpriseConfigs.find((e: any) => e.id === p.id) || {};
+      return {
+        ...existing,
+        id: p.id,
+        name: p.name,
+        sector: p.sector,
+        enabled: p.enabled !== false,
+        connection: {
+          ...(existing.connection || {}),
+          method: p.method,
+          type: p.method,
+          connectionIp: p.connectionIp,
+          copies: p.copies || 1
+        },
+        hardware: {
+          ...(existing.hardware || {}),
+          paperSize: p.paperSize,
+          autoCut: p.autoCut !== false
+        },
+        layout: existing.layout || { safeMarginDots: 0, lineSpacing: 38, fontFamily: 'font_a' },
+        document: existing.document || {},
+        rules: existing.rules || { triggerOnSale: true, triggerOnOrder: true }
+      };
+    });
+
+    localStorage.setItem('adegaos_enterprise_printer_configs_v2', JSON.stringify(updatedEnterprise));
+  } catch (e) {
+    console.warn('Error syncing printers to enterprise configs:', e);
+  }
 }
 
 export const DEFAULT_PRINTERS: PrinterDevice[] = [
@@ -1373,13 +1497,33 @@ export async function triggerThermalPrint(
         res = await connectAndPrintWebSerial(escPosBuffer, enterpriseConfig?.connection?.baudRate);
       } else if (effectiveMethod === 'virtual') {
         window.dispatchEvent(new CustomEvent('adegaos_thermal_print_requested', {
-          detail: { text: receiptText, payload: typeOrPayload, escPosBuffer, mode: 'virtual' }
+          detail: {
+            text: receiptText,
+            payload: typeOrPayload,
+            escPosBuffer,
+            receiptHtml,
+            mode: 'virtual',
+            printerId: printer.id,
+            sector: printer.sector,
+            paperSize: printer.paperSize,
+            profile
+          }
         }));
         res = { success: true, durationMs: Math.round(performance.now() - start) };
       } else {
         // Dispatch to central virtual spooler regardless of terminal so central cashier/server can print
         window.dispatchEvent(new CustomEvent('adegaos_thermal_print_requested', {
-          detail: { text: receiptText, payload: typeOrPayload, escPosBuffer, mode: 'system' }
+          detail: {
+            text: receiptText,
+            payload: typeOrPayload,
+            escPosBuffer,
+            receiptHtml,
+            mode: 'system',
+            printerId: printer.id,
+            sector: printer.sector,
+            paperSize: printer.paperSize,
+            profile
+          }
         }));
 
         if (isOrderTerminal) {

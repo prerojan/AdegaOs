@@ -8,7 +8,14 @@ interface ThermalPrinterControlModalProps {
 
 export default function ThermalPrinterControlModal({ theme }: ThermalPrinterControlModalProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [receiptText, setReceiptText] = useState<string>('');
+  const [printDetail, setPrintDetail] = useState<{
+    text: string;
+    receiptHtml?: string;
+    escPosBuffer?: Uint8Array;
+    sector?: string;
+    printerId?: string;
+    paperSize?: '58mm' | '80mm';
+  } | null>(null);
   const [copied, setCopied] = useState(false);
   const [isPrinting, setIsPrinting] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -17,7 +24,38 @@ export default function ThermalPrinterControlModal({ theme }: ThermalPrinterCont
     const handleRequestedPrint = (e: Event) => {
       const customEvent = e as CustomEvent<any>;
       if (customEvent.detail && customEvent.detail.text) {
-        setReceiptText(customEvent.detail.text);
+        const detail = customEvent.detail;
+        
+        let resolvedPaperSize: '58mm' | '80mm' = detail.paperSize || '58mm';
+        let resolvedSector = detail.sector || 'caixa';
+        let resolvedPrinterId = detail.printerId;
+
+        try {
+          const rawEnterprise = localStorage.getItem('adegaos_enterprise_printer_configs_v2');
+          if (rawEnterprise) {
+            const parsed = JSON.parse(rawEnterprise);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              const matched = parsed.find((p: any) => p.id === detail.printerId) ||
+                              parsed.find((p: any) => p.sector?.toLowerCase() === detail.sector?.toLowerCase()) ||
+                              parsed[0];
+              if (matched) {
+                resolvedPaperSize = matched.hardware?.paperSize || resolvedPaperSize;
+                resolvedSector = matched.sector || resolvedSector;
+                resolvedPrinterId = matched.id || resolvedPrinterId;
+              }
+            }
+          }
+        } catch (err) {}
+
+        setPrintDetail({
+          text: detail.text,
+          receiptHtml: detail.receiptHtml,
+          escPosBuffer: detail.escPosBuffer,
+          sector: resolvedSector,
+          printerId: resolvedPrinterId,
+          paperSize: resolvedPaperSize
+        });
+
         const mode = localStorage.getItem('adegaos_printer_mode') || 'system';
         if (mode === 'virtual') {
           setIsOpen(true);
@@ -31,14 +69,16 @@ export default function ThermalPrinterControlModal({ theme }: ThermalPrinterCont
     };
   }, []);
 
-  if (!isOpen || !receiptText) return null;
+  if (!isOpen || !printDetail) return null;
 
-  const paperSize = (localStorage.getItem('adegaos_paper_size') as '58mm' | '80mm') || '58mm';
+  const effectivePaperSize = printDetail.paperSize || '58mm';
+  const effectiveSector = (printDetail.sector || 'caixa').toUpperCase();
 
   const handleSystemPrint = () => {
+    if (!printDetail) return;
     setIsPrinting(true);
-    setStatusMessage('Enviando para a Impressora Padrão do Windows...');
-    printViaSystemBrowser(receiptText, paperSize);
+    setStatusMessage(`Enviando para Impressora [${effectiveSector}] (${effectivePaperSize})...`);
+    printViaSystemBrowser(printDetail.text, effectivePaperSize, printDetail.receiptHtml);
     setTimeout(() => {
       setIsPrinting(false);
       setStatusMessage('Trabalho enviado para o Spooler!');
@@ -46,9 +86,10 @@ export default function ThermalPrinterControlModal({ theme }: ThermalPrinterCont
   };
 
   const handleWebUsbPrint = async () => {
+    if (!printDetail) return;
     setIsPrinting(true);
-    setStatusMessage('Procurando impressora USB...');
-    const buffer = generateEscPosBuffer(receiptText);
+    setStatusMessage(`Procurando impressora USB [${effectiveSector}]...`);
+    const buffer = printDetail.escPosBuffer || generateEscPosBuffer(printDetail.text, { paperSize: effectivePaperSize, printerId: printDetail.printerId, sector: printDetail.sector });
     const success = await connectAndPrintWebUSB(buffer);
     setIsPrinting(false);
     if (success) {
@@ -59,17 +100,19 @@ export default function ThermalPrinterControlModal({ theme }: ThermalPrinterCont
   };
 
   const handleCopyText = () => {
-    navigator.clipboard.writeText(receiptText);
+    if (!printDetail) return;
+    navigator.clipboard.writeText(printDetail.text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
   const handleDownloadTxt = () => {
-    const blob = new Blob([receiptText], { type: 'text/plain;charset=utf-8' });
+    if (!printDetail) return;
+    const blob = new Blob([printDetail.text], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `cupom_fluxos_${Date.now()}.txt`;
+    a.download = `cupom_${printDetail.sector}_${Date.now()}.txt`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -86,8 +129,13 @@ export default function ThermalPrinterControlModal({ theme }: ThermalPrinterCont
               <Printer className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-sm font-black tracking-tight">Central de Impressão Térmica</h3>
-              <p className="text-[11px] text-gray-400">Cupom gerado em tempo real pelo FluxOS</p>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-black tracking-tight">Central de Impressão Térmica</h3>
+                <span className="px-2 py-0.5 text-[10px] font-extrabold rounded-md bg-[#18F2A4]/20 text-[#18F2A4] uppercase">
+                  SETOR: {effectiveSector}
+                </span>
+              </div>
+              <p className="text-[11px] text-gray-400">Papel Configurado: {effectivePaperSize}</p>
             </div>
           </div>
 
@@ -113,13 +161,13 @@ export default function ThermalPrinterControlModal({ theme }: ThermalPrinterCont
           {/* Receipt Roll Simulation */}
           <div className="flex flex-col items-center">
             <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-1">
-              Visualização da Bobina ({paperSize})
+              Visualização da Bobina ({effectivePaperSize} - {effectiveSector})
             </span>
             <div className={`p-4 rounded-xl border font-mono text-xs leading-relaxed text-black bg-[#FFFEE0] shadow-inner select-all overflow-x-auto w-full max-w-[320px] ${
-              paperSize === '80mm' ? 'max-w-[380px]' : 'max-w-[290px]'
+              effectivePaperSize === '80mm' ? 'max-w-[380px]' : 'max-w-[290px]'
             }`}>
               <pre className="whitespace-pre-wrap word-break-all font-mono text-[11px]">
-                {receiptText}
+                {printDetail.text}
               </pre>
             </div>
           </div>

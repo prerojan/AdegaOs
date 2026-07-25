@@ -125,9 +125,9 @@ class NotificationService {
     // Sector Check: If target is specific (e.g., 'producao' or 'order') and current sector doesn't match, block notification
     const isTargetSectorMatched = (target === 'all' || current === 'all' || current === target || current === 'gerente');
 
-    // A. Sound Chime
+    // A. Sound Chime (respecting adegaos_sector_sound_routing)
     if (params.sound && isTargetSectorMatched) {
-      audioManager.play(params.sound);
+      audioManager.play(params.sound, undefined, target);
     }
 
     // B. Physical Haptic Vibration
@@ -171,12 +171,13 @@ class NotificationService {
 
       // Generate stable tag derived from title/content to allow browser native deduplication
       const stableTag = `flux_tag_${params.title.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+      const notifCategory: 'order' | 'error' | 'general' = params.toastType === 'error' || params.sound === 'print_error' ? 'error' : (params.sound === 'order_created' || params.sound === 'order_ready' ? 'order' : 'general');
 
       pwaService.sendNotification(params.title, {
         body: params.message,
         tag: stableTag,
         vibrate: params.sound === 'order_created' ? [300, 150, 300, 150, 300] : [200, 100, 200]
-      });
+      }, notifCategory);
     } else {
       console.log(`[NotificationService] Suppressed notification for sector '${current}' (Target: '${target}')`);
     }

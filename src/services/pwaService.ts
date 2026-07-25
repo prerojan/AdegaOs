@@ -59,8 +59,25 @@ class PwaService {
     return Notification.permission;
   }
 
-  public async sendNotification(title: string, options: NotificationOptions): Promise<boolean> {
+  public async sendNotification(title: string, options: NotificationOptions, category: 'order' | 'error' | 'general' = 'general'): Promise<boolean> {
     if (typeof window === 'undefined' || !('Notification' in window)) return false;
+
+    // Check PWA Notification Activation Flags from Configurações
+    const notifyOrders = localStorage.getItem('adegaos_pwa_notify_orders') !== 'false';
+    const notifyErrors = localStorage.getItem('adegaos_pwa_notify_errors') !== 'false';
+
+    const lowerTitle = title.toLowerCase();
+    const isError = category === 'error' || lowerTitle.includes('erro') || lowerTitle.includes('falha') || lowerTitle.includes('impressora');
+    const isOrder = category === 'order' || lowerTitle.includes('pedido') || lowerTitle.includes('venda') || lowerTitle.includes('caixa');
+
+    if (isError && !notifyErrors) {
+      console.log(`[PWA Service] Suppressed error notification "${title}": disabled in adegaos_pwa_notify_errors`);
+      return false;
+    }
+    if (isOrder && !notifyOrders) {
+      console.log(`[PWA Service] Suppressed order notification "${title}": disabled in adegaos_pwa_notify_orders`);
+      return false;
+    }
 
     // Deduplicate identical title+body requests within 5000ms
     const key = `${title}_${options.body}`;

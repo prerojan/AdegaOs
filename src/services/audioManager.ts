@@ -95,8 +95,24 @@ class AudioManager {
     return this.audioCtx!;
   }
 
-  public play(sound: SoundType, customVolume?: number): void {
+  public play(sound: SoundType, customVolume?: number, targetSector?: string): void {
     if (!this.enabled) return;
+
+    // Check Sector Sound Routing from Configurações
+    if (targetSector && targetSector !== 'all') {
+      try {
+        const rawRouting = localStorage.getItem('adegaos_sector_sound_routing');
+        if (rawRouting) {
+          const routing = JSON.parse(rawRouting);
+          const key = targetSector.toLowerCase().trim();
+          const mappedKey = key === 'cozinha' ? 'producao' : key;
+          if (routing[mappedKey] === false) {
+            console.log(`[AudioManager] Sound muted for sector '${targetSector}' via adegaos_sector_sound_routing`);
+            return;
+          }
+        }
+      } catch (e) {}
+    }
 
     try {
       const ctx = this.initAudioContext();
