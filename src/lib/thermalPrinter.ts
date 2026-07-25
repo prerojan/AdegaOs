@@ -1341,10 +1341,22 @@ export async function triggerThermalPrint(
 
       totalBytes += escPosBuffer.length;
 
+      console.log(
+        `[THERMAL_PRINT_DISPATCH] Dispatching job. Type: '${typeOrPayload?.type || typeOrPayload}', Printer ID: '${printer.id}', Name: '${printer.name}', safeMarginDots: ${profile.safeMarginDots} dots (~${(profile.safeMarginDots / profile.dotsPerMm).toFixed(1)}mm), usableColumns: ${profile.usableColumns}, bytes: ${escPosBuffer.length}`
+      );
+
       localStorage.setItem('adegaos_last_receipt', receiptText);
       window.dispatchEvent(new CustomEvent('adegaos_new_print', { detail: receiptText }));
 
       let res: { success: boolean; durationMs: number; errorMsg?: string } = { success: false, durationMs: 0 };
+
+      // Determine effective connection method from enterprise config or legacy printer method
+      const connType = enterpriseConfig?.connection?.type;
+      let effectiveMethod = printer.method;
+      if (connType === 'usb') effectiveMethod = 'webusb';
+      else if (connType === 'serial') effectiveMethod = 'webserial';
+      else if (connType === 'network') effectiveMethod = 'network';
+      else if (connType === 'system') effectiveMethod = 'system';
 
       // Check if current sector or view is mobile/order terminal
       const isOrderTerminal = typeof window !== 'undefined' && (
@@ -1355,11 +1367,11 @@ export async function triggerThermalPrint(
         (window as any).adegaos_active_view === 'order'
       );
 
-      if (printer.method === 'webusb') {
+      if (effectiveMethod === 'webusb') {
         res = await connectAndPrintWebUSB(escPosBuffer, true);
-      } else if (printer.method === 'webserial') {
-        res = await connectAndPrintWebSerial(escPosBuffer);
-      } else if (printer.method === 'virtual') {
+      } else if (effectiveMethod === 'webserial') {
+        res = await connectAndPrintWebSerial(escPosBuffer, enterpriseConfig?.connection?.baudRate);
+      } else if (effectiveMethod === 'virtual') {
         window.dispatchEvent(new CustomEvent('adegaos_thermal_print_requested', {
           detail: { text: receiptText, payload: typeOrPayload, escPosBuffer, mode: 'virtual' }
         }));

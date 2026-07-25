@@ -38,6 +38,7 @@ import {
   Zap
 } from 'lucide-react';
 import { printService, PrintQueueItem } from '../services/printService';
+import { EnterpriseCustomSlider } from './EnterpriseCustomSlider';
 import { audioManager, SoundType } from '../services/audioManager';
 import { pwaService } from '../services/pwaService';
 import { eventBus } from '../services/eventBus';
@@ -611,100 +612,25 @@ export default function EnterprisePrinterControlCenter({ theme }: EnterprisePrin
     setIsTestPrinting(true);
     setTestResult(null);
 
-    const testData = {
-      number: '9901-TESTE',
-      date: new Date().toLocaleDateString('pt-BR'),
-      time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-      identifier: `DIAGNOSTICO [${currentConfig.name}]`,
-      cashierId: 'GERENCIA_ERP',
-      subtotal: 150.00,
-      discount: 10.00,
-      total: 140.00,
-      paymentMethod: 'pix',
-      items: [
-        { qty: 1, name: 'TESTE ESC/POS REAL DISPATCH', unitPrice: 100.00 },
-        { qty: 2, name: 'BOBINA TÉRMICA PADRÃO ERP', unitPrice: 25.00 }
-      ]
-    };
+    const safeMarginDots = currentConfig.layout.safeMarginDots !== undefined
+      ? currentConfig.layout.safeMarginDots
+      : ((currentConfig.layout.leftMarginOffset || 0) * 12);
 
-    const startTime = performance.now();
+    console.log(
+      `[DIAGNOSTIC_TEST_MARGIN] Triggering Diagnostic Test Print. Target Printer ID: '${currentConfig.id}', Configured safeMarginDots: ${safeMarginDots} dots (~${(safeMarginDots / 8).toFixed(1)}mm)`
+    );
 
     try {
-      const profile = getPhysicalPrinterProfile(currentConfig.hardware.paperSize, currentConfig.hardware, currentConfig.layout);
-      const matrix = buildDocumentMatrix('diagnostic', { model: currentConfig.hardware.model }, profile, currentConfig.document);
+      // Ensure configs are synchronized in localStorage before dispatching
+      localStorage.setItem('adegaos_enterprise_printer_configs_v2', JSON.stringify(configs));
 
-      const receiptText = renderMatrixToText(matrix, profile);
-      const escPosBuffer = renderMatrixToEscPosBuffer(matrix, profile, currentConfig.layout);
-      const testHtml = generateReceiptHtmlFromMatrix(matrix, profile, currentConfig.document, currentConfig.layout);
+      const res = await triggerThermalPrint(
+        'diagnostic',
+        { model: currentConfig.hardware.model, printerName: currentConfig.name },
+        currentConfig.id
+      );
 
-      let res: { success: boolean; durationMs: number; bytesCount: number; errorMsg?: string } = {
-        success: false,
-        durationMs: 0,
-        bytesCount: escPosBuffer.length
-      };
-
-      const connType = currentConfig.connection.type;
-      const driver = currentConfig.hardware.driver;
-
-      if (connType === 'usb' || driver === 'webusb') {
-        if (!('usb' in navigator)) {
-          res = {
-            success: false,
-            durationMs: Math.round(performance.now() - startTime),
-            bytesCount: escPosBuffer.length,
-            errorMsg: 'ERR_WEBUSB_NOT_SUPPORTED: O navegador não possui suporte à API WebUSB.'
-          };
-        } else {
-          const usbRes = await connectAndPrintWebUSB(escPosBuffer, false);
-          res = {
-            success: usbRes.success,
-            durationMs: usbRes.durationMs,
-            bytesCount: escPosBuffer.length,
-            errorMsg: usbRes.errorMsg || (usbRes.success ? undefined : 'ERR_WEBUSB_NO_DEVICE: Nenhum dispositivo WebUSB conectado. Solicite o dispositivo na aba Conexão.')
-          };
-        }
-      } else if (connType === 'serial' || driver === 'serial_com') {
-        if (!('serial' in navigator)) {
-          res = {
-            success: false,
-            durationMs: Math.round(performance.now() - startTime),
-            bytesCount: escPosBuffer.length,
-            errorMsg: 'ERR_WEBSERIAL_NOT_SUPPORTED: O navegador não possui suporte à API WebSerial.'
-          };
-        } else {
-          const serialRes = await connectAndPrintWebSerial(escPosBuffer, currentConfig.connection.baudRate);
-          res = {
-            success: serialRes.success,
-            durationMs: serialRes.durationMs,
-            bytesCount: escPosBuffer.length,
-            errorMsg: serialRes.errorMsg || (serialRes.success ? undefined : 'ERR_WEBSERIAL_NO_PORT: Porta Serial COM não autorizada pelo usuário.')
-          };
-        }
-      } else if (connType === 'network' || driver === 'raw_tcp') {
-        res = {
-          success: false,
-          durationMs: Math.round(performance.now() - startTime),
-          bytesCount: escPosBuffer.length,
-          errorMsg: `ERR_TCP_PROXY: Envio direto TCP (${currentConfig.connection.ip}:${currentConfig.connection.tcpPort}) requer o Agente Local de Spooler do AdegaOS na máquina cliente.`
-        };
-      } else if (connType === 'bluetooth') {
-        res = {
-          success: false,
-          durationMs: Math.round(performance.now() - startTime),
-          bytesCount: escPosBuffer.length,
-          errorMsg: `ERR_BLUETOOTH_DISCONNECTED: Dispositivo Bluetooth ${currentConfig.connection.btDeviceName || 'POS'} não pareado.`
-        };
-      } else {
-        // System Spooler
-        const { printViaSystemBrowser } = await import('../lib/thermalPrinter');
-        const ok = await printViaSystemBrowser(receiptText, currentConfig.hardware.paperSize, testHtml);
-        res = {
-          success: ok,
-          durationMs: Math.round(performance.now() - startTime),
-          bytesCount: escPosBuffer.length,
-          errorMsg: ok ? undefined : 'ERR_SYSTEM_SPOOLER: Falha ao abrir o Gerenciador de Impressão do Sistema Operacional.'
-        };
-      }
+      console.log(`[DIAGNOSTIC_TEST_RESULT] Diagnostic Print finished: success=${res.success}, bytes=${res.bytesCount}, duration=${res.durationMs}ms, error=${res.errorMsg || 'none'}`);
 
       setTestResult(res);
 
@@ -722,12 +648,12 @@ export default function EnterprisePrinterControlCenter({ theme }: EnterprisePrin
         printerId: currentConfig.id,
         printerName: currentConfig.name,
         timestamp: new Date().toLocaleTimeString('pt-BR'),
-        bytesCount: escPosBuffer.length,
+        bytesCount: res.bytesCount,
         status: res.success ? 'completed' : 'error',
         durationMs: res.durationMs,
         errorCode: res.errorMsg ? res.errorMsg.split(':')[0] : undefined,
-        details: res.success ? `Enviado com sucesso (${escPosBuffer.length} bytes)` : (res.errorMsg || 'Erro de comunicação'),
-        rawHexPreview: bufferToHexPreview(escPosBuffer, 24)
+        details: res.success ? `Enviado com sucesso (${res.bytesCount} bytes)` : (res.errorMsg || 'Erro de comunicação'),
+        rawHexPreview: bufferToHexPreview(new Uint8Array(res.bytesCount), 24)
       };
       addSpoolJob(job);
 
@@ -1512,96 +1438,60 @@ export default function EnterprisePrinterControlCenter({ theme }: EnterprisePrin
                 </span>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* Margem Segura Dots Slider (Volume-Style Mixer UI) */}
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-[10px] font-bold uppercase text-gray-400">
-                      Margem Segura Física (Dots / GS L)
-                    </label>
-                    <div className={`flex items-center gap-3 p-3 rounded-xl border ${
-                      isDark ? 'bg-gray-900/60 border-gray-800' : 'bg-white border-gray-300'
-                    }`}>
-                      <input
-                        type="range"
-                        min="0"
-                        max="120"
-                        step="1"
-                        value={currentConfig.layout.safeMarginDots !== undefined ? currentConfig.layout.safeMarginDots : ((currentConfig.layout.leftMarginOffset || 0) * 12)}
-                        onChange={(e) => {
-                          const dots = Math.max(0, Number(e.target.value) || 0);
-                          updateCurrentConfig(d => {
-                            d.layout.safeMarginDots = dots;
-                            d.layout.leftMarginOffset = Math.round(dots / 12);
-                          });
-                        }}
-                        className="w-full accent-[#18F2A4] cursor-pointer h-2 rounded-lg bg-gray-300 dark:bg-gray-700"
-                      />
-                      <input
-                        type="number"
-                        min="0"
-                        max="120"
-                        value={currentConfig.layout.safeMarginDots !== undefined ? currentConfig.layout.safeMarginDots : ((currentConfig.layout.leftMarginOffset || 0) * 12)}
-                        onChange={(e) => {
-                          const dots = Math.max(0, Number(e.target.value) || 0);
-                          updateCurrentConfig(d => {
-                            d.layout.safeMarginDots = dots;
-                            d.layout.leftMarginOffset = Math.round(dots / 12);
-                          });
-                        }}
-                        className={`w-14 p-1.5 rounded-lg border font-mono font-bold text-xs outline-none text-center ${
-                          isDark ? 'bg-[#111] border-gray-800 text-white' : 'bg-gray-50 border-gray-300 text-slate-900'
-                        }`}
-                      />
-                      <span className={`text-xs font-mono font-bold min-w-14 text-right ${
-                        isDark ? 'text-[#18F2A4]' : 'text-emerald-800'
-                      }`}>
-                        ~{(((currentConfig.layout.safeMarginDots !== undefined ? currentConfig.layout.safeMarginDots : ((currentConfig.layout.leftMarginOffset || 0) * 12)) || 0) / 8).toFixed(1)} mm
-                      </span>
-                    </div>
+                  {/* Margem Segura Dots Slider (Reused EnterpriseCustomSlider) */}
+                  <div className={`p-3 rounded-xl border flex flex-col gap-2 ${
+                    isDark ? 'bg-gray-900/60 border-gray-800' : 'bg-white border-gray-300'
+                  }`}>
+                    <EnterpriseCustomSlider
+                      label="Margem Segura Física (Dots / GS L)"
+                      sublabel="Calibração do recuo do motor de tração"
+                      min={0}
+                      max={120}
+                      step={1}
+                      value={currentConfig.layout.safeMarginDots !== undefined ? currentConfig.layout.safeMarginDots : ((currentConfig.layout.leftMarginOffset || 0) * 12)}
+                      onChange={(dots) => {
+                        updateCurrentConfig(d => {
+                          d.layout.safeMarginDots = dots;
+                          d.layout.leftMarginOffset = Math.round(dots / 12);
+                        });
+                      }}
+                      isDark={isDark}
+                      valueDisplay={`${currentConfig.layout.safeMarginDots !== undefined ? currentConfig.layout.safeMarginDots : ((currentConfig.layout.leftMarginOffset || 0) * 12)} dots (~${(((currentConfig.layout.safeMarginDots !== undefined ? currentConfig.layout.safeMarginDots : ((currentConfig.layout.leftMarginOffset || 0) * 12)) || 0) / 8).toFixed(1)}mm)`}
+                      presets={[
+                        { label: '0 dots', value: 0 },
+                        { label: '24 dots (3mm)', value: 24 },
+                        { label: '48 dots (6mm)', value: 48 },
+                        { label: '72 dots (9mm)', value: 72 },
+                        { label: '96 dots (12mm)', value: 96 }
+                      ]}
+                    />
                   </div>
 
-                  {/* Espaçamento de Linhas Dots Slider (Volume-Style Mixer UI) */}
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-[10px] font-bold uppercase text-gray-400">
-                      Espaçamento entre Linhas (Dots / ESC 3)
-                    </label>
-                    <div className={`flex items-center gap-3 p-3 rounded-xl border ${
-                      isDark ? 'bg-gray-900/60 border-gray-800' : 'bg-white border-gray-300'
-                    }`}>
-                      <input
-                        type="range"
-                        min="24"
-                        max="60"
-                        step="1"
-                        value={currentConfig.layout.lineSpacing || 38}
-                        onChange={(e) => {
-                          const val = Number(e.target.value);
-                          updateCurrentConfig(d => {
-                            d.layout.lineSpacing = val;
-                          });
-                        }}
-                        className="w-full accent-[#18F2A4] cursor-pointer h-2 rounded-lg bg-gray-300 dark:bg-gray-700"
-                      />
-                      <input
-                        type="number"
-                        min="24"
-                        max="60"
-                        value={currentConfig.layout.lineSpacing || 38}
-                        onChange={(e) => {
-                          const val = Math.min(60, Math.max(24, Number(e.target.value) || 38));
-                          updateCurrentConfig(d => {
-                            d.layout.lineSpacing = val;
-                          });
-                        }}
-                        className={`w-14 p-1.5 rounded-lg border font-mono font-bold text-xs outline-none text-center ${
-                          isDark ? 'bg-[#111] border-gray-800 text-white' : 'bg-gray-50 border-gray-300 text-slate-900'
-                        }`}
-                      />
-                      <span className={`text-xs font-mono font-bold min-w-14 text-right ${
-                        isDark ? 'text-[#18F2A4]' : 'text-emerald-800'
-                      }`}>
-                        ~{(((currentConfig.layout.lineSpacing || 38)) / 8).toFixed(1)} mm
-                      </span>
-                    </div>
+                  {/* Espaçamento de Linhas Dots Slider (Reused EnterpriseCustomSlider) */}
+                  <div className={`p-3 rounded-xl border flex flex-col gap-2 ${
+                    isDark ? 'bg-gray-900/60 border-gray-800' : 'bg-white border-gray-300'
+                  }`}>
+                    <EnterpriseCustomSlider
+                      label="Espaçamento entre Linhas (Dots / ESC 3)"
+                      sublabel="Altura do passo vertical do papel"
+                      min={24}
+                      max={60}
+                      step={1}
+                      value={currentConfig.layout.lineSpacing || 38}
+                      onChange={(val) => {
+                        updateCurrentConfig(d => {
+                          d.layout.lineSpacing = val;
+                        });
+                      }}
+                      isDark={isDark}
+                      valueDisplay={`${currentConfig.layout.lineSpacing || 38} dots (~${((currentConfig.layout.lineSpacing || 38) / 8).toFixed(1)}mm)`}
+                      presets={[
+                        { label: '24 (Compacto)', value: 24 },
+                        { label: '32 (Econômico)', value: 32 },
+                        { label: '38 (Padrão)', value: 38 },
+                        { label: '48 (Espaçado)', value: 48 }
+                      ]}
+                    />
                   </div>
                 </div>
               </div>

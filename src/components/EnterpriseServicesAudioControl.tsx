@@ -28,6 +28,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { audioManager, SoundType } from '../services/audioManager';
 import { pwaService } from '../services/pwaService';
+import { EnterpriseCustomSlider } from './EnterpriseCustomSlider';
 import { printService, PrintQueueItem } from '../services/printService';
 import { eventBus } from '../services/eventBus';
 import { notificationService, SectorContext } from '../services/notificationService';
@@ -324,76 +325,23 @@ export default function EnterpriseServicesAudioControl({ theme = 'dark' }: Enter
               </div>
             </div>
 
-            {/* Custom Track Slider */}
-            <div className="relative flex items-center w-full py-2">
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.01"
-                value={soundSettings.soundEnabled ? soundSettings.volume : 0}
-                onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
-                className="w-full cursor-pointer h-2.5 rounded-full appearance-none outline-none transition-all z-10 opacity-0"
-              />
-              {/* Custom Track Background & Progress Fill */}
-              <div className={`absolute left-0 right-0 h-2.5 rounded-full overflow-hidden pointer-events-none border ${
-                isDark ? 'bg-gray-800 border-gray-700' : 'bg-slate-200 border-slate-300'
-              }`}>
-                <div
-                  className={`h-full transition-all duration-75 rounded-full ${
-                    !soundSettings.soundEnabled || soundSettings.volume === 0
-                      ? 'bg-gray-500'
-                      : isDark
-                        ? 'bg-gradient-to-r from-emerald-500 to-[#18F2A4] shadow-[0_0_12px_rgba(24,242,164,0.4)]'
-                        : 'bg-gradient-to-r from-emerald-600 to-emerald-400'
-                  }`}
-                  style={{ width: `${soundSettings.soundEnabled ? soundSettings.volume * 100 : 0}%` }}
-                />
-              </div>
-
-              {/* Custom Thumb handle overlay */}
-              <div
-                className={`absolute w-5 h-5 rounded-full border-2 shadow-md pointer-events-none transition-all duration-75 -ml-2.5 flex items-center justify-center ${
-                  !soundSettings.soundEnabled || soundSettings.volume === 0
-                    ? 'bg-gray-400 border-gray-600'
-                    : isDark
-                      ? 'bg-white border-[#18F2A4] ring-2 ring-[#18F2A4]/30'
-                      : 'bg-white border-emerald-600 ring-2 ring-emerald-600/30'
-                }`}
-                style={{ left: `${soundSettings.soundEnabled ? soundSettings.volume * 100 : 0}%` }}
-              >
-                <div className={`w-1.5 h-1.5 rounded-full ${
-                  isDark ? 'bg-[#18F2A4]' : 'bg-emerald-600'
-                }`} />
-              </div>
-            </div>
-
-            {/* Clean Quick Preset Pills */}
-            <div className="flex items-center justify-between gap-1.5 pt-1">
-              {[
-                { label: 'Mute', val: 0 },
-                { label: '25%', val: 0.25 },
-                { label: '50%', val: 0.50 },
-                { label: '75%', val: 0.75 },
-                { label: '100%', val: 1.00 }
-              ].map(p => {
-                const isSelected = soundSettings.soundEnabled && Math.abs(soundSettings.volume - p.val) < 0.04;
-                return (
-                  <button
-                    key={p.label}
-                    type="button"
-                    onClick={() => handleVolumeChange(p.val)}
-                    className={`flex-1 py-1 px-2 rounded-lg text-[10px] font-mono font-bold transition-all cursor-pointer border text-center ${
-                      isSelected
-                        ? (isDark ? 'bg-[#18F2A4] text-black border-[#18F2A4]' : 'bg-emerald-600 text-white border-emerald-600 shadow-sm')
-                        : (isDark ? 'bg-gray-900 border-gray-800 text-gray-400 hover:text-white hover:bg-gray-800' : 'bg-white border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-100')
-                    }`}
-                  >
-                    {p.label}
-                  </button>
-                );
-              })}
-            </div>
+            {/* Master Volume Slider Control (Enterprise Clean UI via EnterpriseCustomSlider) */}
+            <EnterpriseCustomSlider
+              min={0}
+              max={1}
+              step={0.01}
+              value={soundSettings.soundEnabled ? soundSettings.volume : 0}
+              disabled={!soundSettings.soundEnabled}
+              onChange={(val) => handleVolumeChange(val)}
+              isDark={isDark}
+              presets={[
+                { label: 'Mute', value: 0 },
+                { label: '25%', value: 0.25 },
+                { label: '50%', value: 0.50 },
+                { label: '75%', value: 0.75 },
+                { label: '100%', value: 1.00 }
+              ]}
+            />
           </div>
 
           {/* Operational Timbre Test Cards (Clean Enterprise Design) */}
