@@ -183,15 +183,6 @@ export default function ProductionPanel({
     }
   };
 
-  // Sync sector if currentUser changes
-  useEffect(() => {
-    if (currentUser?.role === 'kitchen') {
-      setActiveSector('cozinha');
-    } else if (currentUser?.role === 'bar') {
-      setActiveSector('bar');
-    }
-  }, [currentUser]);
-
   // Derive flat list of order items from tables state
   const activeItems = useMemo(() => {
     const list: {
@@ -260,6 +251,31 @@ export default function ProductionPanel({
     // Sort by timestamp: oldest first (FIFO)
     return list.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
   }, [tablesComandas, products, activeSector, filterStatus, searchFilter]);
+
+  // Sync printedItems state when activeSector changes so switching tabs doesn't re-process items
+  useEffect(() => {
+    try {
+      const stored = sessionStorage.getItem(`printed_sector_${activeSector}`);
+      setPrintedItems(stored ? JSON.parse(stored) : []);
+    } catch {
+      setPrintedItems([]);
+    }
+  }, [activeSector]);
+
+  // Seed initial items on mount to prevent duplicate actions on F5 or filter switch
+  const isInitialMount = useRef(true);
+  useEffect(() => {
+    if (isInitialMount.current && activeItems.length > 0) {
+      isInitialMount.current = false;
+      const existingKeys = activeItems.map(item => `${item.tableId}-${item.productId}-${item.quantity}-${item.notes || ''}-${item.timestamp}`);
+      if (printedItems.length === 0) {
+        setPrintedItems(existingKeys);
+        try {
+          sessionStorage.setItem(`printed_sector_${activeSector}`, JSON.stringify(existingKeys));
+        } catch (e) {}
+      }
+    }
+  }, [activeItems]);
 
   // Automated Sector-bound Printer Queue Engine & Alarm Buzzer
   useEffect(() => {
@@ -380,10 +396,7 @@ export default function ProductionPanel({
       });
     }
 
-    // Audio feedback chime for local operational action (playing premium success sound)
-    playPremiumSound('success');
-
-    // Beep sound simulator visual feedback
+    // Beep sound simulator visual feedback (flashes status indicator without audio chime)
     setBeepSimulated(true);
     setTimeout(() => setBeepSimulated(false), 800);
   };
@@ -467,25 +480,25 @@ export default function ProductionPanel({
 
         {/* Sector and Status filters */}
         <div className="flex flex-wrap gap-2.5 items-center">
-          {/* Audio alarm beep simulator indicator */}
-          <button
-            onClick={() => {
-              playPremiumSound('ready');
-              setBeepSimulated(true);
-              setTimeout(() => setBeepSimulated(false), 800);
-            }}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] border font-semibold transition-all cursor-pointer ${
-              beepSimulated 
-                ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400 scale-105'
-                : theme === 'dark' 
-                  ? 'border-[#222] bg-black text-gray-400 hover:bg-[#111]' 
-                  : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-100'
-            }`}
-            title="Testar sinalizador sonoro"
-          >
-            <Volume2 className={`w-3.5 h-3.5 ${beepSimulated ? 'animate-bounce' : ''}`} />
+          {/* Audio alarm status indicator (Passive Status Pill) */}
+          <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] border font-semibold ${
+            theme === 'dark' ? 'border-[#222] bg-black/60 text-emerald-400' : 'border-gray-200 bg-emerald-50 text-emerald-700'
+          }`}>
+            <Volume2 className={`w-3.5 h-3.5 ${beepSimulated ? 'animate-bounce text-emerald-400' : 'text-emerald-500'}`} />
             <span>Sinalizador Ativo</span>
-          </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                playPremiumSound('ready');
+                setBeepSimulated(true);
+                setTimeout(() => setBeepSimulated(false), 800);
+              }}
+              className="ml-1 text-[9px] font-mono opacity-70 hover:opacity-100 cursor-pointer text-emerald-400 hover:underline"
+              title="Testar sinalizador sonoro"
+            >
+              (Testar)
+            </button>
+          </div>
 
           {/* Production Category Configuration Trigger */}
           <button

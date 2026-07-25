@@ -107,36 +107,56 @@ class PwaService {
     };
 
     try {
-      // 1. Try stored Service Worker showNotification if active
-      if (this.swRegistration && this.swRegistration.active) {
-        await this.swRegistration.showNotification(title, payloadOptions as any);
-        return true;
-      }
+      // 1. Try active stored Service Worker registration
+      let reg: ServiceWorkerRegistration | null = this.swRegistration;
 
-      // 2. Try ready Service Worker registration
-      if ('serviceWorker' in navigator) {
+      // 2. Query active registration directly from browser without blocking on .ready Promise
+      if ((!reg || !reg.active) && 'serviceWorker' in navigator) {
         try {
-          const reg = await navigator.serviceWorker.ready;
-          if (reg && reg.showNotification) {
-            await reg.showNotification(title, payloadOptions as any);
-            this.swRegistration = reg;
-            return true;
+          const activeReg = await navigator.serviceWorker.getRegistration();
+          if (activeReg && activeReg.active) {
+            reg = activeReg;
+            this.swRegistration = activeReg;
           }
         } catch (e) {}
       }
 
-      // 3. Fallback to standard window Notification instance
-      const notif = new Notification(title, payloadOptions);
-      notif.onclick = (event) => {
-        event.preventDefault();
-        window.focus();
-        if (payloadOptions.data?.url) {
-          window.location.href = payloadOptions.data.url;
-        }
-      };
-      return true;
+      // 3. Fallback to navigator.serviceWorker.ready if getRegistration was null (with 1500ms race timeout)
+      if ((!reg || !reg.active) && 'serviceWorker' in navigator) {
+        try {
+          const readyReg = await Promise.race([
+            navigator.serviceWorker.ready,
+            new Promise<null>(resolve => setTimeout(() => resolve(null), 1500))
+          ]);
+          if (readyReg && readyReg.active) {
+            reg = readyReg;
+            this.swRegistration = readyReg;
+          }
+        } catch (e) {}
+      }
+
+      // If Service Worker registration is found, show notification via SW
+      if (reg && reg.showNotification) {
+        await reg.showNotification(title, payloadOptions as any);
+        return true;
+      }
+
+      // 4. Fallback to standard window Notification constructor (Only on non-Android / desktop browsers where constructor is legal)
+      if (typeof Notification !== 'undefined' && !/Android/i.test(navigator.userAgent)) {
+        const notif = new Notification(title, payloadOptions);
+        notif.onclick = (event) => {
+          event.preventDefault();
+          window.focus();
+          if (payloadOptions.data?.url) {
+            window.location.href = payloadOptions.data.url;
+          }
+        };
+        return true;
+      }
+      return false;
     } catch (err) {
       console.warn('[PWA Service] Failed to dispatch system notification:', err);
+      this.sentNotifications.delete(key);
       return false;
     }
   }

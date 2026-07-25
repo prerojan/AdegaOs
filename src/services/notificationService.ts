@@ -122,8 +122,13 @@ class NotificationService {
     const current = this.getSector();
     const target = params.targetSector || 'all';
 
-    // Sector Check: If target is specific (e.g., 'producao' or 'order') and current sector doesn't match, block notification
-    const isTargetSectorMatched = (target === 'all' || current === 'all' || current === target || current === 'gerente');
+    // Sector Check: If target is sector-specific (e.g. 'producao' or 'order'), it MUST ONLY match if current terminal is specifically that sector or 'gerente'
+    let isTargetSectorMatched = false;
+    if (target === 'all') {
+      isTargetSectorMatched = true;
+    } else {
+      isTargetSectorMatched = (current === target || current === 'gerente');
+    }
 
     // A. Sound Chime (respecting adegaos_sector_sound_routing)
     if (params.sound && isTargetSectorMatched) {
@@ -177,7 +182,11 @@ class NotificationService {
         body: params.message,
         tag: stableTag,
         vibrate: params.sound === 'order_created' ? [300, 150, 300, 150, 300] : [200, 100, 200]
-      }, notifCategory);
+      }, notifCategory).then(sent => {
+        if (!sent) {
+          this.recentNotifs.delete(notifKey);
+        }
+      });
     } else {
       console.log(`[NotificationService] Suppressed notification for sector '${current}' (Target: '${target}')`);
     }

@@ -169,7 +169,7 @@ export function getPhysicalPrinterProfile(
     ) || 0
   );
 
-  const leftMarginCols = Math.round(safeMarginDots / fontWidthDots);
+  const leftMarginCols = Math.max(leftMarginOffset, Math.round(safeMarginDots / fontWidthDots));
 
   // Calculate available columns after applying left hardware margin (safeMarginDots) and right margin
   const rightMarginDots = rightMarginCols * fontWidthDots;
@@ -565,9 +565,7 @@ export function buildDocumentMatrix(
       matrix.push({ type: 'text', text: '|12345678901234567890123456789012|', align: 'left' });
       matrix.push({ type: 'text', text: '|======== CONTEÚDO 100% OK ========|', align: 'left', style: { bold: true } });
     } else {
-      matrix.push({ type: 'text', text: 'RÉGUA CALIBRAÇÃO MARGEM FÍSICA', align: 'center', style: { bold: true } });
-      matrix.push({ type: 'text', text: `Papel: ${profile.paperSize} | Área: ${profile.printableWidthDots} dots (${profile.printableWidthMm}mm)`, align: 'center' });
-      matrix.push({ type: 'text', text: 'ESC/POS GS L 0 0 (0 Margem Hardware)', align: 'center' });
+      matrix.push({ type: 'text', text: `ESC/POS GS L 0 0 (Margem Software: ${profile.safeMarginDots || 0} dots / ${profile.leftMarginCols} cols)`, align: 'center' });
       matrix.push({ type: 'divider' });
       matrix.push({ type: 'text', text: 'RÉGUA DE POSIÇÃO DE DOTS/MM:', align: 'left', style: { bold: true } });
       matrix.push({ type: 'text', text: '00..08..16..24..32..40..48..56..64..72..80 (dots)', align: 'left', style: { bold: true } });
@@ -633,12 +631,10 @@ export function buildDocumentMatrix(
 
     if (isVis('itemsTable')) {
       matrix.push({
-        type: 'table_row',
-        cols: [
-          { text: 'QTD ITEM', widthRatio: 0.7, align: 'left' },
-          { text: 'OBS', widthRatio: 0.3, align: 'right' }
-        ],
-        style: { bold: true }
+        type: 'flex_row',
+        leftText: 'QTD ITEM',
+        rightText: 'OBS',
+        isBold: true
       });
       matrix.push({ type: 'divider' });
       const rawItems = data.items || [];
@@ -927,6 +923,9 @@ export function renderMatrixToEscPosBuffer(
       chunks.push(state.transitionTo({ align: 'left', bold: false }));
       const char = item.char || (item.double ? '=' : '-');
       const divLine = engine.renderDivider(char, item.style);
+      if (profile.leftMarginCols > 0) {
+        console.log(`[PRINT_MARGIN_LOG] leftMarginCols=${profile.leftMarginCols} safeMarginDots=${profile.safeMarginDots} |${marginPadding + divLine}|`);
+      }
       chunks.push(textEncoder.encode(marginPadding + divLine + '\n'));
     } else if (item.type === 'text') {
       const align = item.align || 'left';
@@ -934,6 +933,9 @@ export function renderMatrixToEscPosBuffer(
       const maxChars = engine.getMaxChars(item.style);
       const wrapped = engine.fitText(item.text, maxChars, { mode: 'wrap', align, style: item.style });
       wrapped.forEach(w => {
+        if (profile.leftMarginCols > 0) {
+          console.log(`[PRINT_MARGIN_LOG] leftMarginCols=${profile.leftMarginCols} safeMarginDots=${profile.safeMarginDots} |${marginPadding + w}|`);
+        }
         chunks.push(textEncoder.encode(marginPadding + w + '\n'));
       });
       if (item.style?.bold || item.style?.doubleHeight || item.style?.doubleWidth) {
@@ -944,6 +946,9 @@ export function renderMatrixToEscPosBuffer(
       chunks.push(state.transitionTo({ align: 'left', bold: isBold, ...item.style }));
       const formatted = engine.renderFlexRow(item.leftText, item.rightText, item.style);
       formatted.forEach(f => {
+        if (profile.leftMarginCols > 0) {
+          console.log(`[PRINT_MARGIN_LOG] leftMarginCols=${profile.leftMarginCols} safeMarginDots=${profile.safeMarginDots} |${marginPadding + f}|`);
+        }
         chunks.push(textEncoder.encode(marginPadding + f + '\n'));
       });
       if (isBold) {
@@ -954,6 +959,9 @@ export function renderMatrixToEscPosBuffer(
       chunks.push(state.transitionTo({ align: 'left', bold: isBold, ...item.style }));
       const formatted = engine.renderRow(item.cols, item.style);
       formatted.forEach(f => {
+        if (profile.leftMarginCols > 0) {
+          console.log(`[PRINT_MARGIN_LOG] leftMarginCols=${profile.leftMarginCols} safeMarginDots=${profile.safeMarginDots} |${marginPadding + f}|`);
+        }
         chunks.push(textEncoder.encode(marginPadding + f + '\n'));
       });
       if (isBold) {
