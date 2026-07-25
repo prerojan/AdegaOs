@@ -1039,106 +1039,58 @@ export function generateReceiptHtmlFromMatrix(
   customDocSettings?: any,
   customLayoutSettings?: any
 ): string {
-  const widthCss = `${profile.printableWidthMm}mm`;
+  const plainText = renderMatrixToText(matrix, profile);
   const globalBold = customLayoutSettings?.bold === true;
-
-  const safeMarginMm = ((profile.safeMarginDots || 0) / profile.dotsPerMm).toFixed(2);
-  const rightMarginDots = (profile.rightMarginCols || 0) * profile.fontWidthDots;
-  const rightMarginMm = (rightMarginDots / profile.dotsPerMm).toFixed(2);
-  const lineSpacingDots = profile.lineSpacingDots || 38;
-  const fontHeightDots = profile.fontHeightDots || 24;
-  const lineHeightCss = (lineSpacingDots / fontHeightDots).toFixed(2);
+  const widthCss = `${profile.printableWidthMm}mm`;
 
   let fontFamilyCss = "'Courier New', 'Consolas', 'Liberation Mono', monospace";
-  let fontSizeCss = profile.paperSize === '80mm' ? '12px' : '10px';
-
   if (profile.fontFamily === 'font_b') {
     fontFamilyCss = "'Consolas', 'Courier New', monospace";
-    fontSizeCss = profile.paperSize === '80mm' ? '10px' : '8.5px';
   } else if (profile.fontFamily === 'font_c') {
     fontFamilyCss = "'Liberation Mono', 'Consolas', 'Courier New', monospace";
-    fontSizeCss = profile.paperSize === '80mm' ? '9px' : '7.5px';
   }
 
-  let bodyHtml = '';
+  const engine = new LayoutEngine(profile);
+  const totalCols = engine.getUsableColumns() + (profile.leftMarginCols || 0);
 
-  for (const item of matrix) {
-    if (item.type === 'blank') {
-      bodyHtml += `<div style="height: ${12 * (item.count || 1)}px;"></div>`;
-    } else if (item.type === 'divider') {
-      const border = item.double ? '2px solid #000' : '1px dashed #000';
-      bodyHtml += `<div style="border-top: ${border}; margin: 3px 0;"></div>`;
-    } else if (item.type === 'text') {
-      const align = item.align || 'left';
-      const isBold = item.style?.bold || globalBold;
-      const weight = isBold ? '900' : '600';
-      const size = item.style?.doubleHeight ? '1.25em' : '1em';
-      bodyHtml += `<div style="text-align: ${align}; font-weight: ${weight}; font-size: ${size}; margin: 1px 0;">${escapeHtml(item.text)}</div>`;
-    } else if (item.type === 'flex_row') {
-      const isBold = item.isBold || item.style?.bold || globalBold;
-      const weight = isBold ? '900' : '600';
-      bodyHtml += `
-        <div style="display: flex; justify-content: space-between; align-items: baseline; width: 100%; font-weight: ${weight}; margin: 1px 0;">
-          <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 4px;">${escapeHtml(item.leftText)}</span>
-          <span style="white-space: nowrap; font-variant-numeric: tabular-nums;">${escapeHtml(item.rightText)}</span>
-        </div>
-      `;
-    } else if (item.type === 'table_row') {
-      const isBold = item.style?.bold || globalBold;
-      const weight = isBold ? '900' : '600';
-      bodyHtml += `<div style="display: flex; justify-content: space-between; width: 100%; font-weight: ${weight}; margin: 1px 0;">`;
-      item.cols.forEach(col => {
-        bodyHtml += `<span style="text-align: ${col.align || 'left'}; flex: ${col.widthRatio || 1}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(col.text)}</span>`;
-      });
-      bodyHtml += `</div>`;
-    } else if (item.type === 'qrcode') {
-      bodyHtml += `<div style="text-align: center; font-weight: 800; padding: 4px; border: 1px dashed #000; margin: 4px 0;">[QRCODE: ${escapeHtml(item.text)}]</div>`;
-    } else if (item.type === 'barcode') {
-      bodyHtml += `<div style="text-align: center; font-weight: 800; padding: 4px; border: 1px dashed #000; margin: 4px 0;">[BARCODE: ${escapeHtml(item.code)}]</div>`;
-    }
-  }
-
-  return `
-    <!DOCTYPE html>
-    <html>
-      <head>
-        <meta charset="utf-8">
-        <style>
-          @page {
-            size: ${widthCss} auto;
-            margin: 0mm;
-          }
-          *, *:before, *:after {
-            box-sizing: border-box;
-          }
-          html, body {
-            margin: 0;
-            padding: 0;
-            background: #ffffff;
-            color: #000000;
-          }
-          body {
-            width: ${widthCss};
-            max-width: ${widthCss};
-            margin: 0 auto;
-            padding: 0 ${rightMarginMm}mm 4mm ${safeMarginMm}mm;
-            font-family: ${fontFamilyCss};
-            font-size: ${fontSizeCss};
-            font-weight: ${globalBold ? '900' : '700'};
-            line-height: ${lineHeightCss};
-            white-space: normal;
-            word-break: break-word;
-            overflow-wrap: break-word;
-            overflow: hidden;
-          }
-        </style>
-      </head>
-      <body>
-        ${bodyHtml}
-        <div style="height: 50px; margin-top: 10px;"></div>
-      </body>
-    </html>
-  `;
+  return `<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <style>
+      @page {
+        size: ${widthCss} auto;
+        margin: 0mm;
+      }
+      *, *:before, *:after {
+        box-sizing: border-box;
+      }
+      html, body {
+        margin: 0;
+        padding: 0;
+        background: #ffffff;
+        color: #000000;
+        width: ${widthCss};
+        max-width: ${widthCss};
+      }
+      pre {
+        margin: 0;
+        padding: 0;
+        font-family: ${fontFamilyCss};
+        font-size: calc(${widthCss} / (${totalCols} * 0.601));
+        font-weight: ${globalBold ? '900' : '700'};
+        line-height: 1.15;
+        white-space: pre;
+        word-break: normal;
+        overflow-wrap: normal;
+        overflow: hidden;
+      }
+    </style>
+  </head>
+  <body>
+    <pre>${escapeHtml(plainText)}</pre>
+  </body>
+</html>`;
 }
 
 // -----------------------------------------------------------------------------
@@ -1266,24 +1218,30 @@ export function printViaSystemBrowser(receiptTextOrHtml: string, paperSize: stri
             *, *:before, *:after {
               box-sizing: border-box;
             }
-            body {
+            html, body {
               margin: 0;
-              padding: 0 0mm 4mm ${safeMarginMm}mm;
+              padding: 0;
+              background: #ffffff;
+              color: #000000;
               width: ${widthCss};
               max-width: ${widthCss};
+            }
+            pre {
+              margin: 0;
+              padding: 0;
               font-family: ${fontFamilyCss};
-              font-size: ${fontSizeCss};
+              font-size: calc(${widthCss} / 32 * 0.601);
               font-weight: 700;
-              line-height: ${lineHeightCss};
-              color: #000000;
-              white-space: pre-wrap;
-              word-break: break-word;
-              overflow-wrap: break-word;
+              line-height: 1.15;
+              white-space: pre;
+              word-break: normal;
+              overflow-wrap: normal;
+              overflow: hidden;
             }
           </style>
         </head>
         <body>
-          <div>${escapeHtml(receiptTextOrHtml)}</div>
+          <pre>${escapeHtml(receiptTextOrHtml)}</pre>
         </body>
       </html>
     `);

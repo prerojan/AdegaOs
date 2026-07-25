@@ -59,9 +59,6 @@ class PrintService {
       const autoPrintEnabled = localStorage.getItem('adegaos_auto_print_comanda') !== 'false';
       if (!autoPrintEnabled) return;
 
-      // Ignore incremental remote_sync fragments to prevent duplicate single-item tickets
-      if (payload.origin === 'remote_sync') return;
-
       const combinedItems = combineIdenticalItems(payload.items || []);
       const jobKey = `comanda_order_${payload.id}_${JSON.stringify(combinedItems)}`;
       

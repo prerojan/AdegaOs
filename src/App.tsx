@@ -5,7 +5,7 @@ import {
   ChefHat, LogOut, Menu, FileSpreadsheet, Barcode, Play, Bell, AlertTriangle
 } from 'lucide-react';
 
-import { Product, Supplier, Sale, FinancialTransaction, TableComandaState, CashierUser, Shift } from './types';
+import { Product, Supplier, Sale, FinancialTransaction, TableComandaState, TableItem, CashierUser, Shift } from './types';
 import { 
   INITIAL_PRODUCTS, MOCK_SALES, INITIAL_SUPPLIERS, 
   INITIAL_TABLES_COMANDAS, INITIAL_CASHIER_USERS 
@@ -661,6 +661,8 @@ export default function App() {
 
     newTables.forEach(table => {
       const tableStr = `${table.type === 'mesa' ? 'Mesa' : 'Comanda'} ${table.number}`;
+      const newRemoteItemsForTable: TableItem[] = [];
+
       (table.items || []).forEach((item, idx) => {
         const itemKey = `${table.id}_${item.productId}_${item.timestamp || idx}`;
         const prevStatus = prevMap.get(itemKey);
@@ -668,11 +670,16 @@ export default function App() {
 
         currentMap.set(itemKey, currStatus);
 
-        // Real-time remote updates detection for ready status and cancellations
+        // Real-time remote updates detection for new items, ready status, and cancellations
         if (!isFirstLoad) {
           const prodObj = productsRef.current.find(p => p.id === item.productId);
 
-          // 1. Item Status transitioned to 'pronto' (Order Ready)
+          // 1. Detect new remote item added to table/comanda
+          if (!prevMap.has(itemKey) && currStatus !== 'cancelado') {
+            newRemoteItemsForTable.push(item);
+          }
+
+          // 2. Item Status transitioned to 'pronto' (Order Ready)
           if (prevStatus && prevStatus !== 'pronto' && currStatus === 'pronto') {
             eventBus.publish('ORDER_READY', {
               id: table.id,
@@ -681,7 +688,7 @@ export default function App() {
             });
           }
 
-          // 2. Item Status transitioned to 'cancelado'
+          // 3. Item Status transitioned to 'cancelado'
           if (prevStatus && prevStatus !== 'cancelado' && currStatus === 'cancelado') {
             eventBus.publish('ORDER_CANCELLED', {
               id: table.id,
@@ -694,6 +701,27 @@ export default function App() {
           }
         }
       });
+
+      // Publish ORDER_CREATED for new remote items arriving via Firestore sync
+      if (!isFirstLoad && newRemoteItemsForTable.length > 0) {
+        eventBus.publish('ORDER_CREATED', {
+          id: `ORD_${table.id}_${Date.now()}`,
+          table: tableStr,
+          items: newRemoteItemsForTable.map(item => {
+            const prodObj = productsRef.current.find(p => p.id === item.productId);
+            return {
+              name: prodObj ? prodObj.name : 'Produto',
+              qty: item.quantity,
+              notes: item.notes,
+              price: item.unitPrice,
+              status: item.status
+            };
+          }),
+          sector: 'cozinha',
+          timestamp: Date.now(),
+          origin: 'remote_sync'
+        });
+      }
     });
 
     prevItemStatusRef.current = currentMap;
