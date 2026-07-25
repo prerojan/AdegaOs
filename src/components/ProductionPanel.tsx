@@ -283,9 +283,6 @@ export default function ProductionPanel({
     });
 
     if (receiptsToPrint.length > 0) {
-      // Play audio chime for production alert
-      audioManager.play('order_created');
-
       // Commit keys immediately to avoid duplicates
       const updatedPrinted = [...printedItems, ...newlyPrintedKeys];
       setPrintedItems(updatedPrinted);

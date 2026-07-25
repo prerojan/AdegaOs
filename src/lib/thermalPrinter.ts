@@ -21,6 +21,7 @@ export interface PhysicalPrinterProfile {
   density: 'low' | 'medium' | 'high' | 'ultra';
   autoCut: boolean;
   cashDrawer: boolean;
+  buzzer: boolean;
 }
 
 export interface TextStyle {
@@ -81,11 +82,39 @@ export interface PrinterDevice {
 // 1. HARDWARE & PROFILE ENGINE (DYNAMIC PHYSICAL CALCULATIONS)
 // -----------------------------------------------------------------------------
 
+// Helper to read central enterprise printer configuration as single source of truth
+export function getCentralEnterpriseConfig(printerIdOrSector?: string): any {
+  try {
+    const raw = localStorage.getItem('adegaos_enterprise_printer_configs_v2');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        if (printerIdOrSector) {
+          const found = parsed.find((c: any) => c.id === printerIdOrSector) ||
+                        parsed.find((c: any) => c.sector?.toLowerCase() === printerIdOrSector.toLowerCase());
+          if (found) return found;
+        }
+        return parsed[0];
+      }
+    }
+  } catch (e) {}
+  return {
+    hardware: { paperSize: '58mm', autoCut: true, cashDrawer: true },
+    document: {},
+    layout: { safeMarginDots: 0, lineSpacing: 38 }
+  };
+}
+
 export function getPhysicalPrinterProfile(
   paperSizeOverride?: string,
-  hardwareConfig?: any,
-  layoutConfig?: any
+  hardwareConfigOverride?: any,
+  layoutConfigOverride?: any,
+  printerIdOrSector?: string
 ): PhysicalPrinterProfile {
+  const central = getCentralEnterpriseConfig(printerIdOrSector);
+  const hardwareConfig = hardwareConfigOverride || central.hardware || {};
+  const layoutConfig = layoutConfigOverride || central.layout || {};
+
   const paperSize = (paperSizeOverride || hardwareConfig?.paperSize || localStorage.getItem('adegaos_paper_size') || '58mm') as string;
   const paperWidthMm = paperSize === '80mm' ? 80 : 58;
 
@@ -116,7 +145,6 @@ export function getPhysicalPrinterProfile(
     ? Number(hardwareConfig.columnsCount)
     : calculatedColumnsCount;
 
-  const baseLeftMargin = hardwareConfig?.leftMarginCols ? Math.max(0, Number(hardwareConfig.leftMarginCols)) : 0;
   const leftMarginOffset = Number(
     layoutConfig?.leftMarginOffset !== undefined
       ? layoutConfig.leftMarginOffset
@@ -139,8 +167,10 @@ export function getPhysicalPrinterProfile(
 
   const leftMarginCols = Math.round(safeMarginDots / fontWidthDots);
 
-  // Column capacity dynamically reduces available columns based on safe physical dot margin
-  const usableColumns = Math.max(8, Math.floor((printableWidthDots - safeMarginDots) / fontWidthDots));
+  // Column capacity dynamically reduces available columns based on safe physical dot margin and right margin
+  const rightMarginDots = rightMarginCols * fontWidthDots;
+  const totalOccupiedMarginDots = safeMarginDots + rightMarginDots;
+  const usableColumns = Math.max(8, Math.floor((printableWidthDots - totalOccupiedMarginDots) / fontWidthDots));
 
   return {
     paperSize: paperSize as '58mm' | '80mm',
@@ -160,7 +190,8 @@ export function getPhysicalPrinterProfile(
     lineSpacingDots: Number(layoutConfig?.lineSpacing || hardwareConfig?.lineSpacing || 38),
     density: layoutConfig?.density || 'high',
     autoCut: hardwareConfig?.autoCut !== false,
-    cashDrawer: hardwareConfig?.cashDrawer === true
+    cashDrawer: hardwareConfig?.cashDrawer === true,
+    buzzer: hardwareConfig?.buzzer === true
   };
 }
 
@@ -459,9 +490,10 @@ export function buildDocumentMatrix(
     data = typeOrPayload.data || {};
   }
 
+  const central = getCentralEnterpriseConfig();
   const profile = profileOverride || getPhysicalPrinterProfile();
   const engine = new LayoutEngine(profile);
-  const doc = customDocSettings || {};
+  const doc = customDocSettings || central.document || {};
   const isVis = (key: string) => doc[key]?.visible !== false;
 
   const storeName = (localStorage.getItem('adegaos_store_name') || 'ADEGA CENTRAL').toUpperCase();
@@ -817,6 +849,11 @@ export function renderMatrixToEscPosBuffer(
   // Initialize Printer
   chunks.push(state.getInitBytes(profile.lineSpacingDots));
 
+  // Hardware Buzzer/Beep Command if enabled (ESC B 2 2 + ASCII BEL)
+  if (profile.buzzer) {
+    chunks.push(new Uint8Array([0x1B, 0x42, 0x02, 0x02, 0x07]));
+  }
+
   // Density Command
   if (profile.density === 'ultra') chunks.push(new Uint8Array([0x1D, 0x28, 0x4B, 0x02, 0x00, 0x31, 0x02]));
 
@@ -846,12 +883,16 @@ export function renderMatrixToEscPosBuffer(
       const divLine = engine.renderDivider(char, item.style);
       chunks.push(textEncoder.encode(divLine + '\n'));
     } else if (item.type === 'text') {
-      chunks.push(state.transitionTo({ align: item.align || 'left', ...item.style }));
-      const wrapped = engine.fitText(item.text, cols, { mode: 'wrap', align: item.align || 'left', style: item.style });
+      const align = item.align || 'left';
+      chunks.push(state.transitionTo({ align, ...item.style }));
+      const maxChars = engine.getMaxChars(item.style);
+      const modeAlign = align === 'center' || align === 'right' ? 'left' : align;
+      const wrapped = engine.fitText(item.text, maxChars, { mode: 'wrap', align: modeAlign, style: item.style });
       wrapped.forEach(w => {
-        chunks.push(textEncoder.encode(w + '\n'));
+        const lineStr = align === 'center' || align === 'right' ? w.trim() : w;
+        chunks.push(textEncoder.encode(lineStr + '\n'));
       });
-      if (item.style?.bold || item.style?.doubleHeight) {
+      if (item.style?.bold || item.style?.doubleHeight || item.style?.doubleWidth) {
         chunks.push(state.transitionTo({ bold: false, doubleHeight: false, doubleWidth: false }));
       }
     } else if (item.type === 'flex_row') {

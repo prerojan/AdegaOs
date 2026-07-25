@@ -1022,7 +1022,7 @@ export default function EnterprisePrinterControlCenter({ theme }: EnterprisePrin
       )}
 
       {/* =========================================================================
-          HIGH-DENSITY ERP TAB NAVBAR (6 SUB-PANELS)
+          HIGH-DENSITY ERP TAB NAVBAR (5 SUB-PANELS)
           ========================================================================= */}
       <div className={`px-2 pt-2 border-b flex items-center gap-1 overflow-x-auto no-scrollbar scroll-smooth w-full ${
         isDark ? 'bg-[#0A0A0A] border-[#1A1A1A]' : 'bg-gray-100 border-gray-200'
@@ -1030,10 +1030,9 @@ export default function EnterprisePrinterControlCenter({ theme }: EnterprisePrin
         {[
           { id: 'connection', label: '1. Conexão', icon: Wifi },
           { id: 'hardware', label: '2. Impressora', icon: Printer },
-          { id: 'layout', label: '3. Layout ESC/POS', icon: Sliders },
-          { id: 'document', label: '4. Matriz Documento', icon: Table },
-          { id: 'rules', label: '5. Regras & Setores', icon: Server },
-          { id: 'diagnostics', label: '6. Diagnóstico & Spooler', icon: Activity },
+          { id: 'document', label: '3. Matriz Documento', icon: Table },
+          { id: 'rules', label: '4. Regras & Setores', icon: Server },
+          { id: 'diagnostics', label: '5. Diagnóstico & Spooler', icon: Activity },
         ].map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -1419,7 +1418,7 @@ export default function EnterprisePrinterControlCenter({ theme }: EnterprisePrin
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -3 }}
               transition={{ duration: 0.12 }}
-              className="flex flex-col gap-3"
+              className="flex flex-col gap-4"
             >
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                 <div>
@@ -1504,206 +1503,106 @@ export default function EnterprisePrinterControlCenter({ theme }: EnterprisePrin
                 </div>
               </div>
 
-              {/* Hardware Toggles Bar */}
-              <div className={`p-3 rounded-xl border grid grid-cols-1 sm:grid-cols-3 gap-3 ${
+              {/* Physical Calibrations Section: Margem Segura & Line Spacing Sliders */}
+              <div className={`p-4 rounded-xl border flex flex-col gap-4 ${
                 isDark ? 'bg-[#0B0B0B] border-[#161616]' : 'bg-gray-50 border-gray-200'
               }`}>
-                <div className={`flex items-center justify-between p-2 rounded-lg border ${
-                  isDark ? 'bg-black/20 border-gray-800 text-white' : 'bg-white border-gray-200 text-slate-800'
-                }`}>
-                  <span className="font-bold text-xs">Corte Automático (Guilhotina ESC/POS)</span>
-                  <button
-                    type="button"
-                    onClick={() => updateCurrentConfig(d => { d.hardware.autoCut = !d.hardware.autoCut; })}
-                    className="cursor-pointer"
-                  >
-                    {currentConfig.hardware.autoCut ? <ToggleRight className="w-6 h-6 text-[#18F2A4]" /> : <ToggleLeft className="w-6 h-6 text-gray-500" />}
-                  </button>
-                </div>
+                <span className="font-bold text-xs uppercase tracking-wider text-[#18F2A4]">
+                  Calibração Física de Hardware (Margem & Espaçamento)
+                </span>
 
-                <div className={`flex items-center justify-between p-2 rounded-lg border ${
-                  isDark ? 'bg-black/20 border-gray-800 text-white' : 'bg-white border-gray-200 text-slate-800'
-                }`}>
-                  <span className="font-bold text-xs">Abertura de Gaveta de Dinheiro</span>
-                  <button
-                    type="button"
-                    onClick={() => updateCurrentConfig(d => { d.hardware.cashDrawer = !d.hardware.cashDrawer; })}
-                    className="cursor-pointer"
-                  >
-                    {currentConfig.hardware.cashDrawer ? <ToggleRight className="w-6 h-6 text-[#18F2A4]" /> : <ToggleLeft className="w-6 h-6 text-gray-500" />}
-                  </button>
-                </div>
-
-                <div className={`flex items-center justify-between p-2 rounded-lg border ${
-                  isDark ? 'bg-black/20 border-gray-800 text-white' : 'bg-white border-gray-200 text-slate-800'
-                }`}>
-                  <span className="font-bold text-xs">Buzzer / Alarme Sonoro</span>
-                  <button
-                    type="button"
-                    onClick={() => updateCurrentConfig(d => { d.hardware.buzzer = !d.hardware.buzzer; })}
-                    className="cursor-pointer"
-                  >
-                    {currentConfig.hardware.buzzer ? <ToggleRight className="w-6 h-6 text-[#18F2A4]" /> : <ToggleLeft className="w-6 h-6 text-gray-500" />}
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          )}
-
-          {/* =========================================================================
-              PANEL 3: LAYOUT DA IMPRESSÃO ESC/POS PARAMS & HEX INSPECTOR
-              ========================================================================= */}
-          {activeTab === 'layout' && (
-            <motion.div
-              key="layout"
-              initial={{ opacity: 0, y: 3 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -3 }}
-              transition={{ duration: 0.12 }}
-              className="flex flex-col gap-4"
-            >
-              <div className="grid grid-cols-1 sm:grid-cols-4 lg:grid-cols-6 gap-3">
-                <div>
-                  <label className="text-[10px] font-bold uppercase text-gray-400">Fonte ESC/POS</label>
-                  <select
-                    value={currentConfig.layout.fontFamily}
-                    onChange={(e) => updateCurrentConfig(d => { d.layout.fontFamily = e.target.value as any; })}
-                    className={`w-full p-2 rounded-lg border font-bold text-xs outline-none mt-1 ${
-                      isDark ? 'bg-[#111] border-gray-800 text-white' : 'bg-gray-50 border-gray-300 text-slate-900'
-                    }`}
-                  >
-                    <option value="font_a">Fonte A (12x24 dots)</option>
-                    <option value="font_b">Fonte B (9x17 dots)</option>
-                    <option value="font_c">Fonte C (9x24 dots)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-[10px] font-bold uppercase text-gray-400">Escala Horizontal</label>
-                  <select
-                    value={currentConfig.layout.scaleHorizontal}
-                    onChange={(e) => updateCurrentConfig(d => { d.layout.scaleHorizontal = Number(e.target.value) as any; })}
-                    className={`w-full p-2 rounded-lg border font-mono font-bold text-xs outline-none mt-1 ${
-                      isDark ? 'bg-[#111] border-gray-800 text-white' : 'bg-gray-50 border-gray-300 text-slate-900'
-                    }`}
-                  >
-                    <option value={1}>1x Normal</option>
-                    <option value={2}>2x Largura</option>
-                    <option value={3}>3x Largura</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-[10px] font-bold uppercase text-gray-400">Escala Vertical</label>
-                  <select
-                    value={currentConfig.layout.scaleVertical}
-                    onChange={(e) => updateCurrentConfig(d => { d.layout.scaleVertical = Number(e.target.value) as any; })}
-                    className={`w-full p-2 rounded-lg border font-mono font-bold text-xs outline-none mt-1 ${
-                      isDark ? 'bg-[#111] border-gray-800 text-white' : 'bg-gray-50 border-gray-300 text-slate-900'
-                    }`}
-                  >
-                    <option value={1}>1x Normal</option>
-                    <option value={2}>2x Altura</option>
-                    <option value={3}>3x Altura</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-[10px] font-bold uppercase text-gray-400">Alinhamento Padrão</label>
-                  <div className="grid grid-cols-3 gap-1 mt-1">
-                    {[
-                      { id: 'left', icon: AlignLeft },
-                      { id: 'center', icon: AlignCenter },
-                      { id: 'right', icon: AlignRight },
-                    ].map(a => {
-                      const Icon = a.icon;
-                      const isSel = currentConfig.layout.align === a.id;
-                      return (
-                        <button
-                          key={a.id}
-                          type="button"
-                          onClick={() => updateCurrentConfig(d => { d.layout.align = a.id as any; })}
-                          className={`p-1.5 rounded-lg border flex items-center justify-center cursor-pointer ${
-                            isSel
-                              ? 'border-[#18F2A4] bg-[#18F2A4]/15 text-[#18F2A4]'
-                              : isDark ? 'border-gray-800 bg-[#111] text-gray-500' : 'border-gray-300 bg-gray-100 text-slate-600'
-                          }`}
-                        >
-                          <Icon className="w-3.5 h-3.5" />
-                        </button>
-                      );
-                    })}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Margem Segura Dots Slider (Volume-Style Mixer UI) */}
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[10px] font-bold uppercase text-gray-400">
+                      Margem Segura Física (Dots / GS L)
+                    </label>
+                    <div className={`flex items-center gap-3 p-3 rounded-xl border ${
+                      isDark ? 'bg-gray-900/60 border-gray-800' : 'bg-white border-gray-300'
+                    }`}>
+                      <input
+                        type="range"
+                        min="0"
+                        max="120"
+                        step="1"
+                        value={currentConfig.layout.safeMarginDots !== undefined ? currentConfig.layout.safeMarginDots : ((currentConfig.layout.leftMarginOffset || 0) * 12)}
+                        onChange={(e) => {
+                          const dots = Math.max(0, Number(e.target.value) || 0);
+                          updateCurrentConfig(d => {
+                            d.layout.safeMarginDots = dots;
+                            d.layout.leftMarginOffset = Math.round(dots / 12);
+                          });
+                        }}
+                        className="w-full accent-[#18F2A4] cursor-pointer h-2 rounded-lg bg-gray-300 dark:bg-gray-700"
+                      />
+                      <input
+                        type="number"
+                        min="0"
+                        max="120"
+                        value={currentConfig.layout.safeMarginDots !== undefined ? currentConfig.layout.safeMarginDots : ((currentConfig.layout.leftMarginOffset || 0) * 12)}
+                        onChange={(e) => {
+                          const dots = Math.max(0, Number(e.target.value) || 0);
+                          updateCurrentConfig(d => {
+                            d.layout.safeMarginDots = dots;
+                            d.layout.leftMarginOffset = Math.round(dots / 12);
+                          });
+                        }}
+                        className={`w-14 p-1.5 rounded-lg border font-mono font-bold text-xs outline-none text-center ${
+                          isDark ? 'bg-[#111] border-gray-800 text-white' : 'bg-gray-50 border-gray-300 text-slate-900'
+                        }`}
+                      />
+                      <span className={`text-xs font-mono font-bold min-w-14 text-right ${
+                        isDark ? 'text-[#18F2A4]' : 'text-emerald-800'
+                      }`}>
+                        ~{(((currentConfig.layout.safeMarginDots !== undefined ? currentConfig.layout.safeMarginDots : ((currentConfig.layout.leftMarginOffset || 0) * 12)) || 0) / 8).toFixed(1)} mm
+                      </span>
+                    </div>
                   </div>
-                </div>
 
-                <div className="col-span-1 sm:col-span-2">
-                  <label className="text-[10px] font-bold uppercase text-gray-400">Margem Segura Física (Deslocamento em Dots / mm)</label>
-                  <div className="flex items-center gap-2 mt-1">
-                    <input
-                      type="number"
-                      value={currentConfig.layout.safeMarginDots !== undefined ? currentConfig.layout.safeMarginDots : ((currentConfig.layout.leftMarginOffset || 0) * 12)}
-                      onChange={(e) => {
-                        const dots = Math.max(0, Number(e.target.value) || 0);
-                        updateCurrentConfig(d => {
-                          d.layout.safeMarginDots = dots;
-                          d.layout.leftMarginOffset = Math.round(dots / 12);
-                        });
-                      }}
-                      className={`w-full p-2 rounded-lg border font-mono font-bold text-xs outline-none ${
-                        isDark ? 'bg-[#111] border-gray-800 text-white' : 'bg-gray-50 border-gray-300 text-slate-900'
-                      }`}
-                      placeholder="0"
-                    />
-                    <span className="text-[10px] text-gray-400 font-mono shrink-0">dots</span>
-                    <span className="text-[10px] text-[#18F2A4] font-mono font-bold shrink-0">
-                      (~{(((currentConfig.layout.safeMarginDots !== undefined ? currentConfig.layout.safeMarginDots : ((currentConfig.layout.leftMarginOffset || 0) * 12)) || 0) / 8).toFixed(1)} mm)
-                    </span>
+                  {/* Espaçamento de Linhas Dots Slider (Volume-Style Mixer UI) */}
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[10px] font-bold uppercase text-gray-400">
+                      Espaçamento entre Linhas (Dots / ESC 3)
+                    </label>
+                    <div className={`flex items-center gap-3 p-3 rounded-xl border ${
+                      isDark ? 'bg-gray-900/60 border-gray-800' : 'bg-white border-gray-300'
+                    }`}>
+                      <input
+                        type="range"
+                        min="24"
+                        max="60"
+                        step="1"
+                        value={currentConfig.layout.lineSpacing || 38}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          updateCurrentConfig(d => {
+                            d.layout.lineSpacing = val;
+                          });
+                        }}
+                        className="w-full accent-[#18F2A4] cursor-pointer h-2 rounded-lg bg-gray-300 dark:bg-gray-700"
+                      />
+                      <input
+                        type="number"
+                        min="24"
+                        max="60"
+                        value={currentConfig.layout.lineSpacing || 38}
+                        onChange={(e) => {
+                          const val = Math.min(60, Math.max(24, Number(e.target.value) || 38));
+                          updateCurrentConfig(d => {
+                            d.layout.lineSpacing = val;
+                          });
+                        }}
+                        className={`w-14 p-1.5 rounded-lg border font-mono font-bold text-xs outline-none text-center ${
+                          isDark ? 'bg-[#111] border-gray-800 text-white' : 'bg-gray-50 border-gray-300 text-slate-900'
+                        }`}
+                      />
+                      <span className={`text-xs font-mono font-bold min-w-14 text-right ${
+                        isDark ? 'text-[#18F2A4]' : 'text-emerald-800'
+                      }`}>
+                        ~{(((currentConfig.layout.lineSpacing || 38)) / 8).toFixed(1)} mm
+                      </span>
+                    </div>
                   </div>
-                  <span className="text-[10px] text-gray-500 block mt-1">
-                    Aplica o comando de margem esquerda ESC/POS no hardware (GS L nL nH). Elimina cortes na borda esquerda e impede o desvio de colunas no papel.
-                  </span>
-                </div>
-
-                <div className="col-span-1 sm:col-span-2 mt-2">
-                  <label className="text-[10px] font-bold uppercase text-gray-400">Espaçamento entre Linhas (Dots / ESC 3 n)</label>
-                  <div className="flex items-center gap-3 mt-1">
-                    <input
-                      type="range"
-                      min="24"
-                      max="60"
-                      step="2"
-                      value={currentConfig.layout.lineSpacing || 38}
-                      onChange={(e) => {
-                        const val = Number(e.target.value);
-                        updateCurrentConfig(d => {
-                          d.layout.lineSpacing = val;
-                        });
-                      }}
-                      className="flex-1 accent-[#18F2A4]"
-                    />
-                    <input
-                      type="number"
-                      min="24"
-                      max="60"
-                      value={currentConfig.layout.lineSpacing || 38}
-                      onChange={(e) => {
-                        const val = Math.min(60, Math.max(24, Number(e.target.value) || 38));
-                        updateCurrentConfig(d => {
-                          d.layout.lineSpacing = val;
-                        });
-                      }}
-                      className={`w-16 p-2 rounded-lg border font-mono font-bold text-xs outline-none text-center ${
-                        isDark ? 'bg-[#111] border-gray-800 text-white' : 'bg-gray-50 border-gray-300 text-slate-900'
-                      }`}
-                    />
-                    <span className="text-[10px] text-gray-400 font-mono shrink-0">dots</span>
-                    <span className="text-[10px] text-[#18F2A4] font-mono font-bold shrink-0">
-                      (~{(((currentConfig.layout.lineSpacing || 38)) / 8).toFixed(1)} mm)
-                    </span>
-                  </div>
-                  <span className="text-[10px] text-gray-500 block mt-1">
-                    Define o espaçamento vertical entre linhas de texto da comanda (Comando ESC 3 n). Padrão ideal para leitura: 38 dots (~4.8mm).
-                  </span>
                 </div>
               </div>
 

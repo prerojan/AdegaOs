@@ -202,7 +202,6 @@ export default function OrderApp({
 
     if (newlyReadyAdded && newlyReadyMessage) {
       addToast(newlyReadyMessage, 'ready');
-      audioManager.play('order_ready');
     }
 
     prevReadyItemsMapRef.current = readyItemsMap;

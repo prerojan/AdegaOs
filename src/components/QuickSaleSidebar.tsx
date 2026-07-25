@@ -513,7 +513,7 @@ export default function QuickSaleSidebar({
               }`}
             >
               <CheckCircle className="w-4 h-4" />
-              Concluir Venda e Emitir Cupom
+              Concluir Venda e Imprimir Cupom
             </button>
           </div>
         )}
