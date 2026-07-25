@@ -151,7 +151,11 @@ export function getPhysicalPrinterProfile(
       : (hardwareConfig?.leftMarginOffset !== undefined ? hardwareConfig.leftMarginOffset : 0)
   );
 
-  const rightMarginCols = hardwareConfig?.rightMarginCols ? Math.max(0, Number(hardwareConfig.rightMarginCols)) : 0;
+  const rightMarginCols = Number(
+    hardwareConfig?.rightMarginCols !== undefined
+      ? hardwareConfig.rightMarginCols
+      : (layoutConfig?.rightMarginCols !== undefined ? layoutConfig.rightMarginCols : 0)
+  ) || 0;
   
   // Safe Physical Dot Margin (hardware ESC/POS left margin)
   const safeMarginDots = Math.max(
@@ -167,9 +171,10 @@ export function getPhysicalPrinterProfile(
 
   const leftMarginCols = Math.round(safeMarginDots / fontWidthDots);
 
-  // Apply margin strictly via hardware (GS L / GS W), without reducing usableColumns by safeMarginDots in software to prevent double margin shift/cut.
+  // Calculate available columns after applying left hardware margin (safeMarginDots) and right margin
   const rightMarginDots = rightMarginCols * fontWidthDots;
-  const usableColumns = Math.max(8, Math.floor((printableWidthDots - rightMarginDots) / fontWidthDots));
+  const netPrintableDots = Math.max(100, printableWidthDots - safeMarginDots - rightMarginDots);
+  const usableColumns = Math.max(8, Math.floor(netPrintableDots / fontWidthDots));
 
   return {
     paperSize: paperSize as '58mm' | '80mm',
@@ -636,7 +641,25 @@ export function buildDocumentMatrix(
         style: { bold: true }
       });
       matrix.push({ type: 'divider' });
-      (data.items || []).forEach((it: any) => {
+      const rawItems = data.items || [];
+      const consolidatedItems: any[] = [];
+      const itemMap = new Map<string, any>();
+      rawItems.forEach((it: any) => {
+        const name = (it.name || it.productName || 'Item').trim();
+        const notes = (it.notes || '').trim();
+        const key = `${name.toLowerCase()}|||${notes.toLowerCase()}`;
+        const qty = Number(it.qty || it.quantity || 1);
+        if (itemMap.has(key)) {
+          const existing = itemMap.get(key);
+          existing.qty = (existing.qty || 1) + qty;
+        } else {
+          const copy = { ...it, name, notes, qty };
+          itemMap.set(key, copy);
+          consolidatedItems.push(copy);
+        }
+      });
+
+      consolidatedItems.forEach((it: any) => {
         const qtyStr = `${it.qty || it.quantity || 1}x`;
         const nameStr = (it.name || it.productName || 'Item').trim();
         matrix.push({ type: 'flex_row', leftText: `${qtyStr} ${nameStr}`, rightText: '', isBold: true });
@@ -895,7 +918,8 @@ export function renderMatrixToEscPosBuffer(
   const nH = Math.floor(safeMarginDots / 256);
 
   // Set printing area width (GS W wL wH) so ESC a alignment commands calculate center relative to printable area after left margin
-  const printAreaWidthDots = Math.max(100, profile.printableWidthDots - safeMarginDots);
+  const rightMarginDots = (profile.rightMarginCols || 0) * profile.fontWidthDots;
+  const printAreaWidthDots = Math.max(100, profile.printableWidthDots - safeMarginDots - rightMarginDots);
   const wL = printAreaWidthDots % 256;
   const wH = Math.floor(printAreaWidthDots / 256);
 
@@ -989,6 +1013,8 @@ export function generateReceiptHtmlFromMatrix(
   const globalBold = customLayoutSettings?.bold === true;
 
   const safeMarginMm = ((profile.safeMarginDots || 0) / profile.dotsPerMm).toFixed(2);
+  const rightMarginDots = (profile.rightMarginCols || 0) * profile.fontWidthDots;
+  const rightMarginMm = (rightMarginDots / profile.dotsPerMm).toFixed(2);
   const lineSpacingDots = profile.lineSpacingDots || 38;
   const fontHeightDots = profile.fontHeightDots || 24;
   const lineHeightCss = (lineSpacingDots / fontHeightDots).toFixed(2);
@@ -1065,7 +1091,7 @@ export function generateReceiptHtmlFromMatrix(
             width: ${widthCss};
             max-width: ${widthCss};
             margin: 0 auto;
-            padding: 0 0mm 4mm ${safeMarginMm}mm;
+            padding: 0 ${rightMarginMm}mm 4mm ${safeMarginMm}mm;
             font-family: ${fontFamilyCss};
             font-size: ${fontSizeCss};
             font-weight: ${globalBold ? '900' : '700'};

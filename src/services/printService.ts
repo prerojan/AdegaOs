@@ -18,6 +18,27 @@ export interface PrintQueueItem {
   errorMsg?: string;
 }
 
+export function combineIdenticalItems(items: any[]): any[] {
+  if (!Array.isArray(items) || items.length === 0) return [];
+  const map = new Map<string, any>();
+
+  items.forEach(item => {
+    const name = (item.name || item.productName || 'Item').trim();
+    const notes = (item.notes || '').trim();
+    const key = `${name.toLowerCase()}|||${notes.toLowerCase()}`;
+    const qty = Number(item.qty || item.quantity || 1);
+
+    if (map.has(key)) {
+      const existing = map.get(key);
+      existing.qty = (existing.qty || 1) + qty;
+    } else {
+      map.set(key, { ...item, name, notes, qty });
+    }
+  });
+
+  return Array.from(map.values());
+}
+
 class PrintService {
   private queue: PrintQueueItem[] = [];
   private isProcessing: boolean = false;
@@ -38,16 +59,21 @@ class PrintService {
       const autoPrintEnabled = localStorage.getItem('adegaos_auto_print_comanda') !== 'false';
       if (!autoPrintEnabled) return;
 
-      const jobKey = `comanda_order_${payload.id}_${JSON.stringify(payload.items)}`;
+      // Ignore incremental remote_sync fragments to prevent duplicate single-item tickets
+      if (payload.origin === 'remote_sync') return;
+
+      const combinedItems = combineIdenticalItems(payload.items || []);
+      const jobKey = `comanda_order_${payload.id}_${JSON.stringify(combinedItems)}`;
+      
       this.enqueuePrint({
         type: 'comanda',
         data: {
-          identifier: payload.table || payload.id.slice(-6).toUpperCase(),
-          table: payload.table,
+          identifier: payload.table || (payload.id && payload.id.length > 6 ? payload.id.slice(-6).toUpperCase() : payload.id || 'BALCÃO'),
+          table: payload.table || 'BALCÃO',
           date: new Date().toLocaleDateString('pt-BR'),
-          time: new Date().toLocaleTimeString('pt-BR'),
+          time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
           sector: payload.sector || 'cozinha',
-          items: payload.items
+          items: combinedItems
         },
         sector: payload.sector || 'cozinha',
         jobKey

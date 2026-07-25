@@ -654,26 +654,11 @@ export default function App() {
 
         currentMap.set(itemKey, currStatus);
 
-        // Real-time remote updates detection for new items, ready status, and cancellations
+        // Real-time remote updates detection for ready status and cancellations
         if (!isFirstLoad) {
           const prodObj = productsRef.current.find(p => p.id === item.productId);
 
-          // 1. New Item / Order Created remotely
-          if (prevStatus === undefined && currStatus !== 'cancelado') {
-            eventBus.publish('ORDER_CREATED', {
-              id: table.id,
-              table: tableStr,
-              items: [{
-                name: prodObj ? prodObj.name : 'Produto',
-                qty: item.quantity,
-                notes: item.notes,
-                price: item.unitPrice
-              }],
-              origin: 'remote_sync'
-            });
-          }
-
-          // 2. Item Status transitioned to 'pronto' (Order Ready)
+          // 1. Item Status transitioned to 'pronto' (Order Ready)
           if (prevStatus && prevStatus !== 'pronto' && currStatus === 'pronto') {
             eventBus.publish('ORDER_READY', {
               id: table.id,
@@ -682,7 +667,7 @@ export default function App() {
             });
           }
 
-          // 3. Item Status transitioned to 'cancelado'
+          // 2. Item Status transitioned to 'cancelado'
           if (prevStatus && prevStatus !== 'cancelado' && currStatus === 'cancelado') {
             eventBus.publish('ORDER_CANCELLED', {
               id: table.id,
