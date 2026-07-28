@@ -113,6 +113,7 @@ export interface CashierUser {
   pin: string;
   role: 'admin' | 'manager' | 'finance' | 'cashier' | 'waiter' | 'stock' | 'kitchen' | 'bar' | string;
   active: boolean;
+  email?: string;
 }
 
 export interface Shift {

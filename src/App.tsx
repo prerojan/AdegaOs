@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   BarChart3, Package, Layers, FileDown, Receipt, ShieldAlert, Key, 
   Settings, ShoppingCart, User, Landmark, Sun, Moon, Sparkles, Monitor, Tablet, Truck, HelpCircle, Users,
-  ChefHat, LogOut, Menu, FileSpreadsheet, Barcode, Play, Bell, AlertTriangle
+  ChefHat, LogOut, Menu, FileSpreadsheet, Barcode, Play, Bell, AlertTriangle, Zap, X
 } from 'lucide-react';
 
 import { Product, Supplier, Sale, FinancialTransaction, TableComandaState, TableItem, CashierUser, Shift } from './types';
@@ -38,7 +38,8 @@ import {
   subscribeTransactions,
   subscribeTablesComandas,
   subscribeUsers,
-  subscribeCategories
+  subscribeCategories,
+  getActiveStoreId
 } from './lib/firebase';
 
 
@@ -153,10 +154,23 @@ export default function App() {
     }));
   }, [products, sales]);
 
-  // Shift & Cash Drawer States
+  // Store Context & Dynamic Multi-Tenant Isolation
+  const [currentStoreId, setCurrentStoreId] = useState<string>(() => getActiveStoreId());
+
+  useEffect(() => {
+    const handleStoreChange = () => {
+      const newStoreId = getActiveStoreId();
+      setCurrentStoreId(newStoreId);
+    };
+    window.addEventListener('adegaos_store_changed', handleStoreChange);
+    return () => window.removeEventListener('adegaos_store_changed', handleStoreChange);
+  }, []);
+
+  // Shift & Cash Drawer States (scoped per store ID)
   const [activeShift, setActiveShift] = useState<Shift | null>(() => {
     try {
-      const stored = localStorage.getItem('adegaos_active_shift');
+      const storeId = getActiveStoreId();
+      const stored = localStorage.getItem(`adegaos_active_shift_${storeId}`);
       return stored ? JSON.parse(stored) : null;
     } catch {
       return null;
@@ -165,7 +179,8 @@ export default function App() {
 
   const [shiftHistory, setShiftHistory] = useState<Shift[]>(() => {
     try {
-      const stored = localStorage.getItem('adegaos_shift_history');
+      const storeId = getActiveStoreId();
+      const stored = localStorage.getItem(`adegaos_shift_history_${storeId}`);
       return stored ? JSON.parse(stored) : [];
     } catch {
       return [];
@@ -173,16 +188,29 @@ export default function App() {
   });
 
   useEffect(() => {
-    if (activeShift) {
-      localStorage.setItem('adegaos_active_shift', JSON.stringify(activeShift));
-    } else {
-      localStorage.removeItem('adegaos_active_shift');
+    try {
+      const storedActive = localStorage.getItem(`adegaos_active_shift_${currentStoreId}`);
+      setActiveShift(storedActive ? JSON.parse(storedActive) : null);
+
+      const storedHistory = localStorage.getItem(`adegaos_shift_history_${currentStoreId}`);
+      setShiftHistory(storedHistory ? JSON.parse(storedHistory) : []);
+    } catch {
+      setActiveShift(null);
+      setShiftHistory([]);
     }
-  }, [activeShift]);
+  }, [currentStoreId]);
 
   useEffect(() => {
-    localStorage.setItem('adegaos_shift_history', JSON.stringify(shiftHistory));
-  }, [shiftHistory]);
+    if (activeShift) {
+      localStorage.setItem(`adegaos_active_shift_${currentStoreId}`, JSON.stringify(activeShift));
+    } else {
+      localStorage.removeItem(`adegaos_active_shift_${currentStoreId}`);
+    }
+  }, [activeShift, currentStoreId]);
+
+  useEffect(() => {
+    localStorage.setItem(`adegaos_shift_history_${currentStoreId}`, JSON.stringify(shiftHistory));
+  }, [shiftHistory, currentStoreId]);
 
   const handleOpenShift = (openedBy: string, initialBalance: number) => {
     const newShift: Shift = {
@@ -321,13 +349,14 @@ export default function App() {
 
   // Product Shell Layout controls
   const [activeProductView, setActiveProductView] = useState<'manager' | 'order' | 'production' | 'landing' | 'admin'>(() => {
-    try {
-      const savedView = localStorage.getItem('adegaos_active_view');
-      if (savedView && ['manager', 'order', 'production', 'landing', 'admin'].includes(savedView)) {
-        return savedView as any;
-      }
-    } catch {}
+    // 1. URL Hash has highest priority for explicit routing
+    const hash = typeof window !== 'undefined' ? window.location.hash.replace('#', '') : '';
+    if (hash === 'admin') return 'admin';
+    if (hash === 'landing') return 'landing';
+    if (hash === 'order') return 'order';
+    if (hash === 'production') return 'production';
 
+    // 2. Active Session check (If logged in, direct to proper workspace view)
     try {
       const stored = localStorage.getItem('cashier_session_user');
       if (stored) {
@@ -338,14 +367,22 @@ export default function App() {
       }
     } catch {}
 
+    // 3. Saved View check (Excluding 'admin' so app doesn't stick in dev panel on reload)
     try {
-      const hasReg = localStorage.getItem('fluxos_has_registration') === 'true' || !!localStorage.getItem('adegaos_store_name');
-      if (hasReg) {
-        return 'manager';
+      const savedView = localStorage.getItem('adegaos_active_view');
+      if (savedView && ['manager', 'order', 'production'].includes(savedView)) {
+        return savedView as any;
       }
     } catch {}
 
-    // If no session, default to the marketing landing page
+    // 4. Default to Landing Page (or Login Screen if store registered)
+    try {
+      const hasReg = localStorage.getItem('fluxos_has_registration') === 'true' || !!localStorage.getItem('adegaos_store_name');
+      if (hasReg) {
+        return 'manager'; // Renders LoginScreen when currentUser is null
+      }
+    } catch {}
+
     return 'landing';
   });
 
@@ -773,6 +810,7 @@ export default function App() {
       }
     }
 
+    setLoading(true);
     loadAllDataAndSubscribe();
 
     return () => {
@@ -784,9 +822,9 @@ export default function App() {
       if (unsubUsers) unsubUsers();
       if (unsubCategories) unsubCategories();
     };
-  }, []);
+  }, [currentStoreId]);
 
-  // Global Barcode Scanner keyboard listener
+  // Global Barcode Scanner keyboard listener & Alt+V shortcut
   useEffect(() => {
     if (!currentUser) return;
 
@@ -794,6 +832,13 @@ export default function App() {
     let lastKeyTime = Date.now();
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      // 1. Shortcut Alt+V (Toggle PDV sidebar open/close)
+      if (e.altKey && (e.key === 'v' || e.key === 'V')) {
+        e.preventDefault();
+        setIsQuickSaleOpen(prev => !prev);
+        return;
+      }
+
       const currentTime = Date.now();
       const timeDiff = currentTime - lastKeyTime;
       lastKeyTime = currentTime;

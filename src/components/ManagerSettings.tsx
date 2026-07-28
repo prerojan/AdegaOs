@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Users, Store, ShieldAlert, Key, Plus, Save, ToggleLeft, ToggleRight, X, Trash2, Shield, Download, Laptop, Printer, Sliders, Play, Check, AlertCircle, FileText, Sparkles, RefreshCw, Volume2, Wifi, Usb, Bluetooth, HelpCircle, Award, Mail, Phone, Lock, Edit3, CheckCircle2, Server, Globe, Tablet, Radio, Zap, ChefHat, Tag } from 'lucide-react';
+import { Settings, Users, Store, ShieldAlert, Key, Plus, Save, ToggleLeft, ToggleRight, X, Trash2, Shield, Download, Laptop, Printer, Sliders, Play, Check, AlertCircle, FileText, Sparkles, RefreshCw, Volume2, Wifi, Usb, Bluetooth, HelpCircle, Award, Mail, Phone, Lock, Edit3, CheckCircle2, Server, Globe, Tablet, Radio, Zap, ChefHat, Tag, MessageSquare, Send, Clock } from 'lucide-react';
 import { CashierUser, Product } from '../types';
 import { PrinterDevice, getSavedPrinters, savePrinters, triggerThermalPrint } from '../lib/thermalPrinter';
 import EnterprisePrinterControlCenter from './EnterprisePrinterControlCenter';
@@ -27,13 +27,81 @@ export default function ManagerSettings({
   products
 }: ManagerSettingsProps) {
   // Topic Tab Selector State
-  type SETTINGS_TOPIC = 'general' | 'printers' | 'services' | 'staff' | 'terminals';
+  type SETTINGS_TOPIC = 'general' | 'printers' | 'services' | 'staff' | 'terminals' | 'support';
   const [activeTopic, setActiveTopic] = useState<SETTINGS_TOPIC>('general');
 
   // Corporate states
   const [storeName, setStoreName] = useState(() => localStorage.getItem('adegaos_store_name') || 'Adega Central Premium');
   const [cnpj, setCnpj] = useState(() => localStorage.getItem('adegaos_cnpj') || '12.345.678/0001-99');
   const [address, setAddress] = useState(() => localStorage.getItem('adegaos_address') || 'Rua dos Boêmios, 100 - Centro, São Paulo - SP');
+
+  // Support Tickets & Feedback State (Sent directly to Painel Dev)
+  const [storeTickets, setStoreTickets] = useState<any[]>(() => {
+    try {
+      const stored = localStorage.getItem('flux_admin_tickets');
+      if (stored) return JSON.parse(stored);
+    } catch (e) {}
+    return [];
+  });
+
+  const [ticketSubject, setTicketSubject] = useState('');
+  const [ticketCategory, setTicketCategory] = useState<string>('Ajuste Operacional');
+  const [ticketPriority, setTicketPriority] = useState<'low' | 'medium' | 'high'>('medium');
+  const [ticketDescription, setTicketDescription] = useState('');
+  const [ticketSuccessMsg, setTicketSuccessMsg] = useState('');
+
+  // Reload tickets on storage event
+  useEffect(() => {
+    const reloadStoreTickets = () => {
+      try {
+        const stored = localStorage.getItem('flux_admin_tickets');
+        if (stored) setStoreTickets(JSON.parse(stored));
+      } catch (e) {}
+    };
+    window.addEventListener('storage', reloadStoreTickets);
+    window.addEventListener('flux_ticket_created', reloadStoreTickets);
+    return () => {
+      window.removeEventListener('storage', reloadStoreTickets);
+      window.removeEventListener('flux_ticket_created', reloadStoreTickets);
+    };
+  }, []);
+
+  const handleSubmitTicketToDev = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!ticketSubject.trim() || !ticketDescription.trim()) {
+      alert('Favor preencher o assunto e a descrição do chamado/feedback.');
+      return;
+    }
+
+    const newTicket = {
+      id: `tkt-${Date.now().toString().slice(-4)}`,
+      clientName: storeName || 'Adega Central Premium',
+      subject: ticketSubject.trim(),
+      description: ticketDescription.trim(),
+      priority: ticketPriority,
+      status: 'open',
+      createdAt: new Date().toLocaleDateString('pt-BR') + ' ' + new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+      category: ticketCategory
+    };
+
+    let list: any[] = [];
+    try {
+      const stored = localStorage.getItem('flux_admin_tickets');
+      if (stored) list = JSON.parse(stored);
+    } catch (e) {}
+
+    const updated = [newTicket, ...list];
+    localStorage.setItem('flux_admin_tickets', JSON.stringify(updated));
+    setStoreTickets(updated);
+
+    // Broadcast event for real-time Painel Dev sync
+    window.dispatchEvent(new CustomEvent('flux_ticket_created', { detail: newTicket }));
+
+    setTicketSubject('');
+    setTicketDescription('');
+    setTicketSuccessMsg('Chamado de suporte enviado com sucesso para o Painel Dev da Engenharia FluxOS!');
+    setTimeout(() => setTicketSuccessMsg(''), 5000);
+  };
 
   // Real-time thermal roll text
   const [activeReceiptText, setActiveReceiptText] = useState<string>(() => {
@@ -420,6 +488,24 @@ export default function ManagerSettings({
         >
           <Laptop className="w-4 h-4" />
           <span>Terminais & Segurança PWA</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTopic('support')}
+          className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all cursor-pointer ${
+            activeTopic === 'support'
+              ? (theme === 'dark' ? 'bg-[#18F2A4] text-black shadow-md' : 'bg-[#10B981] text-white shadow-md')
+              : 'text-gray-400 hover:text-white hover:bg-gray-500/10'
+          }`}
+        >
+          <MessageSquare className="w-4 h-4" />
+          <span>Central de Suporte & Feedbacks</span>
+          {storeTickets.filter(t => t.status === 'open' || t.status === 'in_progress').length > 0 && (
+            <span className="ml-1 text-[10px] px-2 py-0.5 rounded-full font-black bg-amber-500 text-black">
+              {storeTickets.filter(t => t.status === 'open' || t.status === 'in_progress').length}
+            </span>
+          )}
         </button>
       </div>
 
@@ -1157,86 +1243,169 @@ export default function ManagerSettings({
       )}
 
       {/* =========================================================
-          TOPIC 4: TERMINAIS & SEGURANÇA PWA
+          TOPIC 5: CENTRAL DE SUPORTE & FEEDBACKS
           ========================================================= */}
-      {activeTopic === 'terminals' && (
-        <div className="flex flex-col gap-6 animate-fade-in">
-          
-          <div className={`p-5 rounded-2xl border flex flex-col gap-5 ${
-            theme === 'dark' ? 'bg-[#080808] border-[#111]' : 'bg-white border-gray-200 shadow-sm'
-          }`}>
-            <div className="flex items-center gap-2 border-b pb-3" style={{ borderColor: theme === 'dark' ? '#161616' : '#F3F4F6' }}>
-              <Laptop className="w-4 h-4 text-[#18F2A4]" />
-              <span className="text-xs uppercase font-extrabold text-gray-400 tracking-wider">Modo Frente de Caixa Nativo (App PWA Standalone)</span>
+      {activeTopic === 'support' && (
+        <div className="flex flex-col gap-6 animate-fade-in text-left">
+          <div className="flex flex-col">
+            <h3 className="text-lg font-black tracking-tight" style={{ color: theme === 'dark' ? 'white' : '#111' }}>
+              Central de Chamados de Suporte & Feedback Operacional
+            </h3>
+            <p className="text-xs text-gray-400 mt-1">
+              Envie solicitações de ajustes, melhorias, suporte de impressoras ou feedbacks operacionais para a equipe de atendimento técnico.
+            </p>
+          </div>
+
+          {ticketSuccessMsg && (
+            <div className="p-4 rounded-xl border bg-emerald-500/10 border-emerald-500/30 text-emerald-400 text-xs font-bold flex items-center gap-2 animate-fade-in">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>{ticketSuccessMsg}</span>
             </div>
+          )}
 
-            <div className="flex flex-col md:flex-row gap-5 items-start">
-              <div className="flex-1 flex flex-col gap-3">
-                <span className="text-sm font-bold block" style={{ color: theme === 'dark' ? 'white' : '#111' }}>Instalação e Uso em Computadores do Salão e Caixa</span>
-                <p className="text-xs text-gray-400 leading-relaxed">
-                  O FluxOS é uma PWA otimizada para execução em tela cheia e modo quiosque (Kiosk Mode). Ele permite acesso ultra-rápido aos garçons e caixas sem barras do navegador.
-                </p>
-
-                {deferredPrompt ? (
-                  <div className="mt-2">
-                    <button
-                      type="button"
-                      onClick={handleTriggerInstall}
-                      className={`px-5 py-3 rounded-xl text-xs font-black flex items-center gap-2 transition-all active:scale-95 cursor-pointer shadow-lg ${
-                        theme === 'dark' ? 'bg-[#18F2A4] text-black hover:bg-[#12d58f]' : 'bg-[#10B981] text-white hover:bg-[#0e9f6e]'
-                      }`}
-                    >
-                      <Download className="w-4 h-4" />
-                      Instalar Aplicativo Oficial no Computador
-                    </button>
-                  </div>
-                ) : isAppInstalled ? (
-                  <div className="p-3 rounded-xl border bg-emerald-950/20 border-emerald-500/30 text-emerald-400 text-xs font-bold flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                    <span>FluxOS está em execução como aplicativo nativo standalone.</span>
-                  </div>
-                ) : (
-                  <div className="p-4 rounded-xl border flex flex-col gap-2 bg-gray-500/5 border-gray-800 text-xs">
-                    <span className="font-bold text-amber-400 uppercase tracking-wider text-[10px]">Passo a Passo Para Instalação:</span>
-                    <ol className="list-decimal list-inside text-gray-300 space-y-1" style={{ color: theme === 'dark' ? '#DDD' : '#444' }}>
-                      <li>No Google Chrome / Edge, abra o menu de opções no canto superior direito.</li>
-                      <li>Clique em <strong>Salvar e Compartilhar</strong> &gt; <strong>Criar Atalho...</strong></li>
-                      <li>Marque a caixa <strong>"Abrir como janela"</strong>.</li>
-                      <li>Clique em <strong>Criar</strong> para ter o ícone do FluxOS na área de trabalho.</li>
-                    </ol>
-                  </div>
-                )}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Form to submit support ticket */}
+            <form onSubmit={handleSubmitTicketToDev} className={`lg:col-span-5 p-5 rounded-2xl border flex flex-col gap-4 ${
+              theme === 'dark' ? 'bg-[#080808] border-[#111]' : 'bg-white border-gray-200 shadow-sm'
+            }`}>
+              <div className="flex items-center justify-between border-b pb-3" style={{ borderColor: theme === 'dark' ? '#161616' : '#F3F4F6' }}>
+                <span className="text-xs font-black uppercase text-gray-400 tracking-wider flex items-center gap-2">
+                  <MessageSquare className="w-4 h-4 text-[#18F2A4]" />
+                  Novo Chamado / Ajuste
+                </span>
+                <span className="text-[9px] font-bold text-gray-500 uppercase font-mono">Suporte Técnico</span>
               </div>
 
-              {/* Status parameters */}
-              <div className={`p-4 rounded-xl border flex flex-col gap-3 w-full md:w-64 shrink-0 text-xs ${
-                theme === 'dark' ? 'bg-[#111] border-gray-800' : 'bg-gray-100 border-gray-200'
-              }`}>
-                <span className="font-extrabold uppercase text-[10px] text-gray-400 tracking-wider">Status do Terminal</span>
-                <div className="flex flex-col gap-2 text-gray-400">
-                  <div className="flex justify-between items-center">
-                    <span>Cache Offline S-Sync:</span>
-                    <span className="font-bold text-emerald-400">Ativo</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span>Conexão Local:</span>
-                    <span className="font-bold text-sky-400">Online</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span>Versão da PWA:</span>
-                    <span className="font-mono text-white font-bold">v3.8.5</span>
-                  </div>
+              <div className="flex flex-col gap-1.5 text-xs">
+                <label className="text-gray-400 font-bold uppercase tracking-widest text-[9px]">Assunto do Chamado *</label>
+                <input
+                  type="text"
+                  required
+                  value={ticketSubject}
+                  onChange={(e) => setTicketSubject(e.target.value)}
+                  placeholder="Ex: Ajuste na impressão de comanda da cozinha"
+                  className={`p-3 rounded-xl border outline-none font-bold ${
+                    theme === 'dark' ? 'bg-[#111] border-gray-800 text-white' : 'bg-gray-50 border-gray-200 text-black'
+                  }`}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1.5 text-xs">
+                  <label className="text-gray-400 font-bold uppercase tracking-widest text-[9px]">Categoria *</label>
+                  <select
+                    value={ticketCategory}
+                    onChange={(e) => setTicketCategory(e.target.value)}
+                    className={`p-3 rounded-xl border outline-none font-bold ${
+                      theme === 'dark' ? 'bg-[#111] border-gray-800 text-white' : 'bg-gray-50 border-gray-200 text-black'
+                    }`}
+                  >
+                    <option value="Ajuste Operacional">Ajuste Operacional</option>
+                    <option value="Impressoras">Impressoras & Cupons</option>
+                    <option value="Estoque">Estoque & Produtos</option>
+                    <option value="Faturamento">Faturamento / Plano</option>
+                    <option value="Instabilidade">Instabilidade / Bug</option>
+                    <option value="Sugestão / Feedback">Sugestão / Feedback</option>
+                  </select>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={handleClearSystemCache}
-                  className="mt-2 w-full py-2 px-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 font-bold text-xs hover:bg-amber-500/20 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  Limpar Cache de Deploy
-                </button>
+                <div className="flex flex-col gap-1.5 text-xs">
+                  <label className="text-gray-400 font-bold uppercase tracking-widest text-[9px]">Prioridade *</label>
+                  <select
+                    value={ticketPriority}
+                    onChange={(e) => setTicketPriority(e.target.value as any)}
+                    className={`p-3 rounded-xl border outline-none font-bold ${
+                      theme === 'dark' ? 'bg-[#111] border-gray-800 text-white' : 'bg-gray-50 border-gray-200 text-black'
+                    }`}
+                  >
+                    <option value="low">Baixa</option>
+                    <option value="medium">Média</option>
+                    <option value="high">Alta (Urgente)</option>
+                  </select>
+                </div>
               </div>
+
+              <div className="flex flex-col gap-1.5 text-xs">
+                <label className="text-gray-400 font-bold uppercase tracking-widest text-[9px]">Descrição Detalhada do Ajuste ou Feedback *</label>
+                <textarea
+                  required
+                  rows={4}
+                  value={ticketDescription}
+                  onChange={(e) => setTicketDescription(e.target.value)}
+                  placeholder="Explique detalhadamente o que precisa ser ajustado ou sua sugestão de melhoria..."
+                  className={`p-3 rounded-xl border outline-none text-xs ${
+                    theme === 'dark' ? 'bg-[#111] border-gray-800 text-white' : 'bg-gray-50 border-gray-200 text-black'
+                  }`}
+                />
+              </div>
+
+              <button
+                type="submit"
+                className={`w-full py-3.5 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md ${
+                  theme === 'dark' ? 'bg-[#18F2A4] text-black hover:bg-[#12d58f]' : 'bg-[#10B981] text-white hover:bg-[#0e9f6e]'
+                }`}
+              >
+                <Send className="w-4 h-4" /> Enviar Chamado de Suporte
+              </button>
+            </form>
+
+            {/* List of submitted tickets for this store */}
+            <div className={`lg:col-span-7 p-5 rounded-2xl border flex flex-col gap-4 ${
+              theme === 'dark' ? 'bg-[#080808] border-[#111]' : 'bg-white border-gray-200 shadow-sm'
+            }`}>
+              <div className="flex items-center justify-between border-b pb-3" style={{ borderColor: theme === 'dark' ? '#161616' : '#F3F4F6' }}>
+                <span className="text-xs font-black uppercase text-gray-400 tracking-wider">Histórico de Chamados & Atendimento</span>
+                <span className="text-[10px] font-mono text-gray-500">{storeTickets.length} registros</span>
+              </div>
+
+              {storeTickets.length === 0 ? (
+                <div className="p-8 text-center text-xs text-gray-500 flex flex-col items-center gap-2">
+                  <MessageSquare className="w-8 h-8 text-gray-600 opacity-40" />
+                  <span>Nenhum chamado de suporte aberto até o momento.</span>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-3 max-h-[450px] overflow-y-auto no-scrollbar">
+                  {storeTickets.map((t) => (
+                    <div key={t.id} className={`p-4 rounded-xl border flex flex-col gap-2.5 text-xs ${
+                      theme === 'dark' ? 'bg-[#040404] border-gray-900' : 'bg-gray-50 border-gray-200'
+                    }`}>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-[10px] text-gray-500 font-bold">#{t.id}</span>
+                          <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-wider ${
+                            t.priority === 'high' ? 'bg-red-500/10 text-red-400 border border-red-500/20' :
+                            t.priority === 'medium' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
+                            'bg-gray-500/10 text-gray-400 border border-gray-500/20'
+                          }`}>
+                            {t.priority}
+                          </span>
+                          <span className="text-[9px] text-gray-500">{t.category}</span>
+                        </div>
+
+                        <span className={`px-2.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${
+                          t.status === 'resolved' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
+                          t.status === 'in_progress' ? 'bg-violet-500/10 text-violet-400 border border-violet-500/20 animate-pulse' :
+                          'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                        }`}>
+                          {t.status === 'resolved' ? 'Resolvido' : t.status === 'in_progress' ? 'Em Atendimento' : 'Aberto'}
+                        </span>
+                      </div>
+
+                      <span className={`font-extrabold text-xs ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>{t.subject}</span>
+                      {t.description && (
+                        <p className="text-gray-400 text-[11px] leading-relaxed bg-black/20 p-2.5 rounded-lg font-sans">
+                          {t.description}
+                        </p>
+                      )}
+
+                      <div className="flex justify-between items-center text-[9px] text-gray-500 pt-1 border-t border-gray-800/20">
+                        <span className="flex items-center gap-1"><Clock className="w-3 h-3 text-gray-500" /> Enviado em {t.createdAt}</span>
+                        <span className="font-mono text-gray-400">Loja: {t.clientName}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>

@@ -126,16 +126,60 @@ if (syncChannel) {
 function getCollection<T>(key: string, initialData: T[]): T[] {
   const storeId = getActiveStoreId();
   const fullKey = `fluxos_${key}_${storeId}`;
+  const isMainStore = storeId === 'store-main' || storeId === 'store-local';
+
   try {
     const stored = localStorage.getItem(fullKey);
     if (stored) {
       return JSON.parse(stored);
     }
-    localStorage.setItem(fullKey, JSON.stringify(initialData));
-    return initialData;
+
+    // Secondary / New store clients MUST start with clean isolated data (0 sales, 0 transactions)
+    let dataToInit = initialData;
+    if (!isMainStore) {
+      if (key === 'sales' || key === 'transactions' || key === 'suppliers') {
+        dataToInit = [] as any;
+      } else if (key === 'users') {
+        dataToInit = [
+          {
+            id: `u-admin-${storeId}`,
+            name: 'Administrador Adega',
+            pin: '1234',
+            role: 'admin',
+            active: true
+          }
+        ] as any;
+      }
+    }
+
+    localStorage.setItem(fullKey, JSON.stringify(dataToInit));
+    return dataToInit as T[];
   } catch {
+    if (!isMainStore && (key === 'sales' || key === 'transactions' || key === 'suppliers')) {
+      return [] as any;
+    }
     return initialData;
   }
+}
+
+// Helper clean user list for new stores
+function getStoreDefaultUsers(storeId: string): CashierUser[] {
+  return [
+    {
+      id: `u-admin-${storeId}`,
+      name: 'Administrador Adega',
+      pin: '1234',
+      role: 'admin',
+      active: true
+    },
+    {
+      id: `u-cashier-${storeId}`,
+      name: 'Caixa Principal',
+      pin: '0000',
+      role: 'cashier',
+      active: true
+    }
+  ];
 }
 
 // ================= SUBSCRIPTION METHODS (REAL-TIME INSTANT SYNC WITH STORE ISOLATION) =================
@@ -169,7 +213,9 @@ export function subscribeProducts(callback: (p: Product[]) => void) {
 
 export function subscribeSales(callback: (s: Sale[]) => void) {
   const storeId = getActiveStoreId();
+  const isMainStore = storeId === 'store-main' || storeId === 'store-local';
   const colRef = getStoreCol('sales');
+
   if (colRef) {
     return onSnapshot(colRef, (snapshot) => {
       if (snapshot.empty) {
@@ -183,26 +229,29 @@ export function subscribeSales(callback: (s: Sale[]) => void) {
       }
     }, (err) => {
       console.error('Firestore sales error:', err);
-      callback(getCollection('sales', MOCK_SALES));
+      callback(getCollection('sales', isMainStore ? MOCK_SALES : []));
     });
   }
   listeners.sales.add(callback);
-  callback(getCollection('sales', MOCK_SALES));
+  callback(getCollection('sales', isMainStore ? MOCK_SALES : []));
   return () => { listeners.sales.delete(callback); };
 }
 
 export function subscribeSuppliers(callback: (s: Supplier[]) => void) {
   const storeId = getActiveStoreId();
+  const isMainStore = storeId === 'store-main' || storeId === 'store-local';
   const colRef = getStoreCol('suppliers');
+
   if (colRef) {
     return onSnapshot(colRef, (snapshot) => {
       if (snapshot.empty) {
-        INITIAL_SUPPLIERS.forEach(s => {
+        const initialSups = isMainStore ? INITIAL_SUPPLIERS : [];
+        initialSups.forEach(s => {
           const docRef = getStoreDoc('suppliers', s.id);
           if (docRef) setDoc(docRef, cleanForFirestore(s));
         });
-        localStorage.setItem(`fluxos_suppliers_${storeId}`, JSON.stringify(INITIAL_SUPPLIERS));
-        callback(INITIAL_SUPPLIERS);
+        localStorage.setItem(`fluxos_suppliers_${storeId}`, JSON.stringify(initialSups));
+        callback(initialSups);
       } else {
         const sups = snapshot.docs.map(d => d.data() as Supplier);
         localStorage.setItem(`fluxos_suppliers_${storeId}`, JSON.stringify(sups));
@@ -210,11 +259,11 @@ export function subscribeSuppliers(callback: (s: Supplier[]) => void) {
       }
     }, (err) => {
       console.error('Firestore suppliers error:', err);
-      callback(getCollection('suppliers', INITIAL_SUPPLIERS));
+      callback(getCollection('suppliers', isMainStore ? INITIAL_SUPPLIERS : []));
     });
   }
   listeners.suppliers.add(callback);
-  callback(getCollection('suppliers', INITIAL_SUPPLIERS));
+  callback(getCollection('suppliers', isMainStore ? INITIAL_SUPPLIERS : []));
   return () => { listeners.suppliers.delete(callback); };
 }
 
@@ -223,9 +272,14 @@ export function subscribeTransactions(callback: (t: FinancialTransaction[]) => v
   const colRef = getStoreCol('transactions');
   if (colRef) {
     return onSnapshot(colRef, (snapshot) => {
-      const txs = snapshot.docs.map(d => d.data() as FinancialTransaction);
-      localStorage.setItem(`fluxos_transactions_${storeId}`, JSON.stringify(txs));
-      callback(txs);
+      if (snapshot.empty) {
+        localStorage.setItem(`fluxos_transactions_${storeId}`, JSON.stringify([]));
+        callback([]);
+      } else {
+        const txs = snapshot.docs.map(d => d.data() as FinancialTransaction);
+        localStorage.setItem(`fluxos_transactions_${storeId}`, JSON.stringify(txs));
+        callback(txs);
+      }
     }, (err) => {
       console.error('Firestore transactions error:', err);
       callback(getCollection('transactions', []));
@@ -280,16 +334,19 @@ export function subscribeTablesComandas(callback: (t: TableComandaState[]) => vo
 
 export function subscribeUsers(callback: (u: CashierUser[]) => void) {
   const storeId = getActiveStoreId();
+  const isMainStore = storeId === 'store-main' || storeId === 'store-local';
+  const defaultUsers = isMainStore ? INITIAL_CASHIER_USERS : getStoreDefaultUsers(storeId);
   const colRef = getStoreCol('users');
+
   if (colRef) {
     return onSnapshot(colRef, (snapshot) => {
       if (snapshot.empty) {
-        INITIAL_CASHIER_USERS.forEach(u => {
+        defaultUsers.forEach(u => {
           const docRef = getStoreDoc('users', u.id);
           if (docRef) setDoc(docRef, cleanForFirestore(u));
         });
-        localStorage.setItem(`fluxos_users_${storeId}`, JSON.stringify(INITIAL_CASHIER_USERS));
-        callback(INITIAL_CASHIER_USERS);
+        localStorage.setItem(`fluxos_users_${storeId}`, JSON.stringify(defaultUsers));
+        callback(defaultUsers);
       } else {
         const users = snapshot.docs.map(d => d.data() as CashierUser);
         localStorage.setItem(`fluxos_users_${storeId}`, JSON.stringify(users));
@@ -297,11 +354,11 @@ export function subscribeUsers(callback: (u: CashierUser[]) => void) {
       }
     }, (err) => {
       console.error('Firestore users error:', err);
-      callback(getCollection('users', INITIAL_CASHIER_USERS));
+      callback(getCollection('users', defaultUsers));
     });
   }
   listeners.users.add(callback);
-  callback(getCollection('users', INITIAL_CASHIER_USERS));
+  callback(getCollection('users', defaultUsers));
   return () => { listeners.users.delete(callback); };
 }
 
@@ -378,7 +435,9 @@ export async function saveProductToDb(prod: Product): Promise<void> {
 
 export async function fetchSalesFromDb(): Promise<Sale[]> {
   const storeId = getActiveStoreId();
+  const isMainStore = storeId === 'store-main' || storeId === 'store-local';
   const colRef = getStoreCol('sales');
+
   if (colRef) {
     try {
       const snap = await getDocs(colRef);
@@ -392,7 +451,7 @@ export async function fetchSalesFromDb(): Promise<Sale[]> {
       console.error('Error fetching sales from Firestore:', err);
     }
   }
-  return getCollection('sales', MOCK_SALES);
+  return getCollection('sales', isMainStore ? MOCK_SALES : []);
 }
 
 export async function saveSaleToDb(sale: Sale): Promise<void> {
@@ -421,7 +480,9 @@ export async function saveSaleToDb(sale: Sale): Promise<void> {
 
 export async function fetchSuppliersFromDb(): Promise<Supplier[]> {
   const storeId = getActiveStoreId();
+  const isMainStore = storeId === 'store-main' || storeId === 'store-local';
   const colRef = getStoreCol('suppliers');
+
   if (colRef) {
     try {
       const snap = await getDocs(colRef);
@@ -434,7 +495,7 @@ export async function fetchSuppliersFromDb(): Promise<Supplier[]> {
       console.error('Error fetching suppliers from Firestore:', err);
     }
   }
-  return getCollection('suppliers', INITIAL_SUPPLIERS);
+  return getCollection('suppliers', isMainStore ? INITIAL_SUPPLIERS : []);
 }
 
 export async function saveSupplierToDb(sup: Supplier): Promise<void> {
@@ -617,7 +678,10 @@ export async function deleteTableComandaFromDb(id: string): Promise<void> {
 
 export async function fetchUsersFromDb(): Promise<CashierUser[]> {
   const storeId = getActiveStoreId();
+  const isMainStore = storeId === 'store-main' || storeId === 'store-local';
+  const defaultUsers = isMainStore ? INITIAL_CASHIER_USERS : getStoreDefaultUsers(storeId);
   const colRef = getStoreCol('users');
+
   if (colRef) {
     try {
       const snap = await getDocs(colRef);
@@ -630,7 +694,7 @@ export async function fetchUsersFromDb(): Promise<CashierUser[]> {
       console.error('Error fetching users from Firestore:', err);
     }
   }
-  return getCollection('users', INITIAL_CASHIER_USERS);
+  return getCollection('users', defaultUsers);
 }
 
 export async function saveUserToDb(user: CashierUser): Promise<void> {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Search, ShoppingCart, Trash2, Plus, Minus, CreditCard, DollarSign, Wallet, FileText, CheckCircle, Percent, Package } from 'lucide-react';
+import { X, Search, ShoppingCart, Trash2, Plus, Minus, CreditCard, DollarSign, Wallet, FileText, CheckCircle, Percent, Package, Zap } from 'lucide-react';
 import { Product, Sale, FinancialTransaction, CashierUser, Shift } from '../types';
 import { playPremiumSound } from './ToastNotification';
 import { triggerThermalPrint } from '../lib/thermalPrinter';
@@ -45,6 +45,7 @@ export default function QuickSaleSidebar({
   const [paymentMethod, setPaymentMethod] = useState<'dinheiro' | 'pix' | 'debito' | 'credito'>('pix');
   const [discountAmount, setDiscountAmount] = useState<number>(0);
   const [cashReceived, setCashReceived] = useState<string>('');
+  const [multiplier, setMultiplier] = useState<number>(1);
 
   // Set operational sector context for audio
   useEffect(() => {
@@ -52,11 +53,83 @@ export default function QuickSaleSidebar({
       notificationService.setSector('caixa');
     }
   }, [isOpen]);
+
+  // Keyboard shortcut listener: When PDV is open, typing number keys (e.g. 4) directly sets the multiplier!
+  useEffect(() => {
+    if (!isOpen) return;
+
+    let keyTimestamps: number[] = [];
+
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      // Don't intercept shortcut combos like Alt+V or Ctrl+R
+      if (e.altKey || e.ctrlKey || e.metaKey) return;
+
+      const target = e.target as HTMLElement;
+      const isInput = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT');
+
+      // If user is editing cash received or discount inputs, let default behavior happen
+      if (isInput && (target.id === 'cash-received-input' || target.id === 'discount-input')) {
+        return;
+      }
+
+      // Check for numeric keys '0'..'9' (including numpad)
+      if (/^[0-9]$/.test(e.key)) {
+        const now = Date.now();
+        keyTimestamps.push(now);
+        // Retain timestamps within last 250ms
+        keyTimestamps = keyTimestamps.filter(t => now - t < 250);
+
+        // If more than 3 numbers arrive within 250ms, it is a barcode scanner burst -> skip multiplier modification
+        if (keyTimestamps.length > 3) {
+          return;
+        }
+
+        const digit = parseInt(e.key, 10);
+
+        // If user is typing into search input
+        if (isInput && target.id === 'pdv-search-input') {
+          const searchVal = (target as HTMLInputElement).value;
+          // If search box already has non-digit text (like "coca"), let search work normally
+          if (searchVal && !/^\d+$/.test(searchVal)) {
+            return;
+          }
+        }
+
+        setMultiplier(prev => {
+          if (prev === 1) {
+            return digit === 0 ? 1 : digit;
+          } else {
+            const nextVal = parseInt(`${prev}${digit}`, 10);
+            return nextVal > 999 ? 999 : nextVal;
+          }
+        });
+
+        // Clear search input if digit was pressed so it doesn't leave a single number in search
+        if (isInput && target.id === 'pdv-search-input') {
+          setTimeout(() => {
+            setSearchTerm('');
+          }, 0);
+        }
+      } else if (e.key === 'Backspace' && !searchTerm) {
+        // Reset multiplier on Backspace if search box is empty
+        setMultiplier(1);
+      } else if (e.key === 'Escape') {
+        if (multiplier > 1) {
+          setMultiplier(1);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [isOpen, searchTerm, multiplier]);
+
+  // Handle scanned barcode trigger using local multiplier
   useEffect(() => {
     if (scannedBarcodeTrigger?.barcode && isOpen) {
       const prod = products.find(p => p.barcode === scannedBarcodeTrigger.barcode || p.id === scannedBarcodeTrigger.barcode);
       if (prod && prod.active) {
-        addToCart(prod);
+        addToCart(prod, multiplier);
       }
     }
   }, [scannedBarcodeTrigger]);
@@ -71,7 +144,9 @@ export default function QuickSaleSidebar({
     ).slice(0, 5);
   }, [searchTerm, products]);
 
-  const addToCart = (product: Product) => {
+  const addToCart = (product: Product, customQty?: number) => {
+    const qty = customQty && customQty > 0 ? customQty : (multiplier > 1 ? multiplier : 1);
+
     const totalUnits = (product.stockBoxes * product.boxQuantity) + product.stockUnits;
     if (totalUnits <= 0) {
       alert(`Produto ${product.name} esgotado no estoque!`, 'warning');
@@ -82,18 +157,35 @@ export default function QuickSaleSidebar({
       const idx = prev.findIndex(item => item.product.id === product.id);
       if (idx >= 0) {
         const currentQty = prev[idx].quantity;
-        if (currentQty >= totalUnits) {
+        if (currentQty + qty > totalUnits) {
           alert(`Estoque insuficiente! Disponível: ${totalUnits} unidades.`, 'warning');
           return prev;
         }
         const updated = [...prev];
-        updated[idx] = { ...updated[idx], quantity: currentQty + 1 };
+        updated[idx] = { ...updated[idx], quantity: currentQty + qty };
         return updated;
       }
-      return [...prev, { product, quantity: 1 }];
+      if (qty > totalUnits) {
+        alert(`Estoque insuficiente! Disponível: ${totalUnits} unidades.`, 'warning');
+        return prev;
+      }
+      return [...prev, { product, quantity: qty }];
     });
+
+    if (qty > 1) {
+      eventBus.publish('NOTIFICATION_REQUESTED', {
+        type: 'info',
+        title: `⚡ ${qty}x ${product.name}`,
+        message: `Adicionado ${qty} unidades de ${product.name} ao carrinho.`,
+        sound: 'ding'
+      });
+    } else {
+      playPremiumSound('bell');
+    }
     setSearchTerm('');
-    playPremiumSound('bell');
+    if (multiplier > 1) {
+      setMultiplier(1);
+    }
   };
 
   const updateCartQty = (productId: string, delta: number) => {
@@ -271,12 +363,13 @@ export default function QuickSaleSidebar({
         <div className={`p-4 border-b flex justify-between items-center ${
           isDark ? 'border-[#1C1C1C]' : 'border-gray-200'
         }`}>
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2">
             <ShoppingCart className={`w-5 h-5 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`} />
             <h2 className={`text-sm font-bold tracking-tight uppercase ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>
               Venda Rápida (PDV)
             </h2>
           </div>
+
           <button 
             onClick={onClose} 
             className="p-1.5 rounded-lg hover:bg-black/10 text-gray-500 hover:text-gray-300 cursor-pointer"
@@ -300,8 +393,9 @@ export default function QuickSaleSidebar({
               <Search className="w-4 h-4 text-gray-500" />
             </span>
             <input
+              id="pdv-search-input"
               type="text"
-              placeholder="Digite o nome, código ou SKU..."
+              placeholder="Digite o nome, código de barras ou SKU..."
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
               className={`w-full pl-9 pr-3 py-2 text-xs rounded-xl border outline-none font-sans transition-all ${
@@ -324,7 +418,7 @@ export default function QuickSaleSidebar({
                   filteredProducts.map(prod => (
                     <div 
                       key={prod.id}
-                      onClick={() => addToCart(prod)}
+                      onClick={() => addToCart(prod, multiplier)}
                       className={`p-2.5 flex justify-between items-center cursor-pointer transition-all border-b last:border-b-0 ${
                         isDark ? 'hover:bg-emerald-500/10 border-[#1C1C1C]' : 'hover:bg-emerald-50 border-gray-100'
                       }`}
@@ -349,7 +443,7 @@ export default function QuickSaleSidebar({
               Itens no Carrinho ({cart.length})
             </h3>
 
-            {cart.length === 0 ? (
+            {cart.length === 0 && multiplier === 1 ? (
               <div className={`p-8 text-center rounded-xl border border-dashed flex flex-col items-center justify-center ${
                 isDark ? 'bg-black/10 border-[#1C1C1C]' : 'bg-white border-gray-200'
               }`}>
@@ -359,6 +453,56 @@ export default function QuickSaleSidebar({
               </div>
             ) : (
               <div className="flex flex-col gap-2">
+                {/* Standard Item Card Skeleton for pending multiplied scan */}
+                {multiplier > 1 && (
+                  <div 
+                    className={`p-2.5 rounded-xl border flex justify-between items-center gap-2 transition-all border-amber-500/40 animate-pulse ${
+                      isDark ? 'bg-amber-500/10' : 'bg-amber-50/80'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5 flex-1 min-w-0 pr-1">
+                      {/* Product Thumbnail spot: shows multiplier quantity (e.g. 4x) */}
+                      <div className="w-9 h-9 rounded-lg shrink-0 border border-amber-400 bg-amber-500 text-black font-mono font-black text-xs flex items-center justify-center shadow-sm">
+                        {multiplier}x
+                      </div>
+
+                      <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+                        <div className={`h-3.5 rounded-md w-3/4 animate-pulse ${isDark ? 'bg-amber-400/30' : 'bg-amber-300'}`} />
+                        <div className={`h-2.5 rounded-md w-1/2 animate-pulse ${isDark ? 'bg-amber-400/20' : 'bg-amber-200'}`} />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      {/* Qty Controls Placeholder */}
+                      <div className="flex items-center gap-1">
+                        <div className={`p-1 rounded bg-black/10 text-gray-500 opacity-40`}>
+                          <Minus className="w-3 h-3" />
+                        </div>
+                        <span className="w-6 text-center font-mono text-xs font-black text-amber-500">
+                          {multiplier}
+                        </span>
+                        <div className={`p-1 rounded bg-black/10 text-gray-500 opacity-40`}>
+                          <Plus className="w-3 h-3" />
+                        </div>
+                      </div>
+
+                      {/* Price Skeleton */}
+                      <div className="text-right min-w-[70px]">
+                        <div className={`h-3.5 rounded-md w-full animate-pulse ${isDark ? 'bg-amber-400/30' : 'bg-amber-300'}`} />
+                      </div>
+
+                      <button 
+                        type="button"
+                        onClick={() => setMultiplier(1)}
+                        className="p-1 text-gray-400 hover:text-red-400 cursor-pointer transition-colors"
+                        title="Cancelar multiplicador"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {cart.map(item => (
                   <div 
                     key={item.product.id}
