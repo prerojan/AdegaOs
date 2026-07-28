@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Key, Mail, Lock, Sparkles, Sun, Moon, ArrowRight, ShieldCheck, HelpCircle } from 'lucide-react';
 import { CashierUser } from '../types';
+import { setActiveStoreId } from '../lib/firebase';
 
 interface LoginScreenProps {
   usersList: CashierUser[];
@@ -203,8 +204,7 @@ export default function LoginScreen({
         // Save active store identity
         try {
           localStorage.setItem('adegaos_store_name', matchedClient.name);
-          localStorage.setItem('adegaos_active_store_id', matchedClient.id || 'store-local');
-          localStorage.setItem('adegaos_store_id', matchedClient.id || 'store-local');
+          setActiveStoreId(matchedClient.id || 'store-local');
           localStorage.setItem('fluxos_has_registration', 'true');
         } catch {}
 

@@ -26,12 +26,12 @@ const getEnv = (key: string): string => {
   return '';
 };
 
-const apiKey = getEnv('VITE_FIREBASE_API_KEY') || 'AIzaSyDl6RiKkdWSJTb2Qi1cHKXX45j5HUNxnAU';
-const projectId = getEnv('VITE_FIREBASE_PROJECT_ID') || 'adegaos-bc0ff';
-const authDomain = getEnv('VITE_FIREBASE_AUTH_DOMAIN') || 'adegaos-bc0ff.firebaseapp.com';
-const storageBucket = getEnv('VITE_FIREBASE_STORAGE_BUCKET') || 'adegaos-bc0ff.firebasestorage.app';
-const messagingSenderId = getEnv('VITE_FIREBASE_MESSAGING_SENDER_ID') || '303265966754';
-const appId = getEnv('VITE_FIREBASE_APP_ID') || '1:303265966754:web:098e6dfac893e02f0b45fb';
+const apiKey = getEnv('VITE_FIREBASE_API_KEY');
+const projectId = getEnv('VITE_FIREBASE_PROJECT_ID');
+const authDomain = getEnv('VITE_FIREBASE_AUTH_DOMAIN');
+const storageBucket = getEnv('VITE_FIREBASE_STORAGE_BUCKET');
+const messagingSenderId = getEnv('VITE_FIREBASE_MESSAGING_SENDER_ID');
+const appId = getEnv('VITE_FIREBASE_APP_ID');
 
 export const isFirebaseEnabled = Boolean(apiKey && projectId);
 
@@ -70,6 +70,9 @@ export function setActiveStoreId(storeId: string): void {
   try {
     localStorage.setItem('adegaos_active_store_id', storeId);
     localStorage.setItem('adegaos_store_id', storeId);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('adegaos_store_changed'));
+    }
   } catch {}
 }
 
@@ -134,29 +137,44 @@ function getCollection<T>(key: string, initialData: T[]): T[] {
       return JSON.parse(stored);
     }
 
-    // Secondary / New store clients MUST start with clean isolated data (0 sales, 0 transactions)
-    let dataToInit = initialData;
+    // Secondary / New store clients MUST start with clean isolated data
+    let dataToInit: any = initialData;
     if (!isMainStore) {
-      if (key === 'sales' || key === 'transactions' || key === 'suppliers') {
-        dataToInit = [] as any;
+      if (key === 'sales' || key === 'transactions' || key === 'suppliers' || key === 'products') {
+        dataToInit = [];
+      } else if (key === 'tables') {
+        dataToInit = Array.from({ length: 10 }, (_, i) => ({
+          id: `tbl_${i + 1}`,
+          type: 'mesa',
+          number: i + 1,
+          tableName: '',
+          status: 'livre',
+          items: [],
+          subtotal: 0
+        }));
       } else if (key === 'users') {
-        dataToInit = [
-          {
-            id: `u-admin-${storeId}`,
-            name: 'Administrador Adega',
-            pin: '1234',
-            role: 'admin',
-            active: true
-          }
-        ] as any;
+        dataToInit = getStoreDefaultUsers(storeId);
       }
     }
 
     localStorage.setItem(fullKey, JSON.stringify(dataToInit));
     return dataToInit as T[];
   } catch {
-    if (!isMainStore && (key === 'sales' || key === 'transactions' || key === 'suppliers')) {
-      return [] as any;
+    if (!isMainStore) {
+      if (key === 'sales' || key === 'transactions' || key === 'suppliers' || key === 'products') {
+        return [] as any;
+      }
+      if (key === 'tables') {
+        return Array.from({ length: 10 }, (_, i) => ({
+          id: `tbl_${i + 1}`,
+          type: 'mesa',
+          number: i + 1,
+          tableName: '',
+          status: 'livre',
+          items: [],
+          subtotal: 0
+        })) as any;
+      }
     }
     return initialData;
   }
@@ -186,16 +204,20 @@ function getStoreDefaultUsers(storeId: string): CashierUser[] {
 
 export function subscribeProducts(callback: (p: Product[]) => void) {
   const storeId = getActiveStoreId();
+  const isMainStore = storeId === 'store-main' || storeId === 'store-local';
   const colRef = getStoreCol('products');
   if (colRef) {
     return onSnapshot(colRef, (snapshot) => {
       if (snapshot.empty) {
-        INITIAL_PRODUCTS.forEach(p => {
-          const docRef = getStoreDoc('products', p.id);
-          if (docRef) setDoc(docRef, cleanForFirestore(p));
-        });
-        localStorage.setItem(`fluxos_products_${storeId}`, JSON.stringify(INITIAL_PRODUCTS));
-        callback(INITIAL_PRODUCTS);
+        const initialProds = isMainStore ? INITIAL_PRODUCTS : [];
+        if (isMainStore) {
+          initialProds.forEach(p => {
+            const docRef = getStoreDoc('products', p.id);
+            if (docRef) setDoc(docRef, cleanForFirestore(p));
+          });
+        }
+        localStorage.setItem(`fluxos_products_${storeId}`, JSON.stringify(initialProds));
+        callback(initialProds);
       } else {
         const prods = snapshot.docs.map(d => d.data() as Product);
         localStorage.setItem(`fluxos_products_${storeId}`, JSON.stringify(prods));
@@ -203,11 +225,11 @@ export function subscribeProducts(callback: (p: Product[]) => void) {
       }
     }, (err) => {
       console.error('Firestore products error:', err);
-      callback(getCollection('products', INITIAL_PRODUCTS));
+      callback(getCollection('products', isMainStore ? INITIAL_PRODUCTS : []));
     });
   }
   listeners.products.add(callback);
-  callback(getCollection('products', INITIAL_PRODUCTS));
+  callback(getCollection('products', isMainStore ? INITIAL_PRODUCTS : []));
   return () => { listeners.products.delete(callback); };
 }
 
@@ -304,16 +326,28 @@ function sanitizeTable(t: any): TableComandaState {
 
 export function subscribeTablesComandas(callback: (t: TableComandaState[]) => void) {
   const storeId = getActiveStoreId();
+  const isMainStore = storeId === 'store-main' || storeId === 'store-local';
+  const cleanDefaultTables: TableComandaState[] = Array.from({ length: 10 }, (_, i) => ({
+    id: `tbl_${i + 1}`,
+    type: 'mesa',
+    number: i + 1,
+    tableName: '',
+    status: 'livre',
+    items: [],
+    subtotal: 0
+  }));
+  const defaultTables = isMainStore ? INITIAL_TABLES_COMANDAS : cleanDefaultTables;
   const colRef = getStoreCol('tables');
+
   if (colRef) {
     return onSnapshot(colRef, (snapshot) => {
       if (snapshot.empty) {
-        INITIAL_TABLES_COMANDAS.forEach(t => {
+        defaultTables.forEach(t => {
           const docRef = getStoreDoc('tables', t.id);
           if (docRef) setDoc(docRef, cleanForFirestore(t));
         });
-        localStorage.setItem(`fluxos_tables_${storeId}`, JSON.stringify(INITIAL_TABLES_COMANDAS));
-        callback(INITIAL_TABLES_COMANDAS);
+        localStorage.setItem(`fluxos_tables_${storeId}`, JSON.stringify(defaultTables));
+        callback(defaultTables);
       } else {
         const tables = snapshot.docs.map(d => sanitizeTable(d.data()));
         tables.sort((a, b) => a.number - b.number);
@@ -322,12 +356,12 @@ export function subscribeTablesComandas(callback: (t: TableComandaState[]) => vo
       }
     }, (err) => {
       console.error('Firestore tables error:', err);
-      const tables = getCollection('tables', INITIAL_TABLES_COMANDAS).map(sanitizeTable);
+      const tables = getCollection('tables', defaultTables).map(sanitizeTable);
       callback(tables);
     });
   }
   listeners.tables.add(callback);
-  const tables = getCollection('tables', INITIAL_TABLES_COMANDAS).map(sanitizeTable);
+  const tables = getCollection('tables', defaultTables).map(sanitizeTable);
   callback(tables);
   return () => { listeners.tables.delete(callback); };
 }
@@ -393,6 +427,7 @@ export function subscribeCategories(callback: (cats: string[]) => void) {
 
 export async function fetchProductsFromDb(): Promise<Product[]> {
   const storeId = getActiveStoreId();
+  const isMainStore = storeId === 'store-main' || storeId === 'store-local';
   const colRef = getStoreCol('products');
   if (colRef) {
     try {
@@ -406,7 +441,7 @@ export async function fetchProductsFromDb(): Promise<Product[]> {
       console.error('Error fetching products from Firestore:', err);
     }
   }
-  return getCollection('products', INITIAL_PRODUCTS);
+  return getCollection('products', isMainStore ? INITIAL_PRODUCTS : []);
 }
 
 export async function saveProductToDb(prod: Product): Promise<void> {
@@ -612,7 +647,19 @@ export async function deleteTransactionFromDb(id: string): Promise<void> {
 
 export async function fetchTablesComandasFromDb(): Promise<TableComandaState[]> {
   const storeId = getActiveStoreId();
+  const isMainStore = storeId === 'store-main' || storeId === 'store-local';
+  const cleanDefaultTables: TableComandaState[] = Array.from({ length: 10 }, (_, i) => ({
+    id: `tbl_${i + 1}`,
+    type: 'mesa',
+    number: i + 1,
+    tableName: '',
+    status: 'livre',
+    items: [],
+    subtotal: 0
+  }));
+  const defaultTables = isMainStore ? INITIAL_TABLES_COMANDAS : cleanDefaultTables;
   const colRef = getStoreCol('tables');
+
   if (colRef) {
     try {
       const snap = await getDocs(colRef);
@@ -626,7 +673,7 @@ export async function fetchTablesComandasFromDb(): Promise<TableComandaState[]> 
       console.error('Error fetching tables from Firestore:', err);
     }
   }
-  return getCollection('tables', INITIAL_TABLES_COMANDAS).map(sanitizeTable);
+  return getCollection('tables', defaultTables).map(sanitizeTable);
 }
 
 export async function saveTableComandaToDb(tc: TableComandaState): Promise<void> {
