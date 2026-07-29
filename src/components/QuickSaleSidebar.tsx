@@ -45,7 +45,8 @@ export default function QuickSaleSidebar({
   const [paymentMethod, setPaymentMethod] = useState<'dinheiro' | 'pix' | 'debito' | 'credito'>('pix');
   const [discountAmount, setDiscountAmount] = useState<number>(0);
   const [cashReceived, setCashReceived] = useState<string>('');
-  const [multiplier, setMultiplier] = useState<number>(1);
+  const [multiplierBuffer, setMultiplierBuffer] = useState<string>(''); // dígitos crus digitados no numpad
+  const multiplier = multiplierBuffer ? Math.min(999, parseInt(multiplierBuffer, 10) || 1) : 1;
 
   // Set operational sector context for audio
   useEffect(() => {
@@ -53,7 +54,7 @@ export default function QuickSaleSidebar({
       notificationService.setSector('caixa');
     } else {
       // PDV fechado: zera o multiplicador pra não vazar pra próxima vez que abrir.
-      setMultiplier(1);
+      setMultiplierBuffer('');
     }
   }, [isOpen]);
 
@@ -82,18 +83,12 @@ export default function QuickSaleSidebar({
 
       const numpadDigit = NUMPAD_DIGIT_MAP[e.code];
       if (numpadDigit) {
-        setMultiplier(prev => {
-          const base = prev > 1 ? String(prev) : '';
-          const next = parseInt((base + numpadDigit).slice(0, 3), 10);
-          return next > 0 ? next : 1;
-        });
+        // Buffer de texto puro: "1" + "0" sempre vira "10", sem casos especiais.
+        setMultiplierBuffer(prev => (prev + numpadDigit).slice(0, 3));
       } else if (e.code === 'Backspace') {
-        setMultiplier(prev => {
-          const next = String(prev).slice(0, -1);
-          return next ? parseInt(next, 10) : 1;
-        });
+        setMultiplierBuffer(prev => prev.slice(0, -1));
       } else if (e.code === 'Escape') {
-        setMultiplier(1);
+        setMultiplierBuffer('');
       }
     };
 
@@ -162,7 +157,7 @@ export default function QuickSaleSidebar({
       playPremiumSound('bell');
     }
     setSearchTerm('');
-    setMultiplier(1);
+    setMultiplierBuffer('');
   };
 
   const updateCartQty = (productId: string, delta: number) => {
@@ -392,7 +387,7 @@ export default function QuickSaleSidebar({
                 {multiplier}x
                 <button
                   type="button"
-                  onClick={() => setMultiplier(1)}
+                  onClick={() => setMultiplierBuffer('')}
                   className="hover:opacity-75"
                 >
                   <X className="w-3 h-3" />
