@@ -46,6 +46,9 @@ export default function QuickSaleSidebar({
   const [discountAmount, setDiscountAmount] = useState<number>(0);
   const [cashReceived, setCashReceived] = useState<string>('');
   const [multiplier, setMultiplier] = useState<number>(1);
+  // Puramente visual: um "flash" de animação por item escaneado com multiplicador.
+  // Sem lógica de negócio nenhuma aqui, só controla o que pisca na tela por um instante.
+  const [scanPulses, setScanPulses] = useState<{ id: number; qty: number }[]>([]);
 
   // Set operational sector context for audio
   useEffect(() => {
@@ -54,95 +57,66 @@ export default function QuickSaleSidebar({
     }
   }, [isOpen]);
 
-  // Keyboard shortcut listener: When PDV is open, typing number keys (e.g. 4) directly sets the multiplier!
-  useEffect(() => {
-    if (!isOpen) return;
+  // Helper to parse multiplier prefix like "4*" or "4x" or typed number like "4" from search input
+  const { parsedMultiplier, cleanSearchTerm } = useMemo(() => {
+    const trimmed = searchTerm.trim();
+    
+    // 1) Explicit multiplier prefix: e.g. "4*", "4x", "12 *"
+    const matchStar = trimmed.match(/^(\d+)\s*[*xX]\s*(.*)$/);
+    if (matchStar) {
+      const q = parseInt(matchStar[1], 10);
+      return {
+        parsedMultiplier: isNaN(q) || q <= 0 ? 1 : Math.min(q, 999),
+        cleanSearchTerm: matchStar[2].trim()
+      };
+    }
 
-    let keyTimestamps: number[] = [];
-
-    const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      // Don't intercept shortcut combos like Alt+V or Ctrl+R
-      if (e.altKey || e.ctrlKey || e.metaKey) return;
-
-      const target = e.target as HTMLElement;
-      const isInput = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT');
-
-      // If user is editing cash received or discount inputs, let default behavior happen
-      if (isInput && (target.id === 'cash-received-input' || target.id === 'discount-input')) {
-        return;
+    // 2) Pure short number in search box (1 to 3 digits like "4" or "10"): multiplier mode!
+    if (/^\d{1,3}$/.test(trimmed)) {
+      const q = parseInt(trimmed, 10);
+      if (q > 0 && q <= 999) {
+        return {
+          parsedMultiplier: q,
+          cleanSearchTerm: ''
+        };
       }
+    }
 
-      // Check for numeric keys '0'..'9' (including numpad)
-      if (/^[0-9]$/.test(e.key)) {
-        const now = Date.now();
-        keyTimestamps.push(now);
-        // Retain timestamps within last 250ms
-        keyTimestamps = keyTimestamps.filter(t => now - t < 250);
-
-        // If more than 3 numbers arrive within 250ms, it is a barcode scanner burst -> skip multiplier modification
-        if (keyTimestamps.length > 3) {
-          return;
-        }
-
-        const digit = parseInt(e.key, 10);
-
-        // If user is typing into search input
-        if (isInput && target.id === 'pdv-search-input') {
-          const searchVal = (target as HTMLInputElement).value;
-          // If search box already has non-digit text (like "coca"), let search work normally
-          if (searchVal && !/^\d+$/.test(searchVal)) {
-            return;
-          }
-        }
-
-        setMultiplier(prev => {
-          if (prev === 1) {
-            return digit === 0 ? 1 : digit;
-          } else {
-            const nextVal = parseInt(`${prev}${digit}`, 10);
-            return nextVal > 999 ? 999 : nextVal;
-          }
-        });
-
-        // Clear search input if digit was pressed so it doesn't leave a single number in search
-        if (isInput && target.id === 'pdv-search-input') {
-          setTimeout(() => {
-            setSearchTerm('');
-          }, 0);
-        }
-      } else if (e.key === 'Backspace' && !searchTerm) {
-        // Reset multiplier on Backspace if search box is empty
-        setMultiplier(1);
-      } else if (e.key === 'Escape') {
-        if (multiplier > 1) {
-          setMultiplier(1);
-        }
-      }
+    // 3) Fallback to state multiplier
+    return {
+      parsedMultiplier: multiplier > 1 ? multiplier : 1,
+      cleanSearchTerm: trimmed
     };
+  }, [searchTerm, multiplier]);
 
-    window.addEventListener('keydown', handleGlobalKeyDown);
-    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [isOpen, searchTerm, multiplier]);
-
-  // Handle scanned barcode trigger using local multiplier
+  // Handle scanned barcode trigger
   useEffect(() => {
     if (scannedBarcodeTrigger?.barcode && isOpen) {
-      const prod = products.find(p => p.barcode === scannedBarcodeTrigger.barcode || p.id === scannedBarcodeTrigger.barcode);
+      const barcodeStr = scannedBarcodeTrigger.barcode.trim();
+      const prod = products.find(p => p.barcode === barcodeStr || p.id === barcodeStr || p.sku.toLowerCase() === barcodeStr.toLowerCase());
       if (prod && prod.active) {
-        addToCart(prod, multiplier);
+        addToCart(prod, parsedMultiplier);
+
+        // Animação puramente visual: um pulse novo por scan.
+        // A remoção não usa timer solto — acontece exatamente quando a animação termina (onAnimationEnd no render).
+        if (parsedMultiplier > 1) {
+          const pulseId = Date.now() + Math.random();
+          setScanPulses(prev => [...prev, { id: pulseId, qty: parsedMultiplier }]);
+        }
       }
     }
   }, [scannedBarcodeTrigger]);
 
   const filteredProducts = useMemo(() => {
-    if (!searchTerm.trim()) return [];
+    if (!cleanSearchTerm) return [];
+    const term = cleanSearchTerm.toLowerCase();
     return products.filter(p => 
       p.active && 
-      (p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-       p.barcode.includes(searchTerm) || 
-       p.sku.toLowerCase().includes(searchTerm.toLowerCase()))
+      (p.name.toLowerCase().includes(term) || 
+       p.barcode.includes(term) || 
+       p.sku.toLowerCase().includes(term))
     ).slice(0, 5);
-  }, [searchTerm, products]);
+  }, [cleanSearchTerm, products]);
 
   const addToCart = (product: Product, customQty?: number) => {
     const qty = customQty && customQty > 0 ? customQty : (multiplier > 1 ? multiplier : 1);
@@ -183,9 +157,7 @@ export default function QuickSaleSidebar({
       playPremiumSound('bell');
     }
     setSearchTerm('');
-    if (multiplier > 1) {
-      setMultiplier(1);
-    }
+    setMultiplier(1);
   };
 
   const updateCartQty = (productId: string, delta: number) => {
@@ -347,6 +319,15 @@ export default function QuickSaleSidebar({
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
+      {/* Keyframe do pulse de scan — só visual, roda uma vez e para (forwards) */}
+      <style>{`
+        @keyframes scan-pulse-flash {
+          0%   { opacity: 0; transform: translateY(-6px) scale(0.97); }
+          25%  { opacity: 1; transform: translateY(0) scale(1.01); }
+          80%  { opacity: 1; transform: translateY(0) scale(1); }
+          100% { opacity: 0; transform: translateY(0) scale(0.98); }
+        }
+      `}</style>
       {/* Backdrop */}
       <div 
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
@@ -395,15 +376,36 @@ export default function QuickSaleSidebar({
             <input
               id="pdv-search-input"
               type="text"
-              placeholder="Digite o nome, código de barras ou SKU..."
+              placeholder="Digite (ex: 4*Cerveja ou 789...) ou escaneie..."
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
-              className={`w-full pl-9 pr-3 py-2 text-xs rounded-xl border outline-none font-sans transition-all ${
+              onKeyDown={e => {
+                if (e.key === 'Enter' && filteredProducts.length > 0) {
+                  addToCart(filteredProducts[0], parsedMultiplier);
+                }
+              }}
+              className={`w-full pl-9 ${parsedMultiplier > 1 ? 'pr-20' : 'pr-3'} py-2 text-xs rounded-xl border outline-none font-sans transition-all ${
                 isDark 
                   ? 'bg-black/40 border-[#1C1C1C] text-gray-200 focus:border-emerald-500/50 focus:bg-black/60' 
                   : 'bg-white border-gray-200 text-gray-800 focus:border-emerald-500/50 focus:bg-white'
               }`}
             />
+
+            {parsedMultiplier > 1 && (
+              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-mono font-bold px-2 py-0.5 rounded-lg bg-emerald-500 text-black flex items-center gap-1 shadow-xs">
+                {parsedMultiplier}x
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMultiplier(1);
+                    setSearchTerm('');
+                  }}
+                  className="hover:opacity-75"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
 
             {/* Quick search suggestions */}
             {searchTerm && (
@@ -418,7 +420,7 @@ export default function QuickSaleSidebar({
                   filteredProducts.map(prod => (
                     <div 
                       key={prod.id}
-                      onClick={() => addToCart(prod, multiplier)}
+                      onClick={() => addToCart(prod, parsedMultiplier)}
                       className={`p-2.5 flex justify-between items-center cursor-pointer transition-all border-b last:border-b-0 ${
                         isDark ? 'hover:bg-emerald-500/10 border-[#1C1C1C]' : 'hover:bg-emerald-50 border-gray-100'
                       }`}
@@ -427,9 +429,16 @@ export default function QuickSaleSidebar({
                         <p className={`text-xs font-semibold ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>{prod.name}</p>
                         <p className="text-[10px] text-gray-500 font-mono uppercase">{prod.category} • SKU {prod.sku}</p>
                       </div>
-                      <span className={`text-xs font-mono font-bold ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>
-                        R$ {prod.sellPrice.toFixed(2)}
-                      </span>
+                      <div className="text-right">
+                        <span className={`text-xs font-mono font-bold ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>
+                          R$ {prod.sellPrice.toFixed(2)}
+                        </span>
+                        {parsedMultiplier > 1 && (
+                          <p className="text-[10px] font-mono text-emerald-500 font-bold">
+                            Total ({parsedMultiplier}x): R$ {(prod.sellPrice * parsedMultiplier).toFixed(2)}
+                          </p>
+                        )}
+                      </div>
                     </div>
                   ))
                 )}
@@ -443,7 +452,7 @@ export default function QuickSaleSidebar({
               Itens no Carrinho ({cart.length})
             </h3>
 
-            {cart.length === 0 && multiplier === 1 ? (
+            {cart.length === 0 && scanPulses.length === 0 ? (
               <div className={`p-8 text-center rounded-xl border border-dashed flex flex-col items-center justify-center ${
                 isDark ? 'bg-black/10 border-[#1C1C1C]' : 'bg-white border-gray-200'
               }`}>
@@ -453,55 +462,36 @@ export default function QuickSaleSidebar({
               </div>
             ) : (
               <div className="flex flex-col gap-2">
-                {/* Standard Item Card Skeleton for pending multiplied scan */}
-                {multiplier > 1 && (
-                  <div 
-                    className={`p-2.5 rounded-xl border flex justify-between items-center gap-2 transition-all border-amber-500/40 animate-pulse ${
+                {/* Pulse visual: um flash por scan com multiplicador, no topo, empurrando os itens reais pra baixo. */}
+                {/* Some exatamente quando a animação termina (onAnimationEnd) — sem timer solto, sem lógica por trás. */}
+                {scanPulses.map(pulse => (
+                  <div
+                    key={pulse.id}
+                    onAnimationEnd={() => setScanPulses(prev => prev.filter(p => p.id !== pulse.id))}
+                    style={{ animation: 'scan-pulse-flash 0.7s ease-out forwards' }}
+                    className={`p-2.5 rounded-xl border flex justify-between items-center gap-2 border-amber-500/40 ${
                       isDark ? 'bg-amber-500/10' : 'bg-amber-50/80'
                     }`}
                   >
                     <div className="flex items-center gap-2.5 flex-1 min-w-0 pr-1">
-                      {/* Product Thumbnail spot: shows multiplier quantity (e.g. 4x) */}
                       <div className="w-9 h-9 rounded-lg shrink-0 border border-amber-400 bg-amber-500 text-black font-mono font-black text-xs flex items-center justify-center shadow-sm">
-                        {multiplier}x
+                        {pulse.qty}x
                       </div>
-
                       <div className="flex-1 min-w-0 flex flex-col gap-1.5">
                         <div className={`h-3.5 rounded-md w-3/4 animate-pulse ${isDark ? 'bg-amber-400/30' : 'bg-amber-300'}`} />
                         <div className={`h-2.5 rounded-md w-1/2 animate-pulse ${isDark ? 'bg-amber-400/20' : 'bg-amber-200'}`} />
                       </div>
                     </div>
-
                     <div className="flex items-center gap-3">
-                      {/* Qty Controls Placeholder */}
-                      <div className="flex items-center gap-1">
-                        <div className={`p-1 rounded bg-black/10 text-gray-500 opacity-40`}>
-                          <Minus className="w-3 h-3" />
-                        </div>
-                        <span className="w-6 text-center font-mono text-xs font-black text-amber-500">
-                          {multiplier}
-                        </span>
-                        <div className={`p-1 rounded bg-black/10 text-gray-500 opacity-40`}>
-                          <Plus className="w-3 h-3" />
-                        </div>
-                      </div>
-
-                      {/* Price Skeleton */}
+                      <span className="w-6 text-center font-mono text-xs font-black text-amber-500">
+                        {pulse.qty}
+                      </span>
                       <div className="text-right min-w-[70px]">
                         <div className={`h-3.5 rounded-md w-full animate-pulse ${isDark ? 'bg-amber-400/30' : 'bg-amber-300'}`} />
                       </div>
-
-                      <button 
-                        type="button"
-                        onClick={() => setMultiplier(1)}
-                        className="p-1 text-gray-400 hover:text-red-400 cursor-pointer transition-colors"
-                        title="Cancelar multiplicador"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
                     </div>
                   </div>
-                )}
+                ))}
 
                 {cart.map(item => (
                   <div 
