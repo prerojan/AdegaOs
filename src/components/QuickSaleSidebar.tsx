@@ -54,40 +54,46 @@ export default function QuickSaleSidebar({
   useEffect(() => {
     if (isOpen) {
       notificationService.setSector('caixa');
+    } else {
+      // PDV fechado: zera o multiplicador pra não vazar pra próxima vez que abrir.
+      setMultiplier(1);
     }
   }, [isOpen]);
 
-  // Helper to parse multiplier prefix like "4*" or "4x" or typed number like "4" from search input
-  const { parsedMultiplier, cleanSearchTerm } = useMemo(() => {
-    const trimmed = searchTerm.trim();
-    
-    // 1) Explicit multiplier prefix: e.g. "4*", "4x", "12 *"
-    const matchStar = trimmed.match(/^(\d+)\s*[*xX]\s*(.*)$/);
-    if (matchStar) {
-      const q = parseInt(matchStar[1], 10);
-      return {
-        parsedMultiplier: isNaN(q) || q <= 0 ? 1 : Math.min(q, 999),
-        cleanSearchTerm: matchStar[2].trim()
-      };
-    }
+  // Barra de pesquisa agora é só texto — nenhuma leitura de número aqui dentro.
+  const cleanSearchTerm = searchTerm.trim();
 
-    // 2) Pure short number in search box (1 to 3 digits like "4" or "10"): multiplier mode!
-    if (/^\d{1,3}$/.test(trimmed)) {
-      const q = parseInt(trimmed, 10);
-      if (q > 0 && q <= 999) {
-        return {
-          parsedMultiplier: q,
-          cleanSearchTerm: ''
-        };
+  // Listener global do numpad: funciona sempre, sem precisar clicar em nenhum campo.
+  // Só digitos, sem lógica complexa: cada tecla numérica entra na fila do multiplicador.
+  // Se o usuário estiver digitando em algum input (ex: barra de pesquisa, desconto), ignora,
+  // pra não atrapalhar quem está de fato buscando um produto por texto.
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      const isTypingInField = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA';
+      if (isTypingInField) return;
+
+      if (e.key >= '0' && e.key <= '9') {
+        setMultiplier(prev => {
+          const base = prev > 1 ? String(prev) : '';
+          const next = parseInt((base + e.key).slice(0, 3), 10);
+          return next > 0 ? next : 1;
+        });
+      } else if (e.key === 'Backspace') {
+        setMultiplier(prev => {
+          const next = String(prev).slice(0, -1);
+          return next ? parseInt(next, 10) : 1;
+        });
+      } else if (e.key === 'Escape') {
+        setMultiplier(1);
       }
-    }
-
-    // 3) Fallback to state multiplier
-    return {
-      parsedMultiplier: multiplier > 1 ? multiplier : 1,
-      cleanSearchTerm: trimmed
     };
-  }, [searchTerm, multiplier]);
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [isOpen]);
 
   // Handle scanned barcode trigger
   useEffect(() => {
@@ -95,13 +101,13 @@ export default function QuickSaleSidebar({
       const barcodeStr = scannedBarcodeTrigger.barcode.trim();
       const prod = products.find(p => p.barcode === barcodeStr || p.id === barcodeStr || p.sku.toLowerCase() === barcodeStr.toLowerCase());
       if (prod && prod.active) {
-        addToCart(prod, parsedMultiplier);
+        addToCart(prod, multiplier);
 
         // Animação puramente visual: um pulse novo por scan.
         // A remoção não usa timer solto — acontece exatamente quando a animação termina (onAnimationEnd no render).
-        if (parsedMultiplier > 1) {
+        if (multiplier > 1) {
           const pulseId = Date.now() + Math.random();
-          setScanPulses(prev => [...prev, { id: pulseId, qty: parsedMultiplier }]);
+          setScanPulses(prev => [...prev, { id: pulseId, qty: multiplier }]);
         }
       }
     }
@@ -376,30 +382,27 @@ export default function QuickSaleSidebar({
             <input
               id="pdv-search-input"
               type="text"
-              placeholder="Digite (ex: 4*Cerveja ou 789...) ou escaneie..."
+              placeholder="Buscar produto por nome, SKU ou código..."
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
               onKeyDown={e => {
                 if (e.key === 'Enter' && filteredProducts.length > 0) {
-                  addToCart(filteredProducts[0], parsedMultiplier);
+                  addToCart(filteredProducts[0], multiplier);
                 }
               }}
-              className={`w-full pl-9 ${parsedMultiplier > 1 ? 'pr-20' : 'pr-3'} py-2 text-xs rounded-xl border outline-none font-sans transition-all ${
+              className={`w-full pl-9 ${multiplier > 1 ? 'pr-20' : 'pr-3'} py-2 text-xs rounded-xl border outline-none font-sans transition-all ${
                 isDark 
                   ? 'bg-black/40 border-[#1C1C1C] text-gray-200 focus:border-emerald-500/50 focus:bg-black/60' 
                   : 'bg-white border-gray-200 text-gray-800 focus:border-emerald-500/50 focus:bg-white'
               }`}
             />
 
-            {parsedMultiplier > 1 && (
+            {multiplier > 1 && (
               <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-mono font-bold px-2 py-0.5 rounded-lg bg-emerald-500 text-black flex items-center gap-1 shadow-xs">
-                {parsedMultiplier}x
+                {multiplier}x
                 <button
                   type="button"
-                  onClick={() => {
-                    setMultiplier(1);
-                    setSearchTerm('');
-                  }}
+                  onClick={() => setMultiplier(1)}
                   className="hover:opacity-75"
                 >
                   <X className="w-3 h-3" />
@@ -420,7 +423,7 @@ export default function QuickSaleSidebar({
                   filteredProducts.map(prod => (
                     <div 
                       key={prod.id}
-                      onClick={() => addToCart(prod, parsedMultiplier)}
+                      onClick={() => addToCart(prod, multiplier)}
                       className={`p-2.5 flex justify-between items-center cursor-pointer transition-all border-b last:border-b-0 ${
                         isDark ? 'hover:bg-emerald-500/10 border-[#1C1C1C]' : 'hover:bg-emerald-50 border-gray-100'
                       }`}
@@ -433,9 +436,9 @@ export default function QuickSaleSidebar({
                         <span className={`text-xs font-mono font-bold ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>
                           R$ {prod.sellPrice.toFixed(2)}
                         </span>
-                        {parsedMultiplier > 1 && (
+                        {multiplier > 1 && (
                           <p className="text-[10px] font-mono text-emerald-500 font-bold">
-                            Total ({parsedMultiplier}x): R$ {(prod.sellPrice * parsedMultiplier).toFixed(2)}
+                            Total ({multiplier}x): R$ {(prod.sellPrice * multiplier).toFixed(2)}
                           </p>
                         )}
                       </div>
@@ -469,25 +472,25 @@ export default function QuickSaleSidebar({
                     key={pulse.id}
                     onAnimationEnd={() => setScanPulses(prev => prev.filter(p => p.id !== pulse.id))}
                     style={{ animation: 'scan-pulse-flash 0.7s ease-out forwards' }}
-                    className={`p-2.5 rounded-xl border flex justify-between items-center gap-2 border-amber-500/40 ${
-                      isDark ? 'bg-amber-500/10' : 'bg-amber-50/80'
+                    className={`p-2.5 rounded-xl border flex justify-between items-center gap-2 border-emerald-500/40 ${
+                      isDark ? 'bg-emerald-500/10' : 'bg-emerald-50/80'
                     }`}
                   >
                     <div className="flex items-center gap-2.5 flex-1 min-w-0 pr-1">
-                      <div className="w-9 h-9 rounded-lg shrink-0 border border-amber-400 bg-amber-500 text-black font-mono font-black text-xs flex items-center justify-center shadow-sm">
+                      <div className="w-9 h-9 rounded-lg shrink-0 border border-emerald-400 bg-emerald-500 text-black font-mono font-black text-xs flex items-center justify-center shadow-sm">
                         {pulse.qty}x
                       </div>
                       <div className="flex-1 min-w-0 flex flex-col gap-1.5">
-                        <div className={`h-3.5 rounded-md w-3/4 animate-pulse ${isDark ? 'bg-amber-400/30' : 'bg-amber-300'}`} />
-                        <div className={`h-2.5 rounded-md w-1/2 animate-pulse ${isDark ? 'bg-amber-400/20' : 'bg-amber-200'}`} />
+                        <div className={`h-3.5 rounded-md w-3/4 animate-pulse ${isDark ? 'bg-emerald-400/30' : 'bg-emerald-300'}`} />
+                        <div className={`h-2.5 rounded-md w-1/2 animate-pulse ${isDark ? 'bg-emerald-400/20' : 'bg-emerald-200'}`} />
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
-                      <span className="w-6 text-center font-mono text-xs font-black text-amber-500">
+                      <span className="w-6 text-center font-mono text-xs font-black text-emerald-500">
                         {pulse.qty}
                       </span>
                       <div className="text-right min-w-[70px]">
-                        <div className={`h-3.5 rounded-md w-full animate-pulse ${isDark ? 'bg-amber-400/30' : 'bg-amber-300'}`} />
+                        <div className={`h-3.5 rounded-md w-full animate-pulse ${isDark ? 'bg-emerald-400/30' : 'bg-emerald-300'}`} />
                       </div>
                     </div>
                   </div>
