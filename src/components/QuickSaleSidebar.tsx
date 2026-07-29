@@ -46,9 +46,6 @@ export default function QuickSaleSidebar({
   const [discountAmount, setDiscountAmount] = useState<number>(0);
   const [cashReceived, setCashReceived] = useState<string>('');
   const [multiplier, setMultiplier] = useState<number>(1);
-  // Puramente visual: um "flash" de animação por item escaneado com multiplicador.
-  // Sem lógica de negócio nenhuma aqui, só controla o que pisca na tela por um instante.
-  const [scanPulses, setScanPulses] = useState<{ id: number; qty: number }[]>([]);
 
   // Set operational sector context for audio
   useEffect(() => {
@@ -64,29 +61,38 @@ export default function QuickSaleSidebar({
   const cleanSearchTerm = searchTerm.trim();
 
   // Listener global do numpad: funciona sempre, sem precisar clicar em nenhum campo.
-  // Só digitos, sem lógica complexa: cada tecla numérica entra na fila do multiplicador.
+  // IMPORTANTE: escuta especificamente as teclas físicas do numpad (e.code), não qualquer dígito.
+  // O leitor de código de barras emula a fileira numérica normal do teclado (Digit0-9), então
+  // se a gente escutasse por e.key ele entraria em conflito e corromperia o multiplicador
+  // com os próprios dígitos do código de barras sendo escaneado.
   // Se o usuário estiver digitando em algum input (ex: barra de pesquisa, desconto), ignora,
   // pra não atrapalhar quem está de fato buscando um produto por texto.
   useEffect(() => {
     if (!isOpen) return;
+
+    const NUMPAD_DIGIT_MAP: Record<string, string> = {
+      Numpad0: '0', Numpad1: '1', Numpad2: '2', Numpad3: '3', Numpad4: '4',
+      Numpad5: '5', Numpad6: '6', Numpad7: '7', Numpad8: '8', Numpad9: '9'
+    };
 
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       const isTypingInField = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA';
       if (isTypingInField) return;
 
-      if (e.key >= '0' && e.key <= '9') {
+      const numpadDigit = NUMPAD_DIGIT_MAP[e.code];
+      if (numpadDigit) {
         setMultiplier(prev => {
           const base = prev > 1 ? String(prev) : '';
-          const next = parseInt((base + e.key).slice(0, 3), 10);
+          const next = parseInt((base + numpadDigit).slice(0, 3), 10);
           return next > 0 ? next : 1;
         });
-      } else if (e.key === 'Backspace') {
+      } else if (e.code === 'Backspace') {
         setMultiplier(prev => {
           const next = String(prev).slice(0, -1);
           return next ? parseInt(next, 10) : 1;
         });
-      } else if (e.key === 'Escape') {
+      } else if (e.code === 'Escape') {
         setMultiplier(1);
       }
     };
@@ -102,13 +108,6 @@ export default function QuickSaleSidebar({
       const prod = products.find(p => p.barcode === barcodeStr || p.id === barcodeStr || p.sku.toLowerCase() === barcodeStr.toLowerCase());
       if (prod && prod.active) {
         addToCart(prod, multiplier);
-
-        // Animação puramente visual: um pulse novo por scan.
-        // A remoção não usa timer solto — acontece exatamente quando a animação termina (onAnimationEnd no render).
-        if (multiplier > 1) {
-          const pulseId = Date.now() + Math.random();
-          setScanPulses(prev => [...prev, { id: pulseId, qty: multiplier }]);
-        }
       }
     }
   }, [scannedBarcodeTrigger]);
@@ -325,15 +324,6 @@ export default function QuickSaleSidebar({
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
-      {/* Keyframe do pulse de scan — só visual, roda uma vez e para (forwards) */}
-      <style>{`
-        @keyframes scan-pulse-flash {
-          0%   { opacity: 0; transform: translateY(-6px) scale(0.97); }
-          25%  { opacity: 1; transform: translateY(0) scale(1.01); }
-          80%  { opacity: 1; transform: translateY(0) scale(1); }
-          100% { opacity: 0; transform: translateY(0) scale(0.98); }
-        }
-      `}</style>
       {/* Backdrop */}
       <div 
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
@@ -455,7 +445,7 @@ export default function QuickSaleSidebar({
               Itens no Carrinho ({cart.length})
             </h3>
 
-            {cart.length === 0 && scanPulses.length === 0 ? (
+            {cart.length === 0 ? (
               <div className={`p-8 text-center rounded-xl border border-dashed flex flex-col items-center justify-center ${
                 isDark ? 'bg-black/10 border-[#1C1C1C]' : 'bg-white border-gray-200'
               }`}>
@@ -465,37 +455,6 @@ export default function QuickSaleSidebar({
               </div>
             ) : (
               <div className="flex flex-col gap-2">
-                {/* Pulse visual: um flash por scan com multiplicador, no topo, empurrando os itens reais pra baixo. */}
-                {/* Some exatamente quando a animação termina (onAnimationEnd) — sem timer solto, sem lógica por trás. */}
-                {scanPulses.map(pulse => (
-                  <div
-                    key={pulse.id}
-                    onAnimationEnd={() => setScanPulses(prev => prev.filter(p => p.id !== pulse.id))}
-                    style={{ animation: 'scan-pulse-flash 0.7s ease-out forwards' }}
-                    className={`p-2.5 rounded-xl border flex justify-between items-center gap-2 border-emerald-500/40 ${
-                      isDark ? 'bg-emerald-500/10' : 'bg-emerald-50/80'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5 flex-1 min-w-0 pr-1">
-                      <div className="w-9 h-9 rounded-lg shrink-0 border border-emerald-400 bg-emerald-500 text-black font-mono font-black text-xs flex items-center justify-center shadow-sm">
-                        {pulse.qty}x
-                      </div>
-                      <div className="flex-1 min-w-0 flex flex-col gap-1.5">
-                        <div className={`h-3.5 rounded-md w-3/4 animate-pulse ${isDark ? 'bg-emerald-400/30' : 'bg-emerald-300'}`} />
-                        <div className={`h-2.5 rounded-md w-1/2 animate-pulse ${isDark ? 'bg-emerald-400/20' : 'bg-emerald-200'}`} />
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="w-6 text-center font-mono text-xs font-black text-emerald-500">
-                        {pulse.qty}
-                      </span>
-                      <div className="text-right min-w-[70px]">
-                        <div className={`h-3.5 rounded-md w-full animate-pulse ${isDark ? 'bg-emerald-400/30' : 'bg-emerald-300'}`} />
-                      </div>
-                    </div>
-                  </div>
-                ))}
-
                 {cart.map(item => (
                   <div 
                     key={item.product.id}
