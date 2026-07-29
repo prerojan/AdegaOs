@@ -863,9 +863,10 @@ export default function App() {
         return;
       }
 
-      // Buffer normal character input. If the gap between keystrokes is large and user is in an input field, reset the buffer
-      const isInputFocused = document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA';
-      if (timeDiff > 120 && isInputFocused) {
+      // Buffer normal character input. A gap this large means a new sequence is starting
+      // (either a fresh scan or a stray keystroke) — reset regardless of focus, so leftover
+      // characters never contaminate the next real scan.
+      if (timeDiff > 120) {
         buffer = e.key;
       } else {
         buffer += e.key;
