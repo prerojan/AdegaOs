@@ -863,10 +863,9 @@ export default function App() {
         return;
       }
 
-      // Buffer normal character input. A gap this large means a new sequence is starting
-      // (either a fresh scan or a stray keystroke) — reset regardless of focus, so leftover
-      // characters never contaminate the next real scan.
-      if (timeDiff > 120) {
+      // Buffer normal character input. If the gap between keystrokes is large and user is in an input field, reset the buffer
+      const isInputFocused = document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA';
+      if (timeDiff > 120 && isInputFocused) {
         buffer = e.key;
       } else {
         buffer += e.key;
@@ -1122,6 +1121,20 @@ export default function App() {
   const handleUpdateProduct = (prod: Product) => {
     setProducts(prev => prev.map(p => p.id === prod.id ? prod : p));
     saveProductToDb(prod);
+  };
+
+  const handleBatchImportProducts = (newProds: Product[], updatedProds: Product[]) => {
+    setProducts(prev => {
+      const updateMap = new Map(updatedProds.map(p => [p.id, p]));
+      const listWithUpdates = prev.map(p => updateMap.get(p.id) || p);
+      const finalList = [...listWithUpdates, ...newProds];
+
+      // Async DB saves
+      updatedProds.forEach(p => saveProductToDb(p));
+      newProds.forEach(p => saveProductToDb(p));
+
+      return finalList;
+    });
   };
 
   const handleAddSupplier = (sup: Supplier) => {
@@ -1681,6 +1694,7 @@ export default function App() {
                   usersList={usersList}
                   onAddProduct={handleAddProduct}
                   onUpdateProduct={handleUpdateProduct}
+                  onBatchImportProducts={handleBatchImportProducts}
                   onAddSupplier={handleAddSupplier}
                   onAddUser={handleAddUser}
                   categories={productCategories}
