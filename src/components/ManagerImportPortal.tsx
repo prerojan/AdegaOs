@@ -13,6 +13,7 @@ interface ManagerImportPortalProps {
   usersList: CashierUser[];
   onAddProduct: (prod: Product) => void;
   onUpdateProduct: (prod: Product) => void;
+  onBatchImportProducts?: (newProds: Product[], updatedProds: Product[]) => void;
   onAddSupplier: (sup: Supplier) => void;
   onAddUser: (user: CashierUser) => void;
   categories: string[];
@@ -22,12 +23,195 @@ interface ManagerImportPortalProps {
   onCloseWizard?: () => void;
 }
 
+// Helper to find column value in a row regardless of exact header capitalization/accents/aliases
+function getRowVal(row: any, aliases: string[]): any {
+  if (!row || typeof row !== 'object') return undefined;
+  const rowKeys = Object.keys(row);
+  
+  // 1. Exact or normalized key search
+  for (const alias of aliases) {
+    const target = alias.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const foundKey = rowKeys.find(k => k.toLowerCase().replace(/[^a-z0-9]/g, '') === target);
+    if (foundKey !== undefined && row[foundKey] !== undefined && row[foundKey] !== null) {
+      return row[foundKey];
+    }
+  }
+
+  // 2. Contains key search
+  for (const alias of aliases) {
+    const target = alias.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (target.length < 3) continue;
+    const foundKey = rowKeys.find(k => k.toLowerCase().replace(/[^a-z0-9]/g, '').includes(target));
+    if (foundKey !== undefined && row[foundKey] !== undefined && row[foundKey] !== null) {
+      return row[foundKey];
+    }
+  }
+
+  return undefined;
+}
+
+// Extract product name with intelligent fallback for non-standard spreadsheets
+function getProductName(row: any): string {
+  if (!row || typeof row !== 'object') return '';
+
+  // 1. Search by known aliases
+  const val = getRowVal(row, [
+    'nome', 'name', 'nome do produto', 'nome_do_produto', 'descrição', 'descricao', 
+    'descrição do produto', 'descricao do produto', 'descrição_do_produto', 'descricao_do_produto', 
+    'produto', 'item', 'mercadoria', 'artigo', 'especificação', 'especificacao', 
+    'denominação', 'denominacao', 'título', 'titulo', 'detalhes', 'desc', 'desc_prod', 
+    'descricao_item', 'desc_item', 'prod', 'DESCRICAO', 'PRODUTO', 'DESCRICAO_DO_PRODUTO'
+  ]);
+
+  if (val !== undefined && val !== null) {
+    const strVal = String(val).trim();
+    if (strVal && !/^(total|relatório|relatorio|subtotal|página|pagina)$/i.test(strVal)) {
+      return strVal;
+    }
+  }
+
+  // 2. Smart fallback: inspect all row keys/values for a non-numeric text string >= 2 chars
+  const values = Object.values(row);
+  for (const v of values) {
+    if (v === null || v === undefined) continue;
+    let str = String(v).trim();
+    if (!str) continue;
+
+    // Skip pure numbers, prices, dates, units, barcodes
+    if (/^\d+(\.\d+)?$/.test(str)) continue;
+    if (/^r\$\s*\d+/i.test(str)) continue;
+    if (/^(un|lt|kg|cx|pct|fd|l|g|ml)$/i.test(str)) continue;
+    if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(str)) continue;
+    if (/^(total|relatório|relatorio|subtotal|página|pagina)$/i.test(str)) continue;
+
+    if (str.length >= 2 && !/^\d{8,14}$/.test(str)) {
+      return str;
+    }
+  }
+
+  return '';
+}
+
+// Converts a worksheet into normalized object rows by auto-detecting the header row
+function extractRowsFromWorksheet(ws: XLSX.WorkSheet): any[] {
+  if (!ws) return [];
+
+  const matrix: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+  const standardObjects: any[] = XLSX.utils.sheet_to_json(ws, { defval: '' });
+
+  if (!matrix || matrix.length === 0) return standardObjects;
+
+  const headerKeywords = [
+    'nome', 'descri', 'produto', 'item', 'preco', 'preço', 'custo', 'venda', 
+    'estoque', 'qtd', 'quant', 'codigo', 'código', 'barras', 'sku', 'categoria', 
+    'marca', 'valor', 'saldo', 'ref', 'unidade', 'descricao'
+  ];
+
+  let bestHeaderRowIndex = -1;
+  let maxMatches = 0;
+
+  for (let r = 0; r < Math.min(matrix.length, 15); r++) {
+    const row = matrix[r];
+    if (!Array.isArray(row)) continue;
+
+    let matches = 0;
+    row.forEach(cell => {
+      const cellStr = String(cell || '').toLowerCase().replace(/[^a-z0-9áéíóúçãõ]/g, '');
+      if (headerKeywords.some(kw => cellStr.includes(kw))) {
+        matches++;
+      }
+    });
+
+    if (matches > maxMatches) {
+      maxMatches = matches;
+      bestHeaderRowIndex = r;
+    }
+  }
+
+  if (bestHeaderRowIndex >= 0 && maxMatches >= 1) {
+    const headers = matrix[bestHeaderRowIndex].map(h => String(h || '').trim());
+    const extractedRows: any[] = [];
+
+    for (let r = bestHeaderRowIndex + 1; r < matrix.length; r++) {
+      const row = matrix[r];
+      if (!Array.isArray(row) || row.every(cell => String(cell || '').trim() === '')) {
+        continue;
+      }
+
+      const obj: Record<string, any> = {};
+      let hasData = false;
+      headers.forEach((h, colIdx) => {
+        const key = h || `col_${colIdx}`;
+        const val = row[colIdx] !== undefined ? row[colIdx] : '';
+        obj[key] = val;
+        if (String(val).trim()) hasData = true;
+      });
+      if (hasData) {
+        extractedRows.push(obj);
+      }
+    }
+
+    if (extractedRows.length > 0) {
+      return extractedRows;
+    }
+  }
+
+  return standardObjects;
+}
+
+// Parses prices like "R$ 15,90", "15,90", "1.250,50", 15.9
+function parseFormattedPrice(val: any): number {
+  if (val === null || val === undefined) return 0;
+  if (typeof val === 'number') return isNaN(val) ? 0 : val;
+  let str = String(val).trim();
+  if (!str) return 0;
+
+  str = str.replace(/[R$\s]/gi, '');
+
+  if (str.includes('.') && str.includes(',')) {
+    str = str.replace(/\./g, '').replace(',', '.');
+  } else if (str.includes(',')) {
+    str = str.replace(',', '.');
+  }
+
+  const num = parseFloat(str);
+  return isNaN(num) ? 0 : num;
+}
+
+// Parses integers like "10", "10,00", "10.0"
+function parseFormattedInt(val: any): number {
+  if (val === null || val === undefined) return 0;
+  if (typeof val === 'number') return isNaN(val) ? 0 : Math.round(val);
+  const num = parseFormattedPrice(val);
+  return Math.round(num);
+}
+
+// Cleans barcodes
+function cleanBarcodeStr(val: any): string {
+  if (val === null || val === undefined) return '';
+  let str = String(val).trim();
+  if (!str || str.toLowerCase() === 'null' || str.toLowerCase() === 'undefined' || str.toLowerCase() === 'sem_codigo' || str === '0') {
+    return '';
+  }
+  if (/^\d+\.0$/.test(str)) {
+    str = str.replace(/\.0$/, '');
+  }
+  if (str.toLowerCase().includes('e+')) {
+    const num = Number(val);
+    if (!isNaN(num)) {
+      str = BigInt(Math.round(num)).toString();
+    }
+  }
+  return str;
+}
+
 export default function ManagerImportPortal({
   products,
   suppliers,
   usersList,
   onAddProduct,
   onUpdateProduct,
+  onBatchImportProducts,
   onAddSupplier,
   onAddUser,
   categories,
@@ -42,11 +226,26 @@ export default function ManagerImportPortal({
   const [parseError, setParseError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   
+  // Import mode for handling duplicates: 'upsert' (update existing + add new), 'skip' (ignore duplicates), 'allowAll' (add as new)
+  const [importMode, setImportMode] = useState<'upsert' | 'skip' | 'allowAll'>('upsert');
+  const [rawSheetRows, setRawSheetRows] = useState<any[] | null>(null);
+
   // Parsed states for preview
   const [previewProducts, setPreviewProducts] = useState<Product[]>([]);
+  const [previewToUpdate, setPreviewToUpdate] = useState<Product[]>([]);
   const [previewUsers, setPreviewUsers] = useState<CashierUser[]>([]);
   const [previewSuppliers, setPreviewSuppliers] = useState<Supplier[]>([]);
   const [newCategoriesToRegister, setNewCategoriesToRegister] = useState<string[]>([]);
+  const [skippedItems, setSkippedItems] = useState<{
+    rowNumber: number;
+    name: string;
+    barcode: string;
+    reason: string;
+    rawRow: any;
+  }[]>([]);
+
+  // Filter for preview table: 'all', 'new', 'update', 'skipped'
+  const [tableFilter, setTableFilter] = useState<'all' | 'new' | 'update' | 'skipped'>('all');
   const [stats, setStats] = useState<{ total: number; valid: number; duplicates: number } | null>(null);
 
   // Barcode Wizard States
@@ -140,9 +339,13 @@ export default function ManagerImportPortal({
     setParseError(null);
     setSuccessMessage(null);
     setPreviewProducts([]);
+    setPreviewToUpdate([]);
     setPreviewUsers([]);
     setPreviewSuppliers([]);
     setNewCategoriesToRegister([]);
+    setSkippedItems([]);
+    setTableFilter('all');
+    setRawSheetRows(null);
     setStats(null);
 
     const reader = new FileReader();
@@ -152,62 +355,103 @@ export default function ManagerImportPortal({
         const wb = XLSX.read(bstr, { type: 'binary' });
         const wsname = wb.SheetNames[0];
         const ws = wb.Sheets[wsname];
-        const data = XLSX.utils.sheet_to_json(ws);
+        const data: any[] = extractRowsFromWorksheet(ws);
 
-        if (data.length === 0) {
+        if (!data || data.length === 0) {
           setParseError("A planilha selecionada está vazia.");
           return;
         }
 
-        processImportedData(data);
+        setRawSheetRows(data);
+        processImportedData(data, importMode);
       } catch (err: any) {
-        setParseError("Erro ao decodificar a planilha. Verifique se o arquivo está corrompido ou formato incorreto (.xlsx, .xls, .csv).");
+        setParseError("Erro ao decodificar a planilha. Verifique se o arquivo está corrompido ou no formato incorreto (.xlsx, .xls, .csv).");
         console.error(err);
       }
     };
     reader.readAsBinaryString(file);
   };
 
-  // 4. Process spreadsheets with flexible headers
-  const processImportedData = (rows: any[]) => {
-    if (activeTab === 'produtos') {
-      const parsed: Product[] = [];
-      const newCats = new Set<string>();
-      
-      const existingNames = new Set(products.map(p => p.name.toLowerCase().trim()));
-      const existingBarcodes = new Set(products.map(p => p.barcode).filter(b => b && b !== 'SEM_CODIGO'));
-      const existingSkus = new Set(products.map(p => p.sku.toLowerCase().trim()));
+  const handleModeChange = (mode: 'upsert' | 'skip' | 'allowAll') => {
+    setImportMode(mode);
+    if (rawSheetRows && rawSheetRows.length > 0) {
+      processImportedData(rawSheetRows, mode);
+    }
+  };
 
-      let dupCount = 0;
+  // 4. Process spreadsheets with flexible headers & smart mode handling
+  const processImportedData = (rows: any[], mode: 'upsert' | 'skip' | 'allowAll' = importMode) => {
+    if (activeTab === 'produtos') {
+      const toAdd: Product[] = [];
+      const toUpdate: Product[] = [];
+      const skipped: { rowNumber: number; name: string; barcode: string; reason: string; rawRow: any }[] = [];
+      const newCats = new Set<string>();
+
+      // Build quick lookup maps for existing products in store
+      const existingNameMap = new Map<string, Product>();
+      const existingBarcodeMap = new Map<string, Product>();
+
+      products.forEach(p => {
+        if (p.name) existingNameMap.set(p.name.toLowerCase().trim(), p);
+        if (p.barcode && p.barcode !== 'SEM_CODIGO') existingBarcodeMap.set(p.barcode.trim(), p);
+      });
+
+      const batchSeenNames = new Set<string>();
+      const batchSeenBarcodes = new Set<string>();
 
       rows.forEach((row, i) => {
-        const name = String(row.Nome || row.nome || row.NAME || row["Nome do Produto"] || row["Descrição"] || "").trim();
-        if (!name) return; // skip empty lines
+        // Smart search for product name using aliases & value inspection
+        const name = getProductName(row);
+        const rawBarcode = getRowVal(row, [
+          'codigo_barras', 'codigo de barras', 'código de barras', 'cod_barras', 'cod.barras', 
+          'codbarras', 'barcode', 'ean', 'gtin', 'plu', 'código', 'codigo', 'cod'
+        ]);
+        const barcode = cleanBarcodeStr(rawBarcode);
 
-        // Duplicates lookup
-        if (existingNames.has(name.toLowerCase())) {
-          dupCount++;
+        if (!name) {
+          const rowHasData = Object.values(row).some(v => v !== null && v !== undefined && String(v).trim() !== '');
+          if (rowHasData) {
+            skipped.push({
+              rowNumber: i + 2,
+              name: 'Linha sem nome/descrição',
+              barcode,
+              reason: 'Nome de produto não identificado na linha',
+              rawRow: row
+            });
+          }
           return;
         }
 
-        const category = String(row.Categoria || row.categoria || row.CATEGORIA || "Outros").trim();
-        const barcode = String(row.Codigo_Barras || row.codigo_barras || row.barcode || row.BARCODE || row["Código de Barras"] || "").trim();
-        const sku = String(row.SKU || row.sku || row.Sku || row["Código Interno"] || "").trim() || `P-${Date.now()}-${i}`;
-        const costPrice = parseFloat(row.Preco_Custo || row.preco_custo || row["Preço de Custo"] || row.cost_price || 0);
-        const sellPrice = parseFloat(row.Preco_Venda || row.preco_venda || row["Preço de Venda"] || row.sell_price || 0);
-        const unit = String(row.Unidade || row.unidade || row.unit || "UN").toUpperCase().trim();
-        const stockUnits = parseInt(
-          row.Estoque_Unidades || row.estoque_unidades || row["Estoque Unidades"] || row.stock_units || 
-          row.Estoque || row.estoque || row.Quantidade || row.quantidade || row["Quantidade Atual"] || 
-          row["Estoque Atual"] || row.Stock || row.stock || row.Qtd || row.qtd || row.QTD || 0, 10
-        );
-        const minStockUnits = parseInt(row.Estoque_Minimo || row.estoque_minimo || row["Estoque Mínimo"] || row.min_stock || 0, 10);
-        const brand = String(row.Marca || row.marca || row.brand || "").trim();
+        const rawCat = getRowVal(row, ['categoria', 'category', 'grupo', 'secao', 'seção', 'família', 'familia', 'tipo', 'departamento']);
+        const category = String(rawCat || 'Outros').trim();
 
-        if (barcode && existingBarcodes.has(barcode)) {
-          dupCount++;
-          return; // Skip duplicate barcodes too
-        }
+        const rawSku = getRowVal(row, ['sku', 'código interno', 'codigo interno', 'cod_interno', 'cod.interno', 'ref', 'referencia', 'referência', 'id']);
+        const sku = String(rawSku || '').trim() || `P-${Date.now()}-${i}`;
+
+        const rawCost = getRowVal(row, ['preco_custo', 'preço de custo', 'preco de custo', 'cost_price', 'custo', 'val_custo', 'preço custo', 'preco custo']);
+        const costPrice = parseFormattedPrice(rawCost);
+
+        const rawSell = getRowVal(row, [
+          'preco_venda', 'preço de venda', 'preco de venda', 'sell_price', 'venda', 
+          'val_venda', 'preço venda', 'preco venda', 'preco', 'preço', 'valor', 'r$'
+        ]);
+        const sellPrice = parseFormattedPrice(rawSell);
+
+        const rawUnit = getRowVal(row, ['unidade', 'unit', 'un', 'medida', 'um', 'u.m.']);
+        const unitStr = String(rawUnit || 'UN').toUpperCase().trim();
+        const unit = (unitStr === 'LT' || unitStr === 'KG' ? unitStr : 'UN') as any;
+
+        const rawStock = getRowVal(row, [
+          'estoque_unidades', 'estoque unidades', 'stock_units', 'estoque', 'quantidade', 
+          'qtd', 'qtd_estoque', 'saldo', 'quantidade atual', 'estoque atual', 'stock'
+        ]);
+        const stockUnits = parseFormattedInt(rawStock);
+
+        const rawMinStock = getRowVal(row, ['estoque_minimo', 'estoque mínimo', 'estoque minimo', 'min_stock', 'estoque min', 'minimo', 'mínimo']);
+        const minStockUnits = parseFormattedInt(rawMinStock);
+
+        const rawBrand = getRowVal(row, ['marca', 'brand', 'fabricante', 'fornecedor']);
+        const brand = String(rawBrand || '').trim();
 
         const margin = sellPrice > 0 ? parseFloat((((sellPrice - costPrice) / sellPrice) * 100).toFixed(2)) : 0;
 
@@ -215,34 +459,107 @@ export default function ManagerImportPortal({
           newCats.add(category);
         }
 
-        parsed.push({
-          id: `p-imp-${Date.now()}-${i}-${Math.random().toString(36).substr(2, 4)}`,
-          name,
-          category: category || 'Outros',
-          barcode,
-          sku,
-          supplierId: '',
-          costPrice: isNaN(costPrice) ? 0 : costPrice,
-          sellPrice: isNaN(sellPrice) ? 0 : sellPrice,
-          margin: isNaN(margin) ? 0 : margin,
-          unit: (unit === 'LT' || unit === 'KG' ? unit : 'UN') as any,
-          boxQuantity: 1,
-          stockBoxes: 0,
-          stockUnits: isNaN(stockUnits) ? 0 : stockUnits,
-          minStockUnits: isNaN(minStockUnits) ? 0 : minStockUnits,
-          maxStockUnits: 9999,
-          active: true,
-          brand,
-          ageRestricted: false
-        });
+        const nameLower = name.toLowerCase();
+        const existingByBarcode = barcode ? existingBarcodeMap.get(barcode) : undefined;
+        const existingByName = existingNameMap.get(nameLower);
+        const existingProd = existingByBarcode || existingByName;
+
+        // Skip intra-batch duplicate rows
+        if (batchSeenNames.has(nameLower) || (barcode && batchSeenBarcodes.has(barcode))) {
+          const isBarcodeDup = barcode && batchSeenBarcodes.has(barcode);
+          skipped.push({
+            rowNumber: i + 2,
+            name,
+            barcode,
+            reason: isBarcodeDup ? 'Código de barras repetido na mesma planilha' : 'Nome de produto repetido na mesma planilha',
+            rawRow: row
+          });
+          return;
+        }
+
+        batchSeenNames.add(nameLower);
+        if (barcode) batchSeenBarcodes.add(barcode);
+
+        if (existingProd) {
+          if (mode === 'upsert') {
+            // Prepare product for updating
+            toUpdate.push({
+              ...existingProd,
+              name,
+              category: category || existingProd.category,
+              barcode: barcode || existingProd.barcode,
+              costPrice: costPrice > 0 ? costPrice : existingProd.costPrice,
+              sellPrice: sellPrice > 0 ? sellPrice : existingProd.sellPrice,
+              margin: margin > 0 ? margin : existingProd.margin,
+              stockUnits: stockUnits > 0 ? stockUnits : existingProd.stockUnits,
+              minStockUnits: minStockUnits > 0 ? minStockUnits : existingProd.minStockUnits,
+              brand: brand || existingProd.brand,
+              unit: unit || existingProd.unit
+            });
+          } else if (mode === 'skip') {
+            skipped.push({
+              rowNumber: i + 2,
+              name,
+              barcode,
+              reason: `Já cadastrado no sistema (${existingProd.name}) - Modo Ignorar Duplicados`,
+              rawRow: row
+            });
+            return;
+          } else if (mode === 'allowAll') {
+            toAdd.push({
+              id: `p-imp-${Date.now()}-${i}-${Math.random().toString(36).substr(2, 4)}`,
+              name,
+              category: category || 'Outros',
+              barcode,
+              sku,
+              supplierId: '',
+              costPrice,
+              sellPrice,
+              margin,
+              unit,
+              boxQuantity: 1,
+              stockBoxes: 0,
+              stockUnits,
+              minStockUnits,
+              maxStockUnits: 9999,
+              active: true,
+              brand,
+              ageRestricted: false
+            });
+          }
+        } else {
+          // Brand new product!
+          toAdd.push({
+            id: `p-imp-${Date.now()}-${i}-${Math.random().toString(36).substr(2, 4)}`,
+            name,
+            category: category || 'Outros',
+            barcode,
+            sku,
+            supplierId: '',
+            costPrice,
+            sellPrice,
+            margin,
+            unit,
+            boxQuantity: 1,
+            stockBoxes: 0,
+            stockUnits,
+            minStockUnits,
+            maxStockUnits: 9999,
+            active: true,
+            brand,
+            ageRestricted: false
+          });
+        }
       });
 
-      setPreviewProducts(parsed);
+      setPreviewProducts(toAdd);
+      setPreviewToUpdate(toUpdate);
+      setSkippedItems(skipped);
       setNewCategoriesToRegister(Array.from(newCats));
       setStats({
         total: rows.length,
-        valid: parsed.length,
-        duplicates: dupCount
+        valid: toAdd.length + toUpdate.length,
+        duplicates: skipped.length
       });
 
     } else if (activeTab === 'funcionarios') {
@@ -252,10 +569,12 @@ export default function ManagerImportPortal({
       let dupCount = 0;
 
       rows.forEach((row, i) => {
-        const name = String(row.Nome_Completo || row.nome_completo || row.Nome || row.nome || row["Nome Completo"] || "").trim();
+        const nameVal = getRowVal(row, ['nome_completo', 'nome completo', 'nome', 'funcionario', 'colaborador']);
+        const name = String(nameVal || '').trim();
         if (!name) return;
 
-        let pin = String(row.Senha_PIN || row.senha_pin || row.PIN || row.pin || row["PIN"] || row["Senha"] || "").trim();
+        let pinVal = getRowVal(row, ['senha_pin', 'pin', 'senha', 'codigo']);
+        let pin = String(pinVal || '').trim();
         if (!pin) {
           pin = String(Math.floor(1000 + Math.random() * 9000));
         }
@@ -265,13 +584,15 @@ export default function ManagerImportPortal({
           return;
         }
 
-        let role = String(row.Cargo || row.cargo || row.role || "cashier").toLowerCase().trim();
+        const roleVal = getRowVal(row, ['cargo', 'role', 'funcao']);
+        let role = String(roleVal || 'cashier').toLowerCase().trim();
         const validRoles = ['admin', 'manager', 'finance', 'cashier', 'waiter', 'stock', 'kitchen', 'bar'];
         if (!validRoles.includes(role)) {
           role = 'cashier';
         }
 
-        const activeStr = String(row.Ativo || row.ativo || "Sim").toLowerCase();
+        const activeVal = getRowVal(row, ['ativo', 'active', 'status']);
+        const activeStr = String(activeVal || 'Sim').toLowerCase();
         const active = activeStr === 'sim' || activeStr === 'true' || activeStr === 'yes' || activeStr === '1';
 
         parsed.push({
@@ -296,7 +617,8 @@ export default function ManagerImportPortal({
       let dupCount = 0;
 
       rows.forEach((row, i) => {
-        const companyName = String(row.Razao_Social_ou_Nome || row.razao_social || row.Nome || row.nome || row["Razão Social"] || "").trim();
+        const companyVal = getRowVal(row, ['razao_social_ou_nome', 'razao_social', 'razão social', 'nome', 'empresa', 'fornecedor']);
+        const companyName = String(companyVal || '').trim();
         if (!companyName) return;
 
         if (existingNames.has(companyName.toLowerCase())) {
@@ -304,11 +626,20 @@ export default function ManagerImportPortal({
           return;
         }
 
-        const contactName = String(row.Nome_Contato || row.contato || row.contact_name || "Representante").trim();
-        const phone = String(row.Telefone || row.telefone || "").trim();
-        const whatsapp = String(row.WhatsApp || row.whatsapp || "").trim().replace(/\D/g, '') || phone.replace(/\D/g, '');
-        const email = String(row.Email || row.email || "").trim();
-        const notes = String(row.Anotacoes || row.anotacoes || row.notes || "").trim();
+        const contactVal = getRowVal(row, ['nome_contato', 'contato', 'representante']);
+        const contactName = String(contactVal || 'Representante').trim();
+
+        const phoneVal = getRowVal(row, ['telefone', 'fone', 'tel', 'celular']);
+        const phone = String(phoneVal || '').trim();
+
+        const whatsVal = getRowVal(row, ['whatsapp', 'zap', 'whats']);
+        const whatsapp = String(whatsVal || '').trim().replace(/\D/g, '') || phone.replace(/\D/g, '');
+
+        const emailVal = getRowVal(row, ['email', 'e-mail']);
+        const email = String(emailVal || '').trim();
+
+        const notesVal = getRowVal(row, ['anotacoes', 'anotações', 'observacoes', 'observações', 'notas']);
+        const notes = String(notesVal || '').trim();
 
         parsed.push({
           id: `s-imp-${Date.now()}-${i}`,
@@ -333,22 +664,34 @@ export default function ManagerImportPortal({
   // 5. Save imported preview data to actual DB
   const handleConfirmImport = () => {
     if (activeTab === 'produtos') {
-      if (previewProducts.length === 0) return;
+      if (previewProducts.length === 0 && previewToUpdate.length === 0) return;
 
       // 1. Register categories
       newCategoriesToRegister.forEach(cat => {
         onAddCategory(cat);
       });
 
-      // 2. Add products
-      previewProducts.forEach(prod => {
-        onAddProduct(prod);
-      });
+      // 2. Add / Update products
+      if (onBatchImportProducts) {
+        onBatchImportProducts(previewProducts, previewToUpdate);
+      } else {
+        previewProducts.forEach(prod => onAddProduct(prod));
+        previewToUpdate.forEach(prod => onUpdateProduct(prod));
+      }
 
-      // 3. Count imported products with missing barcode
+      const totalProcessed = previewProducts.length + previewToUpdate.length;
       const missingCount = previewProducts.filter(p => !p.barcode).length;
 
-      setSuccessMessage(`Sucesso! ${previewProducts.length} produtos foram cadastrados com êxito.`);
+      let msg = `Sucesso! `;
+      if (previewProducts.length > 0 && previewToUpdate.length > 0) {
+        msg += `${previewProducts.length} novos produtos cadastrados e ${previewToUpdate.length} produtos existentes atualizados!`;
+      } else if (previewToUpdate.length > 0) {
+        msg += `${previewToUpdate.length} produtos existentes atualizados com sucesso!`;
+      } else {
+        msg += `${previewProducts.length} novos produtos cadastrados com sucesso!`;
+      }
+
+      setSuccessMessage(msg);
       
       if (missingCount > 0) {
         if (confirm(`Importação concluída!\n\nIdentificamos que ${missingCount} produtos novos não possuem código de barras na planilha.\n\nDeseja iniciar o Assistente de Escaneamento Rápido agora para vincular os códigos com seu leitor óptico?`)) {
@@ -357,6 +700,7 @@ export default function ManagerImportPortal({
       }
 
       setPreviewProducts([]);
+      setPreviewToUpdate([]);
 
     } else if (activeTab === 'funcionarios') {
       if (previewUsers.length === 0) return;
@@ -634,23 +978,170 @@ export default function ManagerImportPortal({
                 <span className="text-[10px] text-gray-400">Confirme as informações abaixo</span>
               </div>
 
-              <div className="grid grid-cols-3 gap-3 text-center">
-                <div className={`p-2.5 rounded-lg border ${theme === 'dark' ? 'bg-[#111111] border-[#1C1C1C]' : 'bg-white border-gray-200'}`}>
-                  <span className="text-gray-400 block text-[9px] uppercase font-bold">Total Encontrado</span>
-                  <span className="text-lg font-mono font-bold">{stats.total}</span>
+              {/* Duplicate / Update mode selection bar for Products */}
+              {activeTab === 'produtos' && (
+                <div className="flex flex-col gap-1.5 p-2.5 rounded-lg border bg-black/20 border-gray-800">
+                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Comportamento para Produtos Já Existentes no Sistema:</span>
+                  <div className="flex flex-wrap gap-2 text-[10px]">
+                    <button
+                      type="button"
+                      onClick={() => handleModeChange('upsert')}
+                      className={`px-2.5 py-1 rounded font-bold transition-all cursor-pointer ${
+                        importMode === 'upsert' ? 'bg-emerald-500 text-black shadow-sm' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                      }`}
+                    >
+                      Atualizar Preços/Estoque & Cadastrar Novos
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleModeChange('skip')}
+                      className={`px-2.5 py-1 rounded font-bold transition-all cursor-pointer ${
+                        importMode === 'skip' ? 'bg-amber-500 text-black shadow-sm' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                      }`}
+                    >
+                      Ignorar Duplicados (Cadastrar Apenas Inexistentes)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleModeChange('allowAll')}
+                      className={`px-2.5 py-1 rounded font-bold transition-all cursor-pointer ${
+                        importMode === 'allowAll' ? 'bg-blue-500 text-white shadow-sm' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                      }`}
+                    >
+                      Cadastrar Todos (Permitir Duplicados)
+                    </button>
+                  </div>
                 </div>
-                <div className={`p-2.5 rounded-lg border ${theme === 'dark' ? 'bg-[#111111] border-[#1C1C1C]' : 'bg-white border-gray-200'}`}>
-                  <span className={`text-[9px] uppercase font-bold block ${theme === 'dark' ? 'text-emerald-400' : 'text-emerald-600'}`}>Prontos p/ Cadastrar</span>
-                  <span className={`text-lg font-mono font-bold ${theme === 'dark' ? 'text-emerald-400' : 'text-emerald-700'}`}>{stats.valid}</span>
-                </div>
-                <div className={`p-2.5 rounded-lg border ${theme === 'dark' ? 'bg-[#111111] border-[#1C1C1C]' : 'bg-white border-gray-200'}`}>
-                  <span className={`text-[9px] uppercase font-bold block ${theme === 'dark' ? 'text-amber-400' : 'text-amber-600'}`}>Duplicados/Ignorados</span>
-                  <span className={`text-lg font-mono font-bold ${theme === 'dark' ? 'text-amber-400' : 'text-amber-700'}`}>{stats.duplicates}</span>
-                </div>
+              )}
+
+              {/* Interactive Stat Cards / Filters */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+                <button
+                  type="button"
+                  onClick={() => setTableFilter('all')}
+                  className={`p-2 rounded-lg border text-center transition-all cursor-pointer ${
+                    tableFilter === 'all'
+                      ? 'border-emerald-500 bg-emerald-500/10'
+                      : (theme === 'dark' ? 'bg-[#111111] border-[#1C1C1C] hover:bg-[#181818]' : 'bg-white border-gray-200 hover:bg-gray-50')
+                  }`}
+                >
+                  <span className="text-gray-400 block text-[9px] uppercase font-bold">Total Lido</span>
+                  <span className="text-base font-mono font-bold">{stats.total}</span>
+                </button>
+
+                {activeTab === 'produtos' ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setTableFilter('new')}
+                      className={`p-2 rounded-lg border text-center transition-all cursor-pointer ${
+                        tableFilter === 'new'
+                          ? 'border-emerald-500 bg-emerald-500/10'
+                          : (theme === 'dark' ? 'bg-[#111111] border-[#1C1C1C] hover:bg-[#181818]' : 'bg-white border-gray-200 hover:bg-gray-50')
+                      }`}
+                    >
+                      <span className={`text-[9px] uppercase font-bold block ${theme === 'dark' ? 'text-emerald-400' : 'text-emerald-600'}`}>Novos a Cadastrar</span>
+                      <span className={`text-base font-mono font-bold ${theme === 'dark' ? 'text-emerald-400' : 'text-emerald-700'}`}>{previewProducts.length}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTableFilter('update')}
+                      className={`p-2 rounded-lg border text-center transition-all cursor-pointer ${
+                        tableFilter === 'update'
+                          ? 'border-blue-500 bg-blue-500/10'
+                          : (theme === 'dark' ? 'bg-[#111111] border-[#1C1C1C] hover:bg-[#181818]' : 'bg-white border-gray-200 hover:bg-gray-50')
+                      }`}
+                    >
+                      <span className={`text-[9px] uppercase font-bold block ${theme === 'dark' ? 'text-blue-400' : 'text-blue-600'}`}>A Atualizar</span>
+                      <span className={`text-base font-mono font-bold ${theme === 'dark' ? 'text-blue-400' : 'text-blue-700'}`}>{previewToUpdate.length}</span>
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setTableFilter('all')}
+                    className={`p-2 rounded-lg border text-center transition-all cursor-pointer ${
+                      theme === 'dark' ? 'bg-[#111111] border-[#1C1C1C]' : 'bg-white border-gray-200'
+                    }`}
+                  >
+                    <span className={`text-[9px] uppercase font-bold block ${theme === 'dark' ? 'text-emerald-400' : 'text-emerald-600'}`}>Prontos p/ Cadastrar</span>
+                    <span className={`text-base font-mono font-bold ${theme === 'dark' ? 'text-emerald-400' : 'text-emerald-700'}`}>{stats.valid}</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setTableFilter('skipped')}
+                  className={`p-2 rounded-lg border text-center transition-all cursor-pointer ${
+                    tableFilter === 'skipped'
+                      ? 'border-amber-500 bg-amber-500/10'
+                      : (theme === 'dark' ? 'bg-[#111111] border-[#1C1C1C] hover:bg-[#181818]' : 'bg-white border-gray-200 hover:bg-gray-50')
+                  }`}
+                >
+                  <span className={`text-[9px] uppercase font-bold block ${skippedItems.length > 0 ? (theme === 'dark' ? 'text-amber-400 font-extrabold' : 'text-amber-600 font-extrabold') : 'text-gray-400'}`}>
+                    Ignorados / Removidos
+                  </span>
+                  <span className={`text-base font-mono font-bold ${skippedItems.length > 0 ? (theme === 'dark' ? 'text-amber-400' : 'text-amber-700') : 'text-gray-400'}`}>
+                    {stats.duplicates}
+                  </span>
+                </button>
               </div>
 
+              {/* View filter buttons bar */}
+              {activeTab === 'produtos' && (
+                <div className="flex items-center justify-between border-b pb-2 gap-2 text-[10px]">
+                  <span className="text-gray-400 font-bold uppercase tracking-wider text-[9px]">Filtro de Visualização:</span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setTableFilter('all')}
+                      className={`px-2 py-0.5 rounded font-bold transition-all cursor-pointer ${
+                        tableFilter === 'all'
+                          ? 'bg-emerald-500 text-black'
+                          : 'bg-gray-800 text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      Ver Todos ({previewProducts.length + previewToUpdate.length + skippedItems.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTableFilter('new')}
+                      className={`px-2 py-0.5 rounded font-bold transition-all cursor-pointer ${
+                        tableFilter === 'new'
+                          ? 'bg-emerald-500 text-black'
+                          : 'bg-gray-800 text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      Novos ({previewProducts.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTableFilter('update')}
+                      className={`px-2 py-0.5 rounded font-bold transition-all cursor-pointer ${
+                        tableFilter === 'update'
+                          ? 'bg-blue-500 text-white'
+                          : 'bg-gray-800 text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      A Atualizar ({previewToUpdate.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTableFilter('skipped')}
+                      className={`px-2 py-0.5 rounded font-bold transition-all cursor-pointer ${
+                        tableFilter === 'skipped'
+                          ? 'bg-amber-500 text-black'
+                          : 'bg-gray-800 text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      Ignorados / Duplicados ({skippedItems.length})
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Warnings on new categories */}
-              {activeTab === 'produtos' && newCategoriesToRegister.length > 0 && (
+              {activeTab === 'produtos' && newCategoriesToRegister.length > 0 && tableFilter !== 'skipped' && (
                 <div className={`p-2.5 rounded border ${
                   theme === 'dark' 
                     ? 'bg-[#18F2A4]/5 border-[#18F2A4]/10 text-[#18F2A4]' 
@@ -663,51 +1154,94 @@ export default function ManagerImportPortal({
                 </div>
               )}
 
-              {/* Data Table Preview Row limit */}
-              <div className="overflow-x-auto max-h-48 border border-gray-800/10 rounded">
+              {/* Data Table Preview */}
+              <div className="overflow-x-auto max-h-56 border border-gray-800/10 rounded">
                 <table className="w-full text-[10px] text-left">
                   <thead>
                     <tr className={`border-b ${theme === 'dark' ? 'bg-[#141414] border-gray-900 text-gray-400' : 'bg-gray-100 border-gray-200'}`}>
-                      <th className="p-2">Nome / Razão</th>
-                      {activeTab === 'produtos' && <th className="p-2">Categoria</th>}
-                      {activeTab === 'produtos' && <th className="p-2 text-right">Venda</th>}
-                      {activeTab === 'produtos' && <th className="p-2 text-center">Estoque Atual</th>}
-                      {activeTab === 'produtos' && <th className="p-2">Cod. Barras</th>}
-                      {activeTab === 'funcionarios' && <th className="p-2">PIN</th>}
-                      {activeTab === 'funcionarios' && <th className="p-2">Cargo</th>}
-                      {activeTab === 'fornecedores' && <th className="p-2">WhatsApp</th>}
+                      {tableFilter === 'skipped' ? (
+                        <>
+                          <th className="p-2 text-center w-16">Linha</th>
+                          <th className="p-2">Item / Descrição no Arquivo</th>
+                          <th className="p-2">Cod. Barras</th>
+                          <th className="p-2">Motivo pelo Qual Foi Ignorado</th>
+                        </>
+                      ) : (
+                        <>
+                          {activeTab === 'produtos' && <th className="p-2 text-center w-12">Ação</th>}
+                          <th className="p-2">Nome / Razão</th>
+                          {activeTab === 'produtos' && <th className="p-2">Categoria</th>}
+                          {activeTab === 'produtos' && <th className="p-2 text-right">Venda</th>}
+                          {activeTab === 'produtos' && <th className="p-2 text-center">Estoque</th>}
+                          {activeTab === 'produtos' && <th className="p-2">Cod. Barras</th>}
+                          {activeTab === 'funcionarios' && <th className="p-2">PIN</th>}
+                          {activeTab === 'funcionarios' && <th className="p-2">Cargo</th>}
+                          {activeTab === 'fornecedores' && <th className="p-2">WhatsApp</th>}
+                        </>
+                      )}
                     </tr>
                   </thead>
                   <tbody>
-                    {activeTab === 'produtos' && previewProducts.slice(0, 5).map((p, idx) => (
-                      <tr key={idx} className="border-b border-gray-800/5">
-                        <td className="p-2 font-semibold truncate max-w-[150px]">{p.name}</td>
-                        <td className="p-2">{p.category}</td>
-                        <td className="p-2 text-right font-mono font-bold">R$ {p.sellPrice.toFixed(2)}</td>
-                        <td className={`p-2 text-center font-mono font-bold ${p.stockUnits > 0 ? (theme === 'dark' ? 'text-emerald-400' : 'text-emerald-700') : 'text-gray-400'}`}>{p.stockUnits} un</td>
-                        <td className="p-2 text-gray-400 font-mono">{p.barcode || <span className="text-amber-500 italic">Pendente scan</span>}</td>
-                      </tr>
-                    ))}
-                    {activeTab === 'funcionarios' && previewUsers.slice(0, 5).map((u, idx) => (
-                      <tr key={idx} className="border-b border-gray-800/5">
-                        <td className="p-2 font-semibold">{u.name}</td>
-                        <td className="p-2 font-mono">{u.pin}</td>
-                        <td className="p-2 text-gray-400 uppercase font-bold text-[9px]">{u.role}</td>
-                      </tr>
-                    ))}
-                    {activeTab === 'fornecedores' && previewSuppliers.slice(0, 5).map((s, idx) => (
-                      <tr key={idx} className="border-b border-gray-800/5">
-                        <td className="p-2 font-semibold">{s.companyName}</td>
-                        <td className="p-2 font-mono">{s.whatsapp || 'N/A'}</td>
-                      </tr>
-                    ))}
+                    {/* Render Skipped Items exclusively if selected */}
+                    {tableFilter === 'skipped' ? (
+                      skippedItems.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} className="p-4 text-center text-gray-500 italic">
+                            Nenhum produto foi ignorado ou duplicado nesta planilha.
+                          </td>
+                        </tr>
+                      ) : (
+                        skippedItems.map((s, idx) => (
+                          <tr key={idx} className="border-b border-gray-800/10 bg-amber-500/5">
+                            <td className="p-2 text-center font-mono font-bold text-gray-400">Linha {s.rowNumber}</td>
+                            <td className="p-2 font-semibold text-gray-300">{s.name}</td>
+                            <td className="p-2 font-mono text-gray-400">{s.barcode || 'N/A'}</td>
+                            <td className="p-2">
+                              <span className="px-2 py-0.5 rounded text-[8px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                                {s.reason}
+                              </span>
+                            </td>
+                          </tr>
+                        ))
+                      )
+                    ) : (
+                      <>
+                        {activeTab === 'produtos' && [
+                          ...(tableFilter === 'all' || tableFilter === 'new' ? previewProducts.map(p => ({ ...p, _status: 'novo' })) : []),
+                          ...(tableFilter === 'all' || tableFilter === 'update' ? previewToUpdate.map(p => ({ ...p, _status: 'atualizar' })) : [])
+                        ].map((p, idx) => (
+                          <tr key={idx} className="border-b border-gray-800/5">
+                            <td className="p-2 text-center">
+                              {p._status === 'novo' ? (
+                                <span className="px-1.5 py-0.5 rounded text-[8px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">NOVO</span>
+                              ) : (
+                                <span className="px-1.5 py-0.5 rounded text-[8px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">ATUALIZAR</span>
+                              )}
+                            </td>
+                            <td className="p-2 font-semibold truncate max-w-[150px]">{p.name}</td>
+                            <td className="p-2">{p.category}</td>
+                            <td className="p-2 text-right font-mono font-bold">R$ {p.sellPrice.toFixed(2)}</td>
+                            <td className={`p-2 text-center font-mono font-bold ${p.stockUnits > 0 ? (theme === 'dark' ? 'text-emerald-400' : 'text-emerald-700') : 'text-gray-400'}`}>{p.stockUnits} un</td>
+                            <td className="p-2 text-gray-400 font-mono">{p.barcode || <span className="text-amber-500 italic">Pendente scan</span>}</td>
+                          </tr>
+                        ))}
+                        {activeTab === 'funcionarios' && previewUsers.map((u, idx) => (
+                          <tr key={idx} className="border-b border-gray-800/5">
+                            <td className="p-2 font-semibold">{u.name}</td>
+                            <td className="p-2 font-mono">{u.pin}</td>
+                            <td className="p-2 text-gray-400 uppercase font-bold text-[9px]">{u.role}</td>
+                          </tr>
+                        ))}
+                        {activeTab === 'fornecedores' && previewSuppliers.map((s, idx) => (
+                          <tr key={idx} className="border-b border-gray-800/5">
+                            <td className="p-2 font-semibold">{s.companyName}</td>
+                            <td className="p-2 font-mono">{s.whatsapp || 'N/A'}</td>
+                          </tr>
+                        ))}
+                      </>
+                    )}
                   </tbody>
                 </table>
-                {(activeTab === 'produtos' ? previewProducts.length : activeTab === 'funcionarios' ? previewUsers.length : previewSuppliers.length) > 5 && (
-                  <div className="p-1.5 text-center text-[9px] text-gray-500">
-                    ... e mais {(activeTab === 'produtos' ? previewProducts.length : activeTab === 'funcionarios' ? previewUsers.length : previewSuppliers.length) - 5} linhas.
-                  </div>
-                )}
               </div>
 
               {/* Action trigger button */}
@@ -722,7 +1256,15 @@ export default function ManagerImportPortal({
                 }`}
               >
                 <Check className="w-4 h-4" />
-                Gravar {stats.valid} Cadastros no Sistema
+                {activeTab === 'produtos' 
+                  ? (previewProducts.length > 0 && previewToUpdate.length > 0
+                      ? `Gravar ${previewProducts.length} Novos e Atualizar ${previewToUpdate.length} Produtos Existentes`
+                      : previewToUpdate.length > 0
+                        ? `Atualizar ${previewToUpdate.length} Produtos no Sistema`
+                        : `Gravar ${previewProducts.length} Novos Produtos no Sistema`
+                    )
+                  : `Gravar ${stats.valid} Cadastros no Sistema`
+                }
               </button>
             </div>
           )}
@@ -1004,7 +1546,7 @@ export default function ManagerImportPortal({
                               : (theme === 'dark' ? 'text-gray-500' : 'text-gray-600')
                           }`}
                         >
-                          <span className="truncate max-w-[280px]">{i === 0 ? '▶ ' : ''}{p.name}</span>
+                          <span className="truncate max-w-[280px]">{i === 0 ? '[Atual] ' : ''}{p.name}</span>
                           <span className={`text-[8px] font-mono ${theme === 'dark' ? 'text-gray-600' : 'text-gray-500'}`}>{p.sku}</span>
                         </div>
                       ))}
