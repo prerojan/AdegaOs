@@ -436,6 +436,16 @@ export async function fetchProductsFromDb(): Promise<Product[]> {
         const prods = snap.docs.map(d => d.data() as Product);
         localStorage.setItem(`fluxos_products_${storeId}`, JSON.stringify(prods));
         return prods;
+      } else {
+        const initialProds = isMainStore ? INITIAL_PRODUCTS : [];
+        if (isMainStore) {
+          initialProds.forEach(p => {
+            const docRef = getStoreDoc('products', p.id);
+            if (docRef) setDoc(docRef, cleanForFirestore(p));
+          });
+        }
+        localStorage.setItem(`fluxos_products_${storeId}`, JSON.stringify(initialProds));
+        return initialProds;
       }
     } catch (err) {
       console.error('Error fetching products from Firestore:', err);
@@ -481,6 +491,10 @@ export async function fetchSalesFromDb(): Promise<Sale[]> {
         sales.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
         localStorage.setItem(`fluxos_sales_${storeId}`, JSON.stringify(sales));
         return sales;
+      } else {
+        const initialSales = isMainStore ? MOCK_SALES : [];
+        localStorage.setItem(`fluxos_sales_${storeId}`, JSON.stringify(initialSales));
+        return initialSales;
       }
     } catch (err) {
       console.error('Error fetching sales from Firestore:', err);
@@ -525,6 +539,16 @@ export async function fetchSuppliersFromDb(): Promise<Supplier[]> {
         const sups = snap.docs.map(d => d.data() as Supplier);
         localStorage.setItem(`fluxos_suppliers_${storeId}`, JSON.stringify(sups));
         return sups;
+      } else {
+        const initialSups = isMainStore ? INITIAL_SUPPLIERS : [];
+        if (isMainStore) {
+          initialSups.forEach(s => {
+            const docRef = getStoreDoc('suppliers', s.id);
+            if (docRef) setDoc(docRef, cleanForFirestore(s));
+          });
+        }
+        localStorage.setItem(`fluxos_suppliers_${storeId}`, JSON.stringify(initialSups));
+        return initialSups;
       }
     } catch (err) {
       console.error('Error fetching suppliers from Firestore:', err);
@@ -590,6 +614,9 @@ export async function fetchTransactionsFromDb(): Promise<FinancialTransaction[]>
         const txs = snap.docs.map(d => d.data() as FinancialTransaction);
         localStorage.setItem(`fluxos_transactions_${storeId}`, JSON.stringify(txs));
         return txs;
+      } else {
+        localStorage.setItem(`fluxos_transactions_${storeId}`, JSON.stringify([]));
+        return [];
       }
     } catch (err) {
       console.error('Error fetching transactions from Firestore:', err);
@@ -668,6 +695,13 @@ export async function fetchTablesComandasFromDb(): Promise<TableComandaState[]> 
         tables.sort((a, b) => a.number - b.number);
         localStorage.setItem(`fluxos_tables_${storeId}`, JSON.stringify(tables));
         return tables;
+      } else {
+        defaultTables.forEach(t => {
+          const docRef = getStoreDoc('tables', t.id);
+          if (docRef) setDoc(docRef, cleanForFirestore(t));
+        });
+        localStorage.setItem(`fluxos_tables_${storeId}`, JSON.stringify(defaultTables));
+        return defaultTables;
       }
     } catch (err) {
       console.error('Error fetching tables from Firestore:', err);
@@ -736,6 +770,13 @@ export async function fetchUsersFromDb(): Promise<CashierUser[]> {
         const users = snap.docs.map(d => d.data() as CashierUser);
         localStorage.setItem(`fluxos_users_${storeId}`, JSON.stringify(users));
         return users;
+      } else {
+        defaultUsers.forEach(u => {
+          const docRef = getStoreDoc('users', u.id);
+          if (docRef) setDoc(docRef, cleanForFirestore(u));
+        });
+        localStorage.setItem(`fluxos_users_${storeId}`, JSON.stringify(defaultUsers));
+        return defaultUsers;
       }
     } catch (err) {
       console.error('Error fetching users from Firestore:', err);
@@ -801,6 +842,13 @@ export async function fetchCategoriesFromDb(): Promise<string[]> {
         const cats = snap.docs.map(d => (d.data() as any).name || d.id);
         localStorage.setItem(`fluxos_categories_${storeId}`, JSON.stringify(cats));
         return cats;
+      } else {
+        DEFAULT_PRODUCT_CATEGORIES.forEach(c => {
+          const docRef = getStoreDoc('categories', c);
+          if (docRef) setDoc(docRef, { name: c, createdAt: new Date().toISOString() });
+        });
+        localStorage.setItem(`fluxos_categories_${storeId}`, JSON.stringify(DEFAULT_PRODUCT_CATEGORIES));
+        return DEFAULT_PRODUCT_CATEGORIES;
       }
     } catch (err) {
       console.error('Error fetching categories from Firestore:', err);

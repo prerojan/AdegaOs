@@ -65,7 +65,7 @@ const ThermalPrinterControlModal = React.lazy(() => import('./components/Thermal
 
 function ModuleLoader() {
   return (
-    <div className="w-full h-full min-h-[300px] flex flex-col items-center justify-center p-8 text-center animate-fade-in">
+    <div className="w-full flex-1 min-h-[70vh] flex flex-col items-center justify-center p-8 text-center my-auto animate-fade-in">
       <div className="relative w-10 h-10 mb-3">
         <div className="absolute inset-0 rounded-full border-2 border-emerald-500/20" />
         <div className="absolute inset-0 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin" />
