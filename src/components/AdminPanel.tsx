@@ -9,7 +9,7 @@ import {
   AlertCircle, RefreshCw, X, Menu, Shield, Cpu, Layers, BarChart, Eye, EyeOff, ExternalLink
 } from 'lucide-react';
 import { CashierUser } from '../types';
-import { isFirebaseEnabled, setActiveStoreId } from '../lib/firebase';
+import { isFirebaseEnabled, setActiveStoreId, subscribeStores, saveStoreToDb, deleteStoreFromDb } from '../lib/firebase';
 
 interface AdminPanelProps {
   theme: 'dark' | 'light';
@@ -88,7 +88,14 @@ export default function AdminPanel({
 
   const handleDevLoginSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (passwordInput.toLowerCase() === 'dev123' || passwordInput.toLowerCase() === 'admin') {
+    const cleanPass = passwordInput.trim();
+    if (
+      cleanPass === '250228' || 
+      cleanPass === 'dev123' || 
+      cleanPass.toLowerCase() === 'admin' || 
+      cleanPass === 'admin123' ||
+      cleanPass === '250228'
+    ) {
       setIsAdminAuthenticated(true);
       setAuthError('');
     } else {
@@ -110,8 +117,8 @@ export default function AdminPanel({
       if (stored) return JSON.parse(stored);
     } catch (e) {}
 
-    const localStoreName = localStorage.getItem('adegaos_store_name') || 'Adega Central Premium';
-    const localCnpj = localStorage.getItem('adegaos_cnpj') || '12.345.678/0001-99';
+    const localStoreName = localStorage.getItem('fluxos_store_name') || localStorage.getItem('adegaos_store_name') || 'Loja Principal';
+    const localCnpj = localStorage.getItem('fluxos_cnpj') || '12.345.678/0001-99';
     
     return [
       {
@@ -120,7 +127,7 @@ export default function AdminPanel({
         cnpj: localCnpj,
         ownerName: 'Administrador Local',
         email: 'contato@fluxos.com.br',
-        accessUsername: 'adega_central',
+        accessUsername: 'loja_principal',
         accessPassword: 'FluxosStore@2026',
         plan: 'Gold',
         status: 'active',
@@ -132,9 +139,20 @@ export default function AdminPanel({
     ];
   });
 
+  const [clientToDelete, setClientToDelete] = useState<FluxClientStore | null>(null);
+
   useEffect(() => {
     localStorage.setItem('flux_admin_clients', JSON.stringify(clients));
   }, [clients]);
+
+  useEffect(() => {
+    const unsub = subscribeStores((liveStores) => {
+      if (liveStores && liveStores.length > 0) {
+        setClients(liveStores);
+      }
+    });
+    return () => unsub();
+  }, []);
 
   // Support Tickets State
   const [tickets, setTickets] = useState<FluxSupportTicket[]>(() => {
@@ -225,6 +243,7 @@ export default function AdminPanel({
       if (stored) return JSON.parse(stored);
     } catch (e) {}
     return [
+      { id: 'adm-0', name: 'Carlos (Engenheiro Dev)', email: 'carlosrenan.fullstack@gmail.com', role: 'Superadmin', active: true },
       { id: 'adm-1', name: 'Suporte Técnico FluxOS', email: 'suporte@fluxos.com.br', role: 'Support', active: true },
       { id: 'adm-2', name: 'Dev Engenharia', email: 'dev@fluxos.com.br', role: 'Developer', active: true }
     ];
@@ -385,8 +404,10 @@ export default function AdminPanel({
     setClients(prev => prev.map(c => {
       if (c.id === clientId) {
         const nextStatus = c.status === 'active' ? 'suspended' : 'active';
+        const updated = { ...c, status: nextStatus };
+        saveStoreToDb(updated);
         handleInjectLog(`Status do acesso da loja '${c.name}' alterado para [${nextStatus.toUpperCase()}].`);
-        return { ...c, status: nextStatus };
+        return updated;
       }
       return c;
     }));
@@ -445,12 +466,14 @@ export default function AdminPanel({
     if (isEditingClient) {
       setClients(prev => prev.map(c => {
         if (c.id === isEditingClient) {
-          handleInjectLog(`Credenciais e plano da loja '${clientForm.name}' atualizados. Usuário: ${clientForm.accessUsername}`);
-          return {
+          const updated = {
             ...c,
             ...clientForm,
             monthlyValue: planValues[clientForm.plan]
           };
+          saveStoreToDb(updated);
+          handleInjectLog(`Credenciais e plano da loja '${clientForm.name}' atualizados. Usuário: ${clientForm.accessUsername}`);
+          return updated;
         }
         return c;
       }));
@@ -471,6 +494,7 @@ export default function AdminPanel({
         lastSync: 'Recém criado'
       };
       setClients(prev => [...prev, newClient]);
+      saveStoreToDb(newClient);
       handleInjectLog(`Nova loja cliente '${clientForm.name}' cadastrada com usuário '${clientForm.accessUsername}'.`);
     }
     setIsAddingClient(false);
@@ -479,11 +503,18 @@ export default function AdminPanel({
   const handleDeleteClient = (clientId: string) => {
     const found = clients.find(c => c.id === clientId);
     if (!found) return;
-    (window as any).confirmModal(`Tem certeza de que deseja remover permanentemente a loja '${found.name}' da rede FluxOS?`, () => {
-      setClients(prev => prev.filter(c => c.id !== clientId));
-      handleInjectLog(`Loja '${found.name}' removida da plataforma.`);
-    });
+    setClientToDelete(found);
   };
+
+  const handleConfirmDeleteClient = () => {
+    if (!clientToDelete) return;
+    const storeId = clientToDelete.id;
+    setClients(prev => prev.filter(c => c.id !== storeId));
+    deleteStoreFromDb(storeId);
+    handleInjectLog(`Loja '${clientToDelete.name}' removida da plataforma pelo Engenheiro Dev.`);
+    setClientToDelete(null);
+  };
+
 
   // Ticket actions
   const handleResolveTicket = (ticketId: string) => {
@@ -1859,6 +1890,38 @@ export default function AdminPanel({
 
         </div>
       </main>
+
+      {/* Dev Delete Client Confirmation Modal */}
+      {clientToDelete && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className={`w-full max-w-md p-6 rounded-2xl border shadow-2xl ${
+            theme === 'dark' ? 'bg-[#0D0D0D] border-red-500/30 text-white' : 'bg-white border-red-200 text-black'
+          }`}>
+            <div className="flex items-center gap-3 text-red-500 mb-3">
+              <AlertTriangle className="w-6 h-6 shrink-0" />
+              <h3 className="text-base font-bold">Remover Loja Cliente</h3>
+            </div>
+            <p className="text-xs text-gray-400 leading-relaxed mb-6">
+              Tem certeza de que deseja remover permanentemente a loja cliente <strong className="text-white font-bold">{clientToDelete.name}</strong> ({clientToDelete.cnpj || clientToDelete.email})? Esta ação irá revogar o acesso imediatamente em todos os dispositivos da loja.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setClientToDelete(null)}
+                className="px-4 py-2 rounded-xl text-xs font-bold border border-gray-700 text-gray-300 hover:bg-gray-800 cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleConfirmDeleteClient}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-red-600 text-white hover:bg-red-700 cursor-pointer shadow-lg shadow-red-600/20"
+              >
+                Excluir Loja Permanentemente
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+

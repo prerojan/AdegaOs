@@ -45,56 +45,46 @@ export default function QuickSaleSidebar({
   const [paymentMethod, setPaymentMethod] = useState<'dinheiro' | 'pix' | 'debito' | 'credito'>('pix');
   const [discountAmount, setDiscountAmount] = useState<number>(0);
   const [cashReceived, setCashReceived] = useState<string>('');
-  const [multiplierBuffer, setMultiplierBuffer] = useState<string>(''); // dígitos crus digitados no numpad
-  const multiplier = multiplierBuffer ? Math.min(999, parseInt(multiplierBuffer, 10) || 1) : 1;
+  const [multiplier, setMultiplier] = useState<number>(1);
 
   // Set operational sector context for audio
   useEffect(() => {
     if (isOpen) {
       notificationService.setSector('caixa');
-    } else {
-      // PDV fechado: zera o multiplicador pra não vazar pra próxima vez que abrir.
-      setMultiplierBuffer('');
     }
   }, [isOpen]);
 
-  // Barra de pesquisa agora é só texto — nenhuma leitura de número aqui dentro.
-  const cleanSearchTerm = searchTerm.trim();
+  // Helper to parse multiplier prefix like "4*" or "4x" or typed number like "4" from search input
+  const { parsedMultiplier, cleanSearchTerm } = useMemo(() => {
+    const trimmed = searchTerm.trim();
+    
+    // 1) Explicit multiplier prefix: e.g. "4*", "4x", "12 *"
+    const matchStar = trimmed.match(/^(\d+)\s*[*xX]\s*(.*)$/);
+    if (matchStar) {
+      const q = parseInt(matchStar[1], 10);
+      return {
+        parsedMultiplier: isNaN(q) || q <= 0 ? 1 : Math.min(q, 999),
+        cleanSearchTerm: matchStar[2].trim()
+      };
+    }
 
-  // Listener global do numpad: funciona sempre, sem precisar clicar em nenhum campo.
-  // IMPORTANTE: escuta especificamente as teclas físicas do numpad (e.code), não qualquer dígito.
-  // O leitor de código de barras emula a fileira numérica normal do teclado (Digit0-9), então
-  // se a gente escutasse por e.key ele entraria em conflito e corromperia o multiplicador
-  // com os próprios dígitos do código de barras sendo escaneado.
-  // Se o usuário estiver digitando em algum input (ex: barra de pesquisa, desconto), ignora,
-  // pra não atrapalhar quem está de fato buscando um produto por texto.
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const NUMPAD_DIGIT_MAP: Record<string, string> = {
-      Numpad0: '0', Numpad1: '1', Numpad2: '2', Numpad3: '3', Numpad4: '4',
-      Numpad5: '5', Numpad6: '6', Numpad7: '7', Numpad8: '8', Numpad9: '9'
-    };
-
-    const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      const isTypingInField = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA';
-      if (isTypingInField) return;
-
-      const numpadDigit = NUMPAD_DIGIT_MAP[e.code];
-      if (numpadDigit) {
-        // Buffer de texto puro: "1" + "0" sempre vira "10", sem casos especiais.
-        setMultiplierBuffer(prev => (prev + numpadDigit).slice(0, 3));
-      } else if (e.code === 'Backspace') {
-        setMultiplierBuffer(prev => prev.slice(0, -1));
-      } else if (e.code === 'Escape') {
-        setMultiplierBuffer('');
+    // 2) Pure short number in search box (1 to 3 digits like "4" or "10"): multiplier mode!
+    if (/^\d{1,3}$/.test(trimmed)) {
+      const q = parseInt(trimmed, 10);
+      if (q > 0 && q <= 999) {
+        return {
+          parsedMultiplier: q,
+          cleanSearchTerm: ''
+        };
       }
-    };
+    }
 
-    window.addEventListener('keydown', handleGlobalKeyDown);
-    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [isOpen]);
+    // 3) Fallback to state multiplier
+    return {
+      parsedMultiplier: multiplier > 1 ? multiplier : 1,
+      cleanSearchTerm: trimmed
+    };
+  }, [searchTerm, multiplier]);
 
   // Handle scanned barcode trigger
   useEffect(() => {
@@ -102,7 +92,7 @@ export default function QuickSaleSidebar({
       const barcodeStr = scannedBarcodeTrigger.barcode.trim();
       const prod = products.find(p => p.barcode === barcodeStr || p.id === barcodeStr || p.sku.toLowerCase() === barcodeStr.toLowerCase());
       if (prod && prod.active) {
-        addToCart(prod, multiplier);
+        addToCart(prod, parsedMultiplier);
       }
     }
   }, [scannedBarcodeTrigger]);
@@ -157,7 +147,7 @@ export default function QuickSaleSidebar({
       playPremiumSound('bell');
     }
     setSearchTerm('');
-    setMultiplierBuffer('');
+    setMultiplier(1);
   };
 
   const updateCartQty = (productId: string, delta: number) => {
@@ -367,27 +357,30 @@ export default function QuickSaleSidebar({
             <input
               id="pdv-search-input"
               type="text"
-              placeholder="Buscar produto por nome, SKU ou código..."
+              placeholder="Digite (ex: 4*Cerveja ou 789...) ou escaneie..."
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
               onKeyDown={e => {
                 if (e.key === 'Enter' && filteredProducts.length > 0) {
-                  addToCart(filteredProducts[0], multiplier);
+                  addToCart(filteredProducts[0], parsedMultiplier);
                 }
               }}
-              className={`w-full pl-9 ${multiplier > 1 ? 'pr-20' : 'pr-3'} py-2 text-xs rounded-xl border outline-none font-sans transition-all ${
+              className={`w-full pl-9 ${parsedMultiplier > 1 ? 'pr-20' : 'pr-3'} py-2 text-xs rounded-xl border outline-none font-sans transition-all ${
                 isDark 
                   ? 'bg-black/40 border-[#1C1C1C] text-gray-200 focus:border-emerald-500/50 focus:bg-black/60' 
                   : 'bg-white border-gray-200 text-gray-800 focus:border-emerald-500/50 focus:bg-white'
               }`}
             />
 
-            {multiplier > 1 && (
+            {parsedMultiplier > 1 && (
               <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-mono font-bold px-2 py-0.5 rounded-lg bg-emerald-500 text-black flex items-center gap-1 shadow-xs">
-                {multiplier}x
+                {parsedMultiplier}x
                 <button
                   type="button"
-                  onClick={() => setMultiplierBuffer('')}
+                  onClick={() => {
+                    setMultiplier(1);
+                    setSearchTerm('');
+                  }}
                   className="hover:opacity-75"
                 >
                   <X className="w-3 h-3" />
@@ -408,7 +401,7 @@ export default function QuickSaleSidebar({
                   filteredProducts.map(prod => (
                     <div 
                       key={prod.id}
-                      onClick={() => addToCart(prod, multiplier)}
+                      onClick={() => addToCart(prod, parsedMultiplier)}
                       className={`p-2.5 flex justify-between items-center cursor-pointer transition-all border-b last:border-b-0 ${
                         isDark ? 'hover:bg-emerald-500/10 border-[#1C1C1C]' : 'hover:bg-emerald-50 border-gray-100'
                       }`}
@@ -421,9 +414,9 @@ export default function QuickSaleSidebar({
                         <span className={`text-xs font-mono font-bold ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>
                           R$ {prod.sellPrice.toFixed(2)}
                         </span>
-                        {multiplier > 1 && (
+                        {parsedMultiplier > 1 && (
                           <p className="text-[10px] font-mono text-emerald-500 font-bold">
-                            Total ({multiplier}x): R$ {(prod.sellPrice * multiplier).toFixed(2)}
+                            Total ({parsedMultiplier}x): R$ {(prod.sellPrice * parsedMultiplier).toFixed(2)}
                           </p>
                         )}
                       </div>
@@ -440,7 +433,7 @@ export default function QuickSaleSidebar({
               Itens no Carrinho ({cart.length})
             </h3>
 
-            {cart.length === 0 ? (
+            {cart.length === 0 && parsedMultiplier === 1 ? (
               <div className={`p-8 text-center rounded-xl border border-dashed flex flex-col items-center justify-center ${
                 isDark ? 'bg-black/10 border-[#1C1C1C]' : 'bg-white border-gray-200'
               }`}>
@@ -450,6 +443,59 @@ export default function QuickSaleSidebar({
               </div>
             ) : (
               <div className="flex flex-col gap-2">
+                {/* Standard Item Card Skeleton for pending multiplied scan */}
+                {parsedMultiplier > 1 && (
+                  <div 
+                    className={`p-2.5 rounded-xl border flex justify-between items-center gap-2 transition-all border-amber-500/40 animate-pulse ${
+                      isDark ? 'bg-amber-500/10' : 'bg-amber-50/80'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5 flex-1 min-w-0 pr-1">
+                      {/* Product Thumbnail spot: shows multiplier quantity (e.g. 4x) */}
+                      <div className="w-9 h-9 rounded-lg shrink-0 border border-amber-400 bg-amber-500 text-black font-mono font-black text-xs flex items-center justify-center shadow-sm">
+                        {parsedMultiplier}x
+                      </div>
+
+                      <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+                        <div className={`h-3.5 rounded-md w-3/4 animate-pulse ${isDark ? 'bg-amber-400/30' : 'bg-amber-300'}`} />
+                        <div className={`h-2.5 rounded-md w-1/2 animate-pulse ${isDark ? 'bg-amber-400/20' : 'bg-amber-200'}`} />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      {/* Qty Controls Placeholder */}
+                      <div className="flex items-center gap-1">
+                        <div className={`p-1 rounded bg-black/10 text-gray-500 opacity-40`}>
+                          <Minus className="w-3 h-3" />
+                        </div>
+                        <span className="w-6 text-center font-mono text-xs font-black text-amber-500">
+                          {parsedMultiplier}
+                        </span>
+                        <div className={`p-1 rounded bg-black/10 text-gray-500 opacity-40`}>
+                          <Plus className="w-3 h-3" />
+                        </div>
+                      </div>
+
+                      {/* Price Skeleton */}
+                      <div className="text-right min-w-[70px]">
+                        <div className={`h-3.5 rounded-md w-full animate-pulse ${isDark ? 'bg-amber-400/30' : 'bg-amber-300'}`} />
+                      </div>
+
+                      <button 
+                        type="button"
+                        onClick={() => {
+                          setMultiplier(1);
+                          setSearchTerm('');
+                        }}
+                        className="p-1 text-gray-400 hover:text-red-400 cursor-pointer transition-colors"
+                        title="Cancelar multiplicador"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {cart.map(item => (
                   <div 
                     key={item.product.id}

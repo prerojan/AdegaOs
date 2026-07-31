@@ -39,28 +39,42 @@ import {
   subscribeTablesComandas,
   subscribeUsers,
   subscribeCategories,
+  subscribeStores,
   getActiveStoreId
 } from './lib/firebase';
 
 
-// Import subcomponents
-import QuickSaleSidebar from './components/QuickSaleSidebar';
-import ManagerDashboard from './components/ManagerDashboard';
-import ManagerProducts from './components/ManagerProducts';
-import ManagerInventory from './components/ManagerInventory';
-import ManagerSales from './components/ManagerSales';
-import ManagerSuppliers from './components/ManagerSuppliers';
-import ManagerPurchases from './components/ManagerPurchases';
-import ManagerFinancial from './components/ManagerFinancial';
-import ManagerReports from './components/ManagerReports';
-import ManagerSettings from './components/ManagerSettings';
-import OrderApp from './components/OrderApp';
-import LoginScreen from './components/LoginScreen';
-import ProductionPanel from './components/ProductionPanel';
-import LandingPage from './components/LandingPage';
-import AdminPanel from './components/AdminPanel';
-import ManagerImportPortal from './components/ManagerImportPortal';
-import ThermalPrinterControlModal from './components/ThermalPrinterControlModal';
+// Lazy loaded subcomponents for progressive module loading
+const QuickSaleSidebar = React.lazy(() => import('./components/QuickSaleSidebar'));
+const ManagerDashboard = React.lazy(() => import('./components/ManagerDashboard'));
+const ManagerProducts = React.lazy(() => import('./components/ManagerProducts'));
+const ManagerInventory = React.lazy(() => import('./components/ManagerInventory'));
+const ManagerSales = React.lazy(() => import('./components/ManagerSales'));
+const ManagerSuppliers = React.lazy(() => import('./components/ManagerSuppliers'));
+const ManagerPurchases = React.lazy(() => import('./components/ManagerPurchases'));
+const ManagerFinancial = React.lazy(() => import('./components/ManagerFinancial'));
+const ManagerReports = React.lazy(() => import('./components/ManagerReports'));
+const ManagerSettings = React.lazy(() => import('./components/ManagerSettings'));
+const OrderApp = React.lazy(() => import('./components/OrderApp'));
+const LoginScreen = React.lazy(() => import('./components/LoginScreen'));
+const ProductionPanel = React.lazy(() => import('./components/ProductionPanel'));
+const LandingPage = React.lazy(() => import('./components/LandingPage'));
+const AdminPanel = React.lazy(() => import('./components/AdminPanel'));
+const ManagerImportPortal = React.lazy(() => import('./components/ManagerImportPortal'));
+const ThermalPrinterControlModal = React.lazy(() => import('./components/ThermalPrinterControlModal'));
+
+function ModuleLoader() {
+  return (
+    <div className="w-full h-full min-h-[300px] flex flex-col items-center justify-center p-8 text-center animate-fade-in">
+      <div className="relative w-10 h-10 mb-3">
+        <div className="absolute inset-0 rounded-full border-2 border-emerald-500/20" />
+        <div className="absolute inset-0 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin" />
+      </div>
+      <p className="text-xs font-bold text-gray-400">Carregando módulo...</p>
+    </div>
+  );
+}
+
 import { shouldCategoryGoToProduction, getCategoryProductionSector } from './lib/productionCategories';
 import { eventBus } from './services/eventBus';
 import { audioManager } from './services/audioManager';
@@ -905,6 +919,47 @@ export default function App() {
     }
   };
 
+  // Real-time Account Demission & Disconnection Monitor
+  useEffect(() => {
+    if (!currentUser) return;
+
+    // Match live user record from Firestore usersList
+    const matchedUser = usersList.find(u => u.id === currentUser.id || (u.pin && u.pin === currentUser.pin));
+
+    if (!matchedUser || matchedUser.active === false) {
+      // User was removed/deleted or deactivated in real-time -> immediate disconnect!
+      handleLogout();
+      (window as any).alert?.(
+        'Sua conta de acesso foi desativada ou removida pelo gestor da loja.',
+        'warning'
+      );
+    } else if (
+      matchedUser.pin !== currentUser.pin ||
+      matchedUser.name !== currentUser.name ||
+      matchedUser.role !== currentUser.role
+    ) {
+      // User details updated in real-time -> sync session
+      setCurrentUser(matchedUser);
+      localStorage.setItem('cashier_session_user', JSON.stringify(matchedUser));
+    }
+  }, [usersList, currentUser]);
+
+  // Real-time Store Suspension Monitor
+  useEffect(() => {
+    const unsubStores = subscribeStores((liveStores) => {
+      if (!liveStores || liveStores.length === 0) return;
+      const myStore = liveStores.find(s => s.id === currentStoreId);
+      if (myStore && myStore.status === 'suspended') {
+        if (currentUser) {
+          handleLogout();
+          (window as any).alert?.('O acesso desta loja foi suspenso. Entre em contato com o suporte.', 'error');
+        }
+      }
+    });
+    return () => unsubStores();
+  }, [currentStoreId, currentUser]);
+
+
   // Shared state manipulator functions with persistence triggers
   const handleUpdateStock = (productId: string, qtyToRemove: number) => {
     setProducts(prevProducts => {
@@ -1358,59 +1413,66 @@ export default function App() {
 
   if (activeProductView === 'landing') {
     return (
-      <LandingPage
-        theme={theme}
-        onEnterSystem={() => {
-          try {
-            localStorage.setItem('fluxos_has_registration', 'true');
-          } catch {}
-          setActiveProductView('manager');
-        }}
-        onEnterAdmin={() => {
-          setActiveProductView('admin');
-        }}
-        onToggleTheme={handleToggleTheme}
-      />
+      <React.Suspense fallback={<ModuleLoader />}>
+        <LandingPage
+          theme={theme}
+          onEnterSystem={() => {
+            try {
+              localStorage.setItem('fluxos_has_registration', 'true');
+            } catch {}
+            setActiveProductView('manager');
+          }}
+          onEnterAdmin={() => {
+            setActiveProductView('admin');
+          }}
+          onToggleTheme={handleToggleTheme}
+        />
+      </React.Suspense>
     );
   }
 
   if (activeProductView === 'admin') {
     return (
-      <AdminPanel
-        theme={theme}
-        usersList={usersList}
-        onAddUser={handleAddUser}
-        onDeleteUser={handleDeleteUser}
-        products={products}
-        sales={sales}
-        tablesComandas={tablesComandas}
-        activeShift={activeShift}
-        onBackToLanding={() => {
-          setActiveProductView('landing');
-        }}
-        onBackToLogin={() => {
-          setActiveProductView('manager');
-        }}
-      />
+      <React.Suspense fallback={<ModuleLoader />}>
+        <AdminPanel
+          theme={theme}
+          usersList={usersList}
+          onAddUser={handleAddUser}
+          onDeleteUser={handleDeleteUser}
+          products={products}
+          sales={sales}
+          tablesComandas={tablesComandas}
+          activeShift={activeShift}
+          onBackToLanding={() => {
+            setActiveProductView('landing');
+          }}
+          onBackToLogin={() => {
+            setActiveProductView('manager');
+          }}
+        />
+      </React.Suspense>
     );
   }
 
   if (!currentUser) {
     return (
-      <LoginScreen
-        usersList={usersList}
-        onLogin={handleLogin}
-        theme={theme}
-        onToggleTheme={handleToggleTheme}
-        onBackToLanding={() => {
-          setActiveProductView('landing');
-        }}
-        onEnterAdmin={() => {
-          setActiveProductView('admin');
-        }}
-      />
+      <React.Suspense fallback={<ModuleLoader />}>
+        <LoginScreen
+          usersList={usersList}
+          onLogin={handleLogin}
+          theme={theme}
+          onToggleTheme={handleToggleTheme}
+          onBackToLanding={() => {
+            setActiveProductView('landing');
+          }}
+          onEnterAdmin={() => {
+            setActiveProductView('admin');
+          }}
+        />
+      </React.Suspense>
     );
   }
+
 
   return (
     <div className={`h-screen max-h-screen overflow-hidden flex flex-col font-sans transition-all duration-200 ${themeClasses}`}>
@@ -1569,173 +1631,179 @@ export default function App() {
                 </div>
               )}
 
-              {managerActiveTab === 'dashboard' && (
-                <ManagerDashboard 
-                  products={productsWithAbc} 
-                  sales={sales} 
-                  financialTransactions={financialTransactions} 
-                  theme={theme}
-                  onGoToTab={(tab) => setManagerActiveTab(tab)}
-                />
-              )}
-              {managerActiveTab === 'produtos' && (
-                <ManagerProducts 
-                  products={productsWithAbc} 
-                  suppliers={suppliers} 
-                  onAddProduct={handleAddProduct}
-                  onUpdateProduct={handleUpdateProduct}
-                  theme={theme}
-                  categories={productCategories}
-                  onAddCategory={handleAddCategory}
-                  onRenameCategory={handleRenameCategory}
-                  onDeleteCategory={handleDeleteCategory}
-                />
-              )}
-              {managerActiveTab === 'estoque' && (
-                <ManagerInventory 
-                  products={productsWithAbc} 
-                  onUpdateFullStock={handleUpdateFullStock} 
-                  onUpdateProduct={handleUpdateProduct}
-                  theme={theme}
-                />
-              )}
-              {managerActiveTab === 'vendas' && (
-                <ManagerSales 
-                  sales={sales} 
-                  products={productsWithAbc} 
-                  onCancelSale={handleCancelSale} 
-                  theme={theme}
-                />
-              )}
-              {managerActiveTab === 'compras' && (
-                <ManagerPurchases 
-                  suppliers={suppliers} 
-                  products={productsWithAbc} 
-                  onAddPurchaseReceipt={onAddPurchaseReceipt => {
-                    setFinancialTransactions(prev => [
-                      {
-                        id: `tx-${Date.now()}`,
-                        date: onAddPurchaseReceipt.date,
-                        type: 'despesa',
-                        category: 'Fornecedores',
-                        description: `Compra NF #${onAddPurchaseReceipt.invoiceNumber}`,
-                        value: onAddPurchaseReceipt.total,
-                        status: 'pendente',
-                        dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-                      },
-                      ...prev
-                    ]);
-                  }}
-                  onUpdateProductCost={handleUpdateProductCost}
-                  onIncreaseStockBoxes={handleIncreaseStockBoxes}
-                  onAddFinancial={handleAddFinancial}
-                  theme={theme}
-                />
-              )}
-              {managerActiveTab === 'fornecedores' && (
-                <ManagerSuppliers 
-                  suppliers={suppliers} 
-                  onAddSupplier={handleAddSupplier} 
-                  onDeleteSupplier={handleDeleteSupplier} 
-                  theme={theme}
-                />
-              )}
-              {managerActiveTab === 'financeiro' && (
-                <ManagerFinancial 
-                  financialTransactions={financialTransactions} 
-                  sales={sales} 
-                  products={productsWithAbc} 
-                  onConfirmPayment={handleConfirmPayment}
-                  onAddTransaction={handleAddFinancial}
-                  theme={theme}
-                  activeShift={activeShift}
-                  onOpenShift={handleOpenShift}
-                  onCloseShift={handleCloseShift}
-                  onSangria={handleSangria}
-                  onSuprimento={handleSuprimento}
-                  shiftHistory={shiftHistory}
-                />
-              )}
-              {managerActiveTab === 'relatorios' && (
-                <ManagerReports 
-                  theme={theme} 
-                  products={productsWithAbc}
-                  sales={sales}
-                  financialTransactions={financialTransactions}
-                />
-              )}
-              {managerActiveTab === 'producao' && (
-                <ProductionPanel
-                  tablesComandas={tablesComandas}
-                  products={productsWithAbc}
-                  onUpdateTableItems={handleUpdateTableItems}
-                  theme={theme}
-                  currentUser={currentUser}
-                  onToggleTheme={handleToggleTheme}
-                  onLogout={handleLogout}
-                />
-              )}
-              {managerActiveTab === 'configuracoes' && (
-                <ManagerSettings 
-                  usersList={usersList} 
-                  onToggleUserActive={handleToggleUserActive} 
-                  onAddUser={handleAddUser} 
-                  onDeleteUser={handleDeleteUser}
-                  onUpdateUserRole={handleUpdateUserRole}
-                  theme={theme}
-                  onToggleTheme={handleToggleTheme}
-                  products={products}
-                />
-              )}
-              {managerActiveTab === 'importador' && (
-                <ManagerImportPortal
-                  products={products}
-                  suppliers={suppliers}
-                  usersList={usersList}
-                  onAddProduct={handleAddProduct}
-                  onUpdateProduct={handleUpdateProduct}
-                  onBatchImportProducts={handleBatchImportProducts}
-                  onAddSupplier={handleAddSupplier}
-                  onAddUser={handleAddUser}
-                  categories={productCategories}
-                  onAddCategory={handleAddCategory}
-                  theme={theme}
-                  startWithWizardOpen={startWizardOnMount}
-                  onCloseWizard={() => setStartWizardOnMount(false)}
-                />
-              )}
+              <React.Suspense fallback={<ModuleLoader />}>
+                {managerActiveTab === 'dashboard' && (
+                  <ManagerDashboard 
+                    products={productsWithAbc} 
+                    sales={sales} 
+                    financialTransactions={financialTransactions} 
+                    theme={theme}
+                    onGoToTab={(tab) => setManagerActiveTab(tab)}
+                  />
+                )}
+                {managerActiveTab === 'produtos' && (
+                  <ManagerProducts 
+                    products={productsWithAbc} 
+                    suppliers={suppliers} 
+                    onAddProduct={handleAddProduct}
+                    onUpdateProduct={handleUpdateProduct}
+                    theme={theme}
+                    categories={productCategories}
+                    onAddCategory={handleAddCategory}
+                    onRenameCategory={handleRenameCategory}
+                    onDeleteCategory={handleDeleteCategory}
+                  />
+                )}
+                {managerActiveTab === 'estoque' && (
+                  <ManagerInventory 
+                    products={productsWithAbc} 
+                    onUpdateFullStock={handleUpdateFullStock} 
+                    onUpdateProduct={handleUpdateProduct}
+                    theme={theme}
+                  />
+                )}
+                {managerActiveTab === 'vendas' && (
+                  <ManagerSales 
+                    sales={sales} 
+                    products={productsWithAbc} 
+                    onCancelSale={handleCancelSale} 
+                    theme={theme}
+                  />
+                )}
+                {managerActiveTab === 'compras' && (
+                  <ManagerPurchases 
+                    suppliers={suppliers} 
+                    products={productsWithAbc} 
+                    onAddPurchaseReceipt={onAddPurchaseReceipt => {
+                      setFinancialTransactions(prev => [
+                        {
+                          id: `tx-${Date.now()}`,
+                          date: onAddPurchaseReceipt.date,
+                          type: 'despesa',
+                          category: 'Fornecedores',
+                          description: `Compra NF #${onAddPurchaseReceipt.invoiceNumber}`,
+                          value: onAddPurchaseReceipt.total,
+                          status: 'pendente',
+                          dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+                        },
+                        ...prev
+                      ]);
+                    }}
+                    onUpdateProductCost={handleUpdateProductCost}
+                    onIncreaseStockBoxes={handleIncreaseStockBoxes}
+                    onAddFinancial={handleAddFinancial}
+                    theme={theme}
+                  />
+                )}
+                {managerActiveTab === 'fornecedores' && (
+                  <ManagerSuppliers 
+                    suppliers={suppliers} 
+                    onAddSupplier={handleAddSupplier} 
+                    onDeleteSupplier={handleDeleteSupplier} 
+                    theme={theme}
+                  />
+                )}
+                {managerActiveTab === 'financeiro' && (
+                  <ManagerFinancial 
+                    financialTransactions={financialTransactions} 
+                    sales={sales} 
+                    products={productsWithAbc} 
+                    onConfirmPayment={handleConfirmPayment}
+                    onAddTransaction={handleAddFinancial}
+                    theme={theme}
+                    activeShift={activeShift}
+                    onOpenShift={handleOpenShift}
+                    onCloseShift={handleCloseShift}
+                    onSangria={handleSangria}
+                    onSuprimento={handleSuprimento}
+                    shiftHistory={shiftHistory}
+                  />
+                )}
+                {managerActiveTab === 'relatorios' && (
+                  <ManagerReports 
+                    theme={theme} 
+                    products={productsWithAbc}
+                    sales={sales}
+                    financialTransactions={financialTransactions}
+                  />
+                )}
+                {managerActiveTab === 'producao' && (
+                  <ProductionPanel
+                    tablesComandas={tablesComandas}
+                    products={productsWithAbc}
+                    onUpdateTableItems={handleUpdateTableItems}
+                    theme={theme}
+                    currentUser={currentUser}
+                    onToggleTheme={handleToggleTheme}
+                    onLogout={handleLogout}
+                  />
+                )}
+                {managerActiveTab === 'configuracoes' && (
+                  <ManagerSettings 
+                    usersList={usersList} 
+                    onToggleUserActive={handleToggleUserActive} 
+                    onAddUser={handleAddUser} 
+                    onDeleteUser={handleDeleteUser}
+                    onUpdateUserRole={handleUpdateUserRole}
+                    theme={theme}
+                    onToggleTheme={handleToggleTheme}
+                    products={products}
+                  />
+                )}
+                {managerActiveTab === 'importador' && (
+                  <ManagerImportPortal
+                    products={products}
+                    suppliers={suppliers}
+                    usersList={usersList}
+                    onAddProduct={handleAddProduct}
+                    onUpdateProduct={handleUpdateProduct}
+                    onBatchImportProducts={handleBatchImportProducts}
+                    onAddSupplier={handleAddSupplier}
+                    onAddUser={handleAddUser}
+                    categories={productCategories}
+                    onAddCategory={handleAddCategory}
+                    theme={theme}
+                    startWithWizardOpen={startWizardOnMount}
+                    onCloseWizard={() => setStartWizardOnMount(false)}
+                  />
+                )}
+              </React.Suspense>
             </main>
 
             {/* PDV collapsible quick sale bar */}
-            <QuickSaleSidebar 
-              isOpen={isQuickSaleOpen} 
-              onClose={() => setIsQuickSaleOpen(false)} 
-              products={productsWithAbc} 
-              onUpdateStock={handleUpdateStock} 
-              onAddSale={handleAddSale} 
-              onAddFinancial={handleAddFinancial} 
-              currentUser={currentUser} 
-              theme={theme}
-              scannedBarcodeTrigger={scannedBarcodeTrigger}
-              activeShift={activeShift}
-              onOpenShift={handleOpenShift}
-            />
+            <React.Suspense fallback={null}>
+              <QuickSaleSidebar 
+                isOpen={isQuickSaleOpen} 
+                onClose={() => setIsQuickSaleOpen(false)} 
+                products={productsWithAbc} 
+                onUpdateStock={handleUpdateStock} 
+                onAddSale={handleAddSale} 
+                onAddFinancial={handleAddFinancial} 
+                currentUser={currentUser} 
+                theme={theme}
+                scannedBarcodeTrigger={scannedBarcodeTrigger}
+                activeShift={activeShift}
+                onOpenShift={handleOpenShift}
+              />
+            </React.Suspense>
           </div>
         ) : activeProductView === 'production' ? (
           /* =====================================
              3. PRODUCT: FLUXOS PRODUCTION PANEL
              ===================================== */
           <div className="flex-1 overflow-y-auto">
-            <ProductionPanel
-              tablesComandas={tablesComandas}
-              products={productsWithAbc}
-              onUpdateTableItems={handleUpdateTableItems}
-              theme={theme}
-              currentUser={currentUser}
-              onToggleTheme={handleToggleTheme}
-              onLogout={handleLogout}
-              onGoToManager={(currentUser.role === 'admin' || currentUser.role === 'manager') ? () => setActiveProductView('manager') : undefined}
-            />
+            <React.Suspense fallback={<ModuleLoader />}>
+              <ProductionPanel
+                tablesComandas={tablesComandas}
+                products={productsWithAbc}
+                onUpdateTableItems={handleUpdateTableItems}
+                theme={theme}
+                currentUser={currentUser}
+                onToggleTheme={handleToggleTheme}
+                onLogout={handleLogout}
+                onGoToManager={(currentUser.role === 'admin' || currentUser.role === 'manager') ? () => setActiveProductView('manager') : undefined}
+              />
+            </React.Suspense>
           </div>
         ) : (
           /* =====================================
@@ -1743,26 +1811,29 @@ export default function App() {
              ===================================== */
           <div className="flex-1 flex flex-col w-full h-full">
             {/* The mobile applet component frame */}
-            <OrderApp 
-              products={productsWithAbc} 
-              tablesComandas={tablesComandas} 
-              onUpdateTableItems={handleUpdateTableItems} 
-              onUpdateTableStatus={handleUpdateTableStatus} 
-              onAddSale={handleAddSale} 
-              onAddFinancial={handleAddFinancial} 
-              onUpdateStock={handleUpdateStock} 
-              onAddTableComanda={handleAddTableComanda}
-              onAddTableComandaBatch={handleAddTableComandaBatch}
-              onRemoveTableComanda={handleRemoveTableComanda}
-              usersList={usersList} 
-              theme={theme}
-              currentUser={currentUser}
-              onToggleTheme={handleToggleTheme}
-              onLogout={handleLogout}
-              onGoToManager={(currentUser.role === 'admin' || currentUser.role === 'manager') ? () => setActiveProductView('manager') : undefined}
-            />
+            <React.Suspense fallback={<ModuleLoader />}>
+              <OrderApp 
+                products={productsWithAbc} 
+                tablesComandas={tablesComandas} 
+                onUpdateTableItems={handleUpdateTableItems} 
+                onUpdateTableStatus={handleUpdateTableStatus} 
+                onAddSale={handleAddSale} 
+                onAddFinancial={handleAddFinancial} 
+                onUpdateStock={handleUpdateStock} 
+                onAddTableComanda={handleAddTableComanda}
+                onAddTableComandaBatch={handleAddTableComandaBatch}
+                onRemoveTableComanda={handleRemoveTableComanda}
+                usersList={usersList} 
+                theme={theme}
+                currentUser={currentUser}
+                onToggleTheme={handleToggleTheme}
+                onLogout={handleLogout}
+                onGoToManager={(currentUser.role === 'admin' || currentUser.role === 'manager') ? () => setActiveProductView('manager') : undefined}
+              />
+            </React.Suspense>
           </div>
         )}
+
 
       </div>
 

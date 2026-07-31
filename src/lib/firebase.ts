@@ -856,3 +856,88 @@ export async function deleteCategoryFromDb(catName: string): Promise<void> {
     listeners.categories.forEach(cb => cb(list));
   }
 }
+
+// ================= GLOBAL STORES / SAAS CLIENTS OPERATIONS =================
+
+export function subscribeStores(callback: (stores: any[]) => void) {
+  if (db) {
+    const colRef = collection(db, 'flux_stores');
+    return onSnapshot(colRef, (snapshot) => {
+      if (!snapshot.empty) {
+        const stores = snapshot.docs.map(d => d.data());
+        localStorage.setItem('flux_admin_clients', JSON.stringify(stores));
+        callback(stores);
+      } else {
+        const stored = localStorage.getItem('flux_admin_clients');
+        callback(stored ? JSON.parse(stored) : []);
+      }
+    }, (err) => {
+      console.error('Firestore stores error:', err);
+      const stored = localStorage.getItem('flux_admin_clients');
+      callback(stored ? JSON.parse(stored) : []);
+    });
+  }
+  const stored = localStorage.getItem('flux_admin_clients');
+  callback(stored ? JSON.parse(stored) : []);
+  return () => {};
+}
+
+export async function fetchStoresFromDb(): Promise<any[]> {
+  if (db) {
+    try {
+      const colRef = collection(db, 'flux_stores');
+      const snap = await getDocs(colRef);
+      if (!snap.empty) {
+        const stores = snap.docs.map(d => d.data());
+        localStorage.setItem('flux_admin_clients', JSON.stringify(stores));
+        return stores;
+      }
+    } catch (err) {
+      console.error('Error fetching stores from Firestore:', err);
+    }
+  }
+  try {
+    const stored = localStorage.getItem('flux_admin_clients');
+    return stored ? JSON.parse(stored) : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function saveStoreToDb(storeData: any): Promise<void> {
+  try {
+    const stored = localStorage.getItem('flux_admin_clients');
+    const list = stored ? JSON.parse(stored) : [];
+    const idx = list.findIndex((s: any) => s.id === storeData.id);
+    if (idx >= 0) list[idx] = storeData; else list.push(storeData);
+    localStorage.setItem('flux_admin_clients', JSON.stringify(list));
+  } catch (e) {}
+
+  if (db && storeData.id) {
+    try {
+      const docRef = doc(db, 'flux_stores', storeData.id);
+      await setDoc(docRef, cleanForFirestore(storeData));
+    } catch (err) {
+      console.error('Error saving store to Firestore:', err);
+    }
+  }
+}
+
+export async function deleteStoreFromDb(storeId: string): Promise<void> {
+  try {
+    const stored = localStorage.getItem('flux_admin_clients');
+    const list = stored ? JSON.parse(stored) : [];
+    const filtered = list.filter((s: any) => s.id !== storeId);
+    localStorage.setItem('flux_admin_clients', JSON.stringify(filtered));
+  } catch (e) {}
+
+  if (db && storeId) {
+    try {
+      const docRef = doc(db, 'flux_stores', storeId);
+      await deleteDoc(docRef);
+    } catch (err) {
+      console.error('Error deleting store from Firestore:', err);
+    }
+  }
+}
+
