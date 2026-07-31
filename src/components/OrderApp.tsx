@@ -933,22 +933,49 @@ export default function OrderApp({
                 </div>
               </div>
 
-              {/* Button to open vertical categories list (replacing horizontal list) */}
-              <div className="p-2 border-b flex justify-between items-center gap-2" style={{ borderColor: theme === 'dark' ? '#1C1C1C' : '#E5E5E5' }}>
-                <button
-                  onClick={() => setIsCategoriesOpen(!isCategoriesOpen)}
-                  className={`flex-1 py-1.5 px-3 rounded-lg border text-xs font-bold flex items-center justify-between transition-all cursor-pointer ${
-                    theme === 'dark' 
-                      ? 'bg-[#080808] border-[#1C1C1C] text-gray-200 hover:bg-[#111]' 
-                      : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-                  }`}
-                >
-                  <span className="flex items-center gap-1.5">
+              {/* Integrated Search Bar + Embedded Category Button */}
+              <div className="p-2 border-b flex items-center gap-2" style={{ borderColor: theme === 'dark' ? '#1C1C1C' : '#E5E5E5' }}>
+                <div className={`flex-1 relative flex items-center rounded-xl border overflow-hidden transition-all ${
+                  theme === 'dark' 
+                    ? 'bg-[#080808] border-[#1C1C1C] focus-within:border-[#18F2A4]' 
+                    : 'bg-white border-gray-200 focus-within:border-emerald-500 shadow-sm'
+                }`}>
+                  <Search className={`w-4 h-4 ml-3 shrink-0 ${theme === 'dark' ? 'text-gray-500' : 'text-gray-400'}`} />
+                  <input
+                    type="text"
+                    placeholder="Buscar produto ou código..."
+                    value={catSearch}
+                    onChange={(e) => setCatSearch(e.target.value)}
+                    className={`w-full py-2 pl-2 pr-3 text-xs font-medium bg-transparent focus:outline-none ${
+                      theme === 'dark' ? 'text-gray-100 placeholder-gray-500' : 'text-gray-800 placeholder-gray-400'
+                    }`}
+                  />
+                  {catSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setCatSearch('')}
+                      className="p-1 mr-1 text-gray-500 hover:text-gray-300 cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setIsCategoriesOpen(!isCategoriesOpen)}
+                    className={`shrink-0 h-full py-2 px-3 border-l flex items-center gap-1.5 text-xs font-bold transition-all cursor-pointer ${
+                      theme === 'dark'
+                        ? 'border-[#1C1C1C] bg-[#0E0E0E] text-gray-200 hover:bg-[#161616]'
+                        : 'border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100'
+                    }`}
+                  >
                     <Layers className={`w-3.5 h-3.5 ${theme === 'dark' ? 'text-[#18F2A4]' : 'text-emerald-600'}`} />
-                    Categoria: <span className={`font-black ${theme === 'dark' ? 'text-[#18F2A4]' : 'text-emerald-700'}`}>{selectedCategory}</span>
-                  </span>
-                  <span className="text-[10px] text-gray-400">Filtrar Categoria ▾</span>
-                </button>
+                    <span className="hidden sm:inline text-gray-400 font-normal">Cat:</span>
+                    <span className={`font-black max-w-[80px] sm:max-w-[110px] truncate ${theme === 'dark' ? 'text-[#18F2A4]' : 'text-emerald-700'}`}>
+                      {selectedCategory}
+                    </span>
+                    <span className="text-[10px] text-gray-400 ml-0.5">▾</span>
+                  </button>
+                </div>
               </div>
 
               {/* Vertical categories popup list */}

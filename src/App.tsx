@@ -923,22 +923,38 @@ export default function App() {
   useEffect(() => {
     if (!currentUser) return;
 
-    // Match live user record from Firestore usersList
-    const matchedUser = usersList.find(u => u.id === currentUser.id || (u.pin && u.pin === currentUser.pin));
+    // Do NOT validate or disconnect if usersList has not loaded yet
+    if (!usersList || usersList.length === 0) return;
+
+    // Special dev / system admin accounts bypass automatic disconnection
+    const isSpecialAdmin = 
+      currentUser.id === 'u-admin-default' || 
+      currentUser.id === 'adm-0' || 
+      currentUser.email === 'carlosrenan.fullstack@gmail.com';
+
+    if (isSpecialAdmin) return;
+
+    // Match live user record from Firestore usersList using normalized PIN and ID
+    const cleanUserPin = String(currentUser.pin ?? '').trim();
+    const matchedUser = usersList.find(u => {
+      if (u.id === currentUser.id) return true;
+      const uPin = String(u.pin ?? '').trim();
+      return Boolean(uPin && cleanUserPin && uPin === cleanUserPin);
+    });
 
     if (!matchedUser || matchedUser.active === false) {
-      // User was removed/deleted or deactivated in real-time -> immediate disconnect!
+      // User was explicitly removed/deleted or deactivated in Firestore -> immediate disconnect!
       handleLogout();
       (window as any).alert?.(
         'Sua conta de acesso foi desativada ou removida pelo gestor da loja.',
         'warning'
       );
     } else if (
-      matchedUser.pin !== currentUser.pin ||
+      String(matchedUser.pin ?? '').trim() !== cleanUserPin ||
       matchedUser.name !== currentUser.name ||
       matchedUser.role !== currentUser.role
     ) {
-      // User details updated in real-time -> sync session
+      // User details updated in real-time in Firestore -> sync active session
       setCurrentUser(matchedUser);
       localStorage.setItem('cashier_session_user', JSON.stringify(matchedUser));
     }

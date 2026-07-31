@@ -60,7 +60,10 @@ if (isFirebaseEnabled) {
 // Store / Branch ID Helper for Data Isolation
 export function getActiveStoreId(): string {
   try {
-    return localStorage.getItem('adegaos_active_store_id') || localStorage.getItem('adegaos_store_id') || 'store-main';
+    return localStorage.getItem('fluxos_active_store_id') || 
+           localStorage.getItem('adegaos_active_store_id') || 
+           localStorage.getItem('adegaos_store_id') || 
+           'store-main';
   } catch {
     return 'store-main';
   }
@@ -68,6 +71,7 @@ export function getActiveStoreId(): string {
 
 export function setActiveStoreId(storeId: string): void {
   try {
+    localStorage.setItem('fluxos_active_store_id', storeId);
     localStorage.setItem('adegaos_active_store_id', storeId);
     localStorage.setItem('adegaos_store_id', storeId);
     if (typeof window !== 'undefined') {

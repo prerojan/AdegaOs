@@ -45,6 +45,59 @@ export default function LoginScreen({
   const [errorMsg, setErrorMsg] = useState('');
   const [logoClickCount, setLogoClickCount] = useState(0);
 
+  const normalizePin = (pin: any) => String(pin ?? '').trim();
+
+  const processPinSubmission = (newVal: string) => {
+    const cleanTyped = normalizePin(newVal);
+    
+    // 1. Check matching active user in usersList
+    const found = usersList.find(u => {
+      if (!u.active) return false;
+      const userPin = normalizePin(u.pin);
+      return userPin ? userPin === cleanTyped : cleanTyped === '1234';
+    });
+
+    if (found) {
+      localStorage.setItem('fluxos_store_logged_once', 'true');
+      onLogin(found);
+      setPinInput('');
+      return;
+    }
+
+    // 2. Default admin PIN 1234 fallback
+    if (cleanTyped === '1234') {
+      const defaultAdmin = usersList.find(u => u.role === 'admin' && u.active) || usersList[0] || {
+        id: 'u-admin-default',
+        name: 'Administrador',
+        pin: '1234',
+        role: 'admin',
+        active: true
+      };
+      localStorage.setItem('fluxos_store_logged_once', 'true');
+      onLogin(defaultAdmin);
+      setPinInput('');
+      return;
+    }
+
+    // 3. Dev Carlos PIN 250228 fallback
+    if (cleanTyped === '250228') {
+      const devUser: CashierUser = {
+        id: 'adm-0',
+        name: 'Carlos (Engenheiro Dev)',
+        pin: '250228',
+        role: 'admin',
+        active: true
+      };
+      localStorage.setItem('fluxos_store_logged_once', 'true');
+      onLogin(devUser);
+      setPinInput('');
+      return;
+    }
+
+    setErrorMsg('PIN incorreto ou colaborador inativo');
+    setPinInput('');
+  };
+
   // Physical keyboard / Numpad listener for PIN mode
   useEffect(() => {
     if (loginMode !== 'pin') return;
@@ -62,30 +115,7 @@ export default function LoginScreen({
           if (prev.length < 4) {
             const newVal = prev + e.key;
             if (newVal.length === 4) {
-              // Auto-authenticate when 4 digits are completed
-              setTimeout(() => {
-                const found = usersList.find(u => (u.pin === newVal || (!u.pin && newVal === '1234')) && u.active);
-                if (found) {
-                  localStorage.setItem('fluxos_store_logged_once', 'true');
-                  onLogin(found);
-                  setPinInput('');
-                } else if (newVal === '1234') {
-                  // Default initial PIN fallback
-                  const defaultAdmin = usersList.find(u => u.role === 'admin' && u.active) || usersList[0] || {
-                    id: 'u-admin-default',
-                    name: 'Administrador',
-                    pin: '1234',
-                    role: 'admin',
-                    active: true
-                  };
-                  localStorage.setItem('fluxos_store_logged_once', 'true');
-                  onLogin(defaultAdmin);
-                  setPinInput('');
-                } else {
-                  setErrorMsg('PIN incorreto ou colaborador inativo');
-                  setPinInput('');
-                }
-              }, 200);
+              setTimeout(() => processPinSubmission(newVal), 150);
             }
             return newVal;
           }
@@ -109,29 +139,7 @@ export default function LoginScreen({
       const newVal = pinInput + num;
       setPinInput(newVal);
       if (newVal.length === 4) {
-        // Auto-authenticate when 4 digits are completed
-        setTimeout(() => {
-          const found = usersList.find(u => (u.pin === newVal || (!u.pin && newVal === '1234')) && u.active);
-          if (found) {
-            localStorage.setItem('fluxos_store_logged_once', 'true');
-            onLogin(found);
-            setPinInput('');
-          } else if (newVal === '1234') {
-            const defaultAdmin = usersList.find(u => u.role === 'admin' && u.active) || usersList[0] || {
-              id: 'u-admin-default',
-              name: 'Administrador',
-              pin: '1234',
-              role: 'admin',
-              active: true
-            };
-            localStorage.setItem('fluxos_store_logged_once', 'true');
-            onLogin(defaultAdmin);
-            setPinInput('');
-          } else {
-            setErrorMsg('PIN incorreto ou colaborador inativo');
-            setPinInput('');
-          }
-        }, 200);
+        setTimeout(() => processPinSubmission(newVal), 150);
       }
     }
   };
