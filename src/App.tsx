@@ -1337,15 +1337,26 @@ export default function App() {
       let targetTbl: TableComandaState | null = null;
       const next = prev.map(tbl => {
         if (tbl.id === tableId) {
-          // Recalculate subtotal based on product prices
+          // Recalculate subtotal based on product prices and unpaid item quantities
           const subtotal = items.reduce((acc, i) => {
+            if (i.status === 'cancelado') return acc;
             const prod = products.find(p => p.id === i.productId);
-            return acc + ((prod ? prod.sellPrice : 0) * i.quantity);
+            const price = prod ? prod.sellPrice : (i.unitPrice || 0);
+            const unpaidQty = Math.max(0, i.quantity - (i.paidQuantity || 0));
+            return acc + (price * unpaidQty);
           }, 0);
 
           let newStatus = tbl.status;
-          if (items.length > 0 && tbl.status === 'livre') {
-            newStatus = 'ocupada';
+          const activeItems = items.filter(i => i.status !== 'cancelado');
+          const hasUnpaidItems = activeItems.some(i => (i.quantity - (i.paidQuantity || 0)) > 0);
+
+          if (activeItems.length > 0 && hasUnpaidItems) {
+            if (tbl.status === 'livre') {
+              newStatus = 'ocupada';
+            }
+          } else {
+            // If table has no active unpaid items, table becomes free
+            newStatus = 'livre';
           }
 
           targetTbl = {

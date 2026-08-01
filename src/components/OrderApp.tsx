@@ -27,6 +27,197 @@ interface OrderAppProps {
   onGoToManager?: () => void;
 }
 
+interface ConsumedItemsListProps {
+  items: any[];
+  products: Product[];
+  theme: 'dark' | 'light';
+  mode: 'consumption' | 'checkout';
+  onAlterQty?: (productId: string, delta: number) => void;
+  onRemoveItem?: (productId: string) => void;
+  itemPaymentQty?: { [idx: number]: number };
+  onUpdatePaymentQty?: (idx: number, newQty: number) => void;
+}
+
+function ConsumedItemsList({
+  items,
+  products,
+  theme,
+  mode,
+  onAlterQty,
+  onRemoveItem,
+  itemPaymentQty = {},
+  onUpdatePaymentQty
+}: ConsumedItemsListProps) {
+  if (!items || items.length === 0) {
+    return (
+      <div className={`p-4 text-center rounded-xl border text-xs text-gray-400 ${
+        theme === 'dark' ? 'bg-[#111111]/30 border-[#1C1C1C]' : 'bg-gray-50 border-gray-100'
+      }`}>
+        Nenhum item consumido ainda nesta mesa/comanda.
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2.5">
+      {items.map((item, idx) => {
+        if (item.status === 'cancelado') return null;
+        const prod = products.find(p => p.id === item.productId);
+        const unitPrice = prod ? prod.sellPrice : (item.unitPrice || 0);
+        const totalQty = item.quantity || 0;
+        const paidQty = item.paidQuantity || 0;
+        const unpaidQty = Math.max(0, totalQty - paidQty);
+        const totalAmount = totalQty * unitPrice;
+
+        const qtyToPayInTx = itemPaymentQty[idx] !== undefined ? itemPaymentQty[idx] : unpaidQty;
+
+        return (
+          <div 
+            key={idx} 
+            className={`p-3 rounded-xl border flex flex-col sm:flex-row justify-between sm:items-center gap-3 ${
+              theme === 'dark' ? 'bg-[#111]/40 border-[#1C1C1C]' : 'bg-white border-gray-100 shadow-sm'
+            }`}
+          >
+            {/* Product thumbnail & basic info */}
+            <div className="flex items-center gap-3 flex-1 min-w-0">
+              <div className="w-10 h-10 rounded-lg bg-gray-950 shrink-0 overflow-hidden border flex items-center justify-center" style={{ borderColor: theme === 'dark' ? '#222' : '#E5E5E5' }}>
+                {prod?.image ? (
+                  <img 
+                    src={prod.image} 
+                    alt={prod.name} 
+                    referrerPolicy="no-referrer"
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="text-gray-500">
+                    <GlassWater className="w-4 h-4" />
+                  </div>
+                )}
+              </div>
+
+              <div className="flex flex-col flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-bold text-sm truncate" style={{ color: theme === 'dark' ? '#FFF' : '#111' }}>
+                    {prod ? prod.name : 'Produto'}
+                  </span>
+
+                  {item.status && (
+                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider ${
+                      item.status === 'entregue'
+                        ? 'bg-emerald-950/30 text-emerald-400 border border-emerald-900/30'
+                        : item.status === 'pronto'
+                          ? 'bg-blue-950/30 text-blue-400 border border-blue-900/30'
+                          : item.status === 'preparo'
+                            ? 'bg-amber-950/30 text-amber-400 border border-amber-900/30'
+                            : 'bg-gray-900/30 text-gray-400 border border-gray-800/30'
+                    }`}>
+                      {item.status}
+                    </span>
+                  )}
+
+                  {paidQty > 0 && (
+                    <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded uppercase bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                      {unpaidQty === 0 ? '✓ Quitado' : `Pago (${paidQty}/${totalQty})`}
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-3 text-xs text-gray-400 mt-0.5">
+                  <span>Qtd Total: <strong className={theme === 'dark' ? 'text-white' : 'text-gray-900'}>{totalQty}x</strong></span>
+                  <span>Unit: <strong className="font-mono text-emerald-500">R$ {unitPrice.toFixed(2)}</strong></span>
+                  {item.notes && <span className="italic truncate max-w-[150px]">Obs: "{item.notes}"</span>}
+                </div>
+              </div>
+            </div>
+
+            {/* Mode-specific actions */}
+            {mode === 'checkout' ? (
+              /* Itemized partial payment picker */
+              <div className="flex items-center gap-3 shrink-0 justify-end">
+                {unpaidQty === 0 ? (
+                  <span className="text-xs font-bold text-emerald-500 bg-emerald-500/10 px-2 py-1 rounded">
+                    Totalmente Pago
+                  </span>
+                ) : (
+                  <div className="flex items-center gap-2 bg-black/20 p-1.5 rounded-lg border border-gray-800">
+                    <span className="text-[10px] uppercase font-bold text-gray-400 mr-1">Pagar:</span>
+                    <button
+                      type="button"
+                      onClick={() => onUpdatePaymentQty && onUpdatePaymentQty(idx, Math.max(0, qtyToPayInTx - 1))}
+                      disabled={qtyToPayInTx <= 0}
+                      className="w-7 h-7 rounded bg-gray-800 hover:bg-gray-700 text-white font-bold flex items-center justify-center disabled:opacity-30 cursor-pointer"
+                    >
+                      -
+                    </button>
+                    <span className="font-mono font-bold text-xs w-6 text-center text-emerald-400">
+                      {qtyToPayInTx}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onUpdatePaymentQty && onUpdatePaymentQty(idx, Math.min(unpaidQty, qtyToPayInTx + 1))}
+                      disabled={qtyToPayInTx >= unpaidQty}
+                      className="w-7 h-7 rounded bg-gray-800 hover:bg-gray-700 text-white font-bold flex items-center justify-center disabled:opacity-30 cursor-pointer"
+                    >
+                      +
+                    </button>
+                    <span className="text-xs font-mono font-bold ml-1 text-white">
+                      (R$ {(qtyToPayInTx * unitPrice).toFixed(2)})
+                    </span>
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* Consumption mode: quantity alteration and cancellation */
+              <div className="flex items-center gap-2 justify-end shrink-0">
+                <span className="text-xs font-mono font-bold text-emerald-500 mr-2">
+                  R$ {totalAmount.toFixed(2)}
+                </span>
+
+                {onAlterQty && (
+                  <>
+                    <button 
+                      type="button"
+                      onClick={() => onAlterQty(item.productId, -1)} 
+                      className={`w-8 h-8 flex items-center justify-center rounded-lg border text-sm font-black active:scale-90 cursor-pointer ${
+                        theme === 'dark' ? 'bg-[#1a1a1a] border-[#222] hover:bg-[#252525] text-white' : 'bg-white border-gray-200 hover:bg-gray-100 text-gray-800'
+                      }`}
+                      title="Reduzir quantidade"
+                    >
+                      -
+                    </button>
+                    <span className="font-mono font-bold w-5 text-center text-xs">{totalQty}</span>
+                    <button 
+                      type="button"
+                      onClick={() => onAlterQty(item.productId, 1)} 
+                      className={`w-8 h-8 flex items-center justify-center rounded-lg border text-sm font-black active:scale-90 cursor-pointer ${
+                        theme === 'dark' ? 'bg-[#1a1a1a] border-[#222] hover:bg-[#252525] text-white' : 'bg-white border-gray-200 hover:bg-gray-100 text-gray-800'
+                      }`}
+                      title="Aumentar quantidade"
+                    >
+                      +
+                    </button>
+                  </>
+                )}
+
+                {onRemoveItem && (
+                  <button 
+                    type="button"
+                    onClick={() => onRemoveItem(item.productId)} 
+                    className="w-8 h-8 flex items-center justify-center rounded-lg border border-red-900/30 bg-red-950/10 text-red-400 hover:bg-red-950/30 ml-1 cursor-pointer"
+                    title="Cancelar/remover este item"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function OrderApp({
   products,
   tablesComandas,
@@ -213,6 +404,11 @@ export default function OrderApp({
   // Active table or comanda
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
   
+  // Find active table state
+  const activeTable = useMemo(() => {
+    return tablesComandas.find(t => t.id === selectedTableId);
+  }, [tablesComandas, selectedTableId]);
+
   // Active ordering basket / cart
   const [orderCart, setOrderCart] = useState<{ product: Product; quantity: number; notes: string }[]>([]);
   
@@ -220,12 +416,105 @@ export default function OrderApp({
   const [catSearch, setCatSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('Todos');
 
-  // Checkout billing split state
-  const [splitCount, setSplitCount] = useState(1);
+  // Checkout billing split state & itemized payment selection
+  const [splitInput, setSplitInput] = useState('1');
+  const splitCount = useMemo(() => {
+    const parsed = parseInt(splitInput, 10);
+    return isNaN(parsed) || parsed < 1 ? 1 : parsed;
+  }, [splitInput]);
+
   const [paymentMethod, setPaymentMethod] = useState<'pix' | 'dinheiro' | 'debito' | 'credito'>('pix');
   const [stoneReference, setStoneReference] = useState('');
   const [cashReceived, setCashReceived] = useState<number | ''>('');
   const [ageCheckConfirmed, setAgeCheckConfirmed] = useState(false);
+
+  // Item payment selection state for itemized partial payments in Checkout
+  const [selectedItemPaymentQty, setSelectedItemPaymentQty] = useState<{ [itemIdx: number]: number }>({});
+
+  // Reset selected item payment quantities when active table or screen changes
+  useEffect(() => {
+    if (activeTable && activeTable.items) {
+      const initialMap: { [itemIdx: number]: number } = {};
+      activeTable.items.forEach((item, idx) => {
+        const unpaidQty = Math.max(0, item.quantity - (item.paidQuantity || 0));
+        initialMap[idx] = unpaidQty;
+      });
+      setSelectedItemPaymentQty(initialMap);
+    } else {
+      setSelectedItemPaymentQty({});
+    }
+  }, [selectedTableId, activeScreen]);
+
+  // Centralized calculations for active table totals
+  const activeTableTotals = useMemo(() => {
+    if (!activeTable || !activeTable.items) {
+      return { grossSubtotal: 0, paidTotal: 0, remainingBalance: 0 };
+    }
+
+    let grossSubtotal = 0;
+    let paidTotal = 0;
+
+    activeTable.items.forEach(i => {
+      if (i.status === 'cancelado') return;
+      const prod = products.find(p => p.id === i.productId);
+      const unitPrice = prod ? prod.sellPrice : (i.unitPrice || 0);
+      const qty = i.quantity || 0;
+      const paidQty = i.paidQuantity || 0;
+
+      grossSubtotal += qty * unitPrice;
+      paidTotal += paidQty * unitPrice;
+    });
+
+    const remainingBalance = Math.max(0, grossSubtotal - paidTotal);
+
+    return { grossSubtotal, paidTotal, remainingBalance };
+  }, [activeTable, products]);
+
+  // Checkout transaction calculation based on selected item quantities to pay
+  const checkoutTxDetails = useMemo(() => {
+    if (!activeTable || !activeTable.items) {
+      return { itemsToPay: [], totalToPay: 0 };
+    }
+
+    const itemsToPay: {
+      itemIndex: number;
+      item: any;
+      product: Product | undefined;
+      unitPrice: number;
+      qtyToPay: number;
+      amountToPay: number;
+    }[] = [];
+
+    let totalToPay = 0;
+
+    activeTable.items.forEach((item, idx) => {
+      if (item.status === 'cancelado') return;
+      const unpaidQty = Math.max(0, item.quantity - (item.paidQuantity || 0));
+      if (unpaidQty <= 0) return;
+
+      const prod = products.find(p => p.id === item.productId);
+      const unitPrice = prod ? prod.sellPrice : (item.unitPrice || 0);
+
+      const qtyToPay = selectedItemPaymentQty[idx] !== undefined 
+        ? Math.min(unpaidQty, Math.max(0, selectedItemPaymentQty[idx]))
+        : unpaidQty;
+
+      if (qtyToPay > 0) {
+        const amountToPay = qtyToPay * unitPrice;
+        totalToPay += amountToPay;
+        itemsToPay.push({
+          itemIndex: idx,
+          item,
+          product: prod,
+          unitPrice,
+          qtyToPay,
+          amountToPay
+        });
+      }
+    });
+
+    return { itemsToPay, totalToPay };
+  }, [activeTable, products, selectedItemPaymentQty]);
 
   // Authenticate staff PIN
   const handlePinSubmit = (num: string) => {
@@ -254,11 +543,6 @@ export default function OrderApp({
     setPinInput(pinInput.slice(0, -1));
   };
 
-  // Find active table state
-  const activeTable = useMemo(() => {
-    return tablesComandas.find(t => t.id === selectedTableId);
-  }, [tablesComandas, selectedTableId]);
-
   // Catalog categories
   const categories = useMemo(() => {
     const list = new Set(products.filter(p => p.active).map(p => p.category));
@@ -276,13 +560,6 @@ export default function OrderApp({
 
   const handleSelectTable = (tableId: string) => {
     setSelectedTableId(tableId);
-    const tbl = tablesComandas.find(t => t.id === tableId);
-    
-    // If table is free, mark occupied initially
-    if (tbl && tbl.status === 'livre') {
-      onUpdateTableStatus(tableId, 'ocupada');
-    }
-
     setOrderCart([]);
     setActiveScreen('order');
   };
@@ -463,13 +740,16 @@ export default function OrderApp({
     setCancelModalData(null);
   };
 
-  // Process checkout payments and wipe comanda table back to free
+  // Process checkout payments (full or itemized partial payment)
   const handleProcessPayment = async () => {
     if (!selectedTableId || !activeTable) return;
-    const totalToPay = activeTable.items.reduce((acc, i) => {
-      const prod = products.find(p => p.id === i.productId);
-      return acc + ((prod ? prod.sellPrice : 0) * i.quantity);
-    }, 0);
+
+    const { itemsToPay, totalToPay } = checkoutTxDetails;
+
+    if (itemsToPay.length === 0 || totalToPay <= 0) {
+      addToast('Selecione ao menos um item com quantidade a pagar maior que zero.', 'warning');
+      return;
+    }
 
     const saleNumber = String(Math.floor(1000 + Math.random() * 9000));
     
@@ -479,10 +759,10 @@ export default function OrderApp({
       timestamp: new Date().toISOString(),
       type: activeTable.type,
       identifier: `${activeTable.type === 'mesa' ? 'Mesa' : 'Comanda'} ${activeTable.number}`,
-      items: activeTable.items.map(i => ({
-        productId: i.productId,
-        quantity: i.quantity,
-        unitPrice: products.find(p => p.id === i.productId)?.sellPrice || 0
+      items: itemsToPay.map(i => ({
+        productId: i.item.productId,
+        quantity: i.qtyToPay,
+        unitPrice: i.unitPrice
       })),
       subtotal: totalToPay,
       discount: 0,
@@ -500,13 +780,13 @@ export default function OrderApp({
       date: new Date().toISOString().split('T')[0],
       type: 'receita',
       category: 'Vendas',
-      description: `Fechamento ${activeTable.type === 'mesa' ? 'Mesa' : 'Comanda'} ${activeTable.number}`,
+      description: `Pagamento ${activeTable.type === 'mesa' ? 'Mesa' : 'Comanda'} ${activeTable.number}`,
       value: totalToPay,
       paymentMethod,
       status: 'pago'
     };
 
-    // Print non-fiscal sales coupon immediately!
+    // Print non-fiscal sales coupon for items paid in this transaction
     const receiptData = {
       number: saleNumber,
       date: new Date().toLocaleDateString('pt-BR'),
@@ -519,15 +799,12 @@ export default function OrderApp({
       paymentMethod,
       paidAmount: paymentMethod === 'dinheiro' && cashReceived !== '' ? Number(cashReceived) : totalToPay,
       changeAmount: paymentMethod === 'dinheiro' && cashReceived !== '' && Number(cashReceived) > totalToPay ? Number(cashReceived) - totalToPay : 0,
-      items: activeTable.items.map(i => {
-        const prod = products.find(p => p.id === i.productId);
-        return {
-          qty: i.quantity,
-          name: prod ? prod.name : 'Produto',
-          unitPrice: prod ? prod.sellPrice : 0,
-          notes: i.notes
-        };
-      })
+      items: itemsToPay.map(i => ({
+        qty: i.qtyToPay,
+        name: i.product ? i.product.name : 'Produto',
+        unitPrice: i.unitPrice,
+        notes: i.item.notes
+      }))
     };
 
     // Execute real ESC/POS thermal printing of non-fiscal sales coupon
@@ -537,19 +814,37 @@ export default function OrderApp({
       console.log('[OrderApp] Thermal print result:', printResult);
 
       if (printResult.success) {
-        addToast(`Mesa/Comanda ${activeTable.number} liquidada! Cupom não fiscal emitido e enviado à impressora.`, 'success');
+        addToast(`Pagamento de R$ ${totalToPay.toFixed(2)} registrado! Cupom impresso.`, 'success');
       } else {
-        addToast(`Mesa/Comanda ${activeTable.number} liquidada, mas a impressora respondeu com aviso: ${printResult.errorMsg || 'Verifique o papel/conexão.'}`, 'warning');
+        addToast(`Pagamento registrado, mas impressora avisou: ${printResult.errorMsg || 'Verifique o papel/conexão.'}`, 'warning');
       }
     } catch (printErr: any) {
       console.error('[OrderApp] Error executing thermal print:', printErr);
-      addToast(`Mesa/Comanda ${activeTable.number} liquidada! Falha na transmissão para a impressora.`, 'warning');
+      addToast(`Pagamento registrado! Falha na transmissão para a impressora.`, 'warning');
     }
 
-    // Reset temporary cashier inputs
     setCashReceived('');
 
-    // If simulating OFFLINE, queue transaction instead of flushing immediately!
+    // Calculate updated table items with paidQuantity & paidAmount increments
+    const updatedTableItems = activeTable.items.map((item, idx) => {
+      const payInfo = itemsToPay.find(p => p.itemIndex === idx);
+      if (!payInfo) return item;
+      const prevPaidQty = item.paidQuantity || 0;
+      const newPaidQty = prevPaidQty + payInfo.qtyToPay;
+      const prevPaidAmt = item.paidAmount || 0;
+      const newPaidAmt = prevPaidAmt + payInfo.amountToPay;
+      return {
+        ...item,
+        paidQuantity: newPaidQty,
+        paidAmount: newPaidAmt
+      };
+    });
+
+    // Check if ALL active items on the table are completely paid
+    const isCompletelyPaid = updatedTableItems
+      .filter(i => i.status !== 'cancelado')
+      .every(i => (i.quantity - (i.paidQuantity || 0)) <= 0);
+
     if (isOffline) {
       const queuePayload: SyncQueueItem = {
         id: `q-${Date.now()}`,
@@ -559,23 +854,34 @@ export default function OrderApp({
         status: 'pending'
       };
       setSyncQueue([...syncQueue, queuePayload]);
-      
-      // Wipe the table local state anyway so the waiter can serve next tables
+
+      if (isCompletelyPaid) {
+        onUpdateTableItems(selectedTableId, []);
+        onUpdateTableStatus(selectedTableId, 'livre');
+        setSelectedTableId(null);
+        setActiveScreen('tables');
+      } else {
+        onUpdateTableItems(selectedTableId, updatedTableItems);
+        setActiveScreen('order');
+      }
+      return;
+    }
+
+    // ONLINE
+    onAddSale(newSale);
+    onAddFinancial(newTx);
+
+    if (isCompletelyPaid) {
       onUpdateTableItems(selectedTableId, []);
       onUpdateTableStatus(selectedTableId, 'livre');
       setSelectedTableId(null);
       setActiveScreen('tables');
-      return;
+      addToast(`Mesa/Comanda ${activeTable.number} quitada integralmente e liberada!`, 'success');
+    } else {
+      onUpdateTableItems(selectedTableId, updatedTableItems);
+      addToast(`Pagamento parcial de R$ ${totalToPay.toFixed(2)} registrado!`, 'info');
+      setActiveScreen('order');
     }
-
-    // ONLINE standard flush
-    onAddSale(newSale);
-    onAddFinancial(newTx);
-    onUpdateTableItems(selectedTableId, []);
-    onUpdateTableStatus(selectedTableId, 'livre');
-
-    setSelectedTableId(null);
-    setActiveScreen('tables');
   };
 
   // Re-sync queue once online
@@ -850,12 +1156,19 @@ export default function OrderApp({
                       }`}
                     >
                       {/* Badge and state dot */}
-                      <div className="flex justify-between items-center w-full">
-                        <span className="font-extrabold text-xs uppercase tracking-wide text-gray-400">
-                          {tbl.type === 'mesa' ? 'Mesa' : 'Comanda'} <span className="font-black" style={{ color: theme === 'dark' ? 'white' : '#111' }}>{tbl.number}</span>
-                        </span>
+                      <div className="flex justify-between items-start w-full gap-1">
+                        <div className="flex flex-col min-w-0 flex-1">
+                          <span className="font-extrabold text-xs uppercase tracking-wide text-gray-400">
+                            {tbl.type === 'mesa' ? 'Mesa' : 'Comanda'} <span className="font-black" style={{ color: theme === 'dark' ? 'white' : '#111' }}>{tbl.number}</span>
+                          </span>
+                          {tbl.tableName && (
+                            <span className="text-[11px] font-semibold text-gray-400 truncate max-w-[120px] block" title={tbl.tableName}>
+                              {tbl.tableName}
+                            </span>
+                          )}
+                        </div>
                         
-                        <span className={`w-2 h-2 rounded-full ${
+                        <span className={`w-2 h-2 rounded-full mt-1 shrink-0 ${
                           isOcupada ? 'bg-amber-500' : isFechando ? 'bg-red-500' : 'bg-emerald-500'
                         }`} />
                       </div>
@@ -1170,65 +1483,87 @@ export default function OrderApp({
                   <span className="font-bold text-sm">Fechar Conta</span>
                 </div>
 
-                {/* Items recap list */}
-                <div className="p-3 rounded-lg bg-black/25 flex flex-col gap-1.5 border w-full" style={{ borderColor: theme === 'dark' ? '#1C1C1C' : '#E5E5E5' }}>
-                  <span className="text-[10px] uppercase font-bold text-gray-500 tracking-wider">Detalhamento Consumido</span>
-                  <div className="max-h-64 overflow-y-auto flex flex-col gap-1 pr-1">
-                    {activeTable?.items.map((item, idx) => {
-                      const prod = products.find(p => p.id === item.productId);
-                      return (
-                        <div key={idx} className="flex justify-between items-center py-1.5 border-b border-gray-900/30 gap-4 w-full">
-                          <div className="flex items-center gap-2 flex-1 min-w-0">
-                            {/* Thumbnail image */}
-                            <div className="w-8 h-8 rounded bg-gray-900 shrink-0 overflow-hidden border flex items-center justify-center" style={{ borderColor: theme === 'dark' ? '#222' : '#E5E5E5' }}>
-                              {prod?.image ? (
-                                <img 
-                                  src={prod.image} 
-                                  alt={prod.name} 
-                                  referrerPolicy="no-referrer"
-                                  className="w-full h-full object-cover"
-                                />
-                              ) : (
-                                <div className="text-gray-500">
-                                  <GlassWater className="w-4 h-4" />
-                                </div>
-                              )}
-                            </div>
-
-                            <span className="truncate flex-1 pr-2 text-left" title={prod ? prod.name : 'Produto'} style={{ color: theme === 'dark' ? '#E5E5E5' : '#333' }}>
-                              <span className="font-bold mr-1.5" style={{ color: theme === 'dark' ? '#18F2A4' : '#10B981' }}>{item.quantity}x</span>
-                              {prod ? prod.name : 'Produto'}
-                            </span>
-                          </div>
-                          <span className="font-mono text-xs shrink-0 font-semibold" style={{ color: theme === 'dark' ? '#FFF' : '#111' }}>
-                            R$ {((prod ? prod.sellPrice : 0) * item.quantity).toFixed(2)}
-                          </span>
-                        </div>
-                      );
-                    })}
+                {/* Items recap list with itemized partial payment */}
+                <div className="p-3 rounded-xl bg-black/20 flex flex-col gap-2 border w-full" style={{ borderColor: theme === 'dark' ? '#1C1C1C' : '#E5E5E5' }}>
+                  <div className="flex justify-between items-center pb-1 border-b border-gray-800">
+                    <span className="text-[10px] uppercase font-extrabold text-gray-400 tracking-wider">Itens Consumidos & Seleção de Pagamento</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!activeTable || !activeTable.items) return;
+                        const allMap: { [i: number]: number } = {};
+                        activeTable.items.forEach((it, idx) => {
+                          allMap[idx] = Math.max(0, it.quantity - (it.paidQuantity || 0));
+                        });
+                        setSelectedItemPaymentQty(allMap);
+                      }}
+                      className="text-[10px] font-bold text-[#18F2A4] hover:underline cursor-pointer"
+                    >
+                      Selecionar Todos a Pagar
+                    </button>
                   </div>
-                  <div className="flex justify-between items-center font-bold pt-2 border-t border-dashed border-gray-800">
-                    <span>SUBTOTAL DA COMANDA:</span>
-                    <span className="font-mono text-[#18F2A4] text-base">R$ {(activeTable?.subtotal || 0).toFixed(2)}</span>
+
+                  <div className="max-h-72 overflow-y-auto pr-1">
+                    <ConsumedItemsList
+                      items={activeTable?.items || []}
+                      products={products}
+                      theme={theme}
+                      mode="checkout"
+                      itemPaymentQty={selectedItemPaymentQty}
+                      onUpdatePaymentQty={(idx, newQty) => {
+                        setSelectedItemPaymentQty(prev => ({
+                          ...prev,
+                          [idx]: newQty
+                        }));
+                      }}
+                    />
+                  </div>
+
+                  {/* Totals Summary */}
+                  <div className="flex flex-col gap-1 pt-2 border-t border-dashed border-gray-800 text-xs">
+                    <div className="flex justify-between text-gray-400 font-medium">
+                      <span>Subtotal Consumido:</span>
+                      <span className="font-mono font-bold text-gray-200">R$ {activeTableTotals.grossSubtotal.toFixed(2)}</span>
+                    </div>
+                    {activeTableTotals.paidTotal > 0 && (
+                      <div className="flex justify-between text-emerald-400 font-medium">
+                        <span>Já Pago Anteriormente:</span>
+                        <span className="font-mono font-bold">- R$ {activeTableTotals.paidTotal.toFixed(2)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between font-bold text-white text-sm pt-1 border-t border-gray-800">
+                      <span>Valor Selecionado P/ Pagar Agora:</span>
+                      <span className="font-mono text-[#18F2A4]">R$ {checkoutTxDetails.totalToPay.toFixed(2)}</span>
+                    </div>
                   </div>
                 </div>
 
                 {/* Bill splitting selector */}
-                <div className="flex flex-col gap-1.5">
-                  <span className="text-gray-400 font-semibold">Dividir Conta em Quantas Pessoas?</span>
+                <div className="flex flex-col gap-1.5 p-3 rounded-xl border bg-black/10" style={{ borderColor: theme === 'dark' ? '#1C1C1C' : '#E5E5E5' }}>
+                  <span className="text-gray-400 font-semibold text-xs">Dividir Conta em Quantas Pessoas?</span>
                   <div className="flex items-center gap-3">
                     <input
-                      type="number"
-                      min="1"
-                      value={splitCount}
-                      onChange={(e) => setSplitCount(Math.max(1, Number(e.target.value)))}
-                      className="p-2 w-20 text-center rounded border font-mono font-bold text-sm"
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      value={splitInput}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/\D/g, '');
+                        setSplitInput(val);
+                      }}
+                      onBlur={() => {
+                        if (!splitInput || parseInt(splitInput, 10) < 1) {
+                          setSplitInput('1');
+                        }
+                      }}
+                      onFocus={(e) => e.target.select()}
+                      className="p-2 w-20 text-center rounded-lg border font-mono font-bold text-sm focus:outline-none focus:border-emerald-500"
                       style={{ backgroundColor: theme === 'dark' ? '#111' : 'white', borderColor: theme === 'dark' ? '#222' : '#E5E5E5', color: theme === 'dark' ? 'white' : 'black' }}
                     />
                     <div className="flex flex-col">
-                      <span className="text-gray-400 text-[10px]">Custo por Pessoa (Estimado):</span>
+                      <span className="text-gray-400 text-[10px]">Custo por Pessoa (Valor Operação):</span>
                       <span className="font-bold text-[#18F2A4] font-mono text-sm">
-                        R$ {((activeTable?.subtotal || 0) / splitCount).toFixed(2)}
+                        R$ {(checkoutTxDetails.totalToPay / splitCount).toFixed(2)}
                       </span>
                     </div>
                   </div>
@@ -1276,7 +1611,7 @@ export default function OrderApp({
                       <span className="text-xs text-gray-400 font-semibold">Valor Recebido (R$):</span>
                       <input
                         type="number"
-                        min={activeTable ? activeTable.items.reduce((acc, i) => acc + ((products.find(p => p.id === i.productId)?.sellPrice || 0) * i.quantity), 0) : 0}
+                        min={checkoutTxDetails.totalToPay}
                         step="0.01"
                         placeholder="0.00"
                         value={cashReceived || ''}
@@ -1285,11 +1620,11 @@ export default function OrderApp({
                         style={{ backgroundColor: theme === 'dark' ? '#111' : 'white', borderColor: theme === 'dark' ? '#333' : '#CCC', color: theme === 'dark' ? 'white' : 'black' }}
                       />
                     </div>
-                    {cashReceived !== '' && Number(cashReceived) >= (activeTable ? activeTable.items.reduce((acc, i) => acc + ((products.find(p => p.id === i.productId)?.sellPrice || 0) * i.quantity), 0) : 0) && (
+                    {cashReceived !== '' && Number(cashReceived) >= checkoutTxDetails.totalToPay && (
                       <div className="flex justify-between text-xs font-bold text-amber-500 pt-1.5 border-t border-dashed border-[#222]/20">
                         <span>Troco ao Cliente:</span>
                         <span className="font-mono">
-                          R$ {(Number(cashReceived) - (activeTable ? activeTable.items.reduce((acc, i) => acc + ((products.find(p => p.id === i.productId)?.sellPrice || 0) * i.quantity), 0) : 0)).toFixed(2)}
+                          R$ {(Number(cashReceived) - checkoutTxDetails.totalToPay).toFixed(2)}
                         </span>
                       </div>
                     )}
@@ -1303,14 +1638,17 @@ export default function OrderApp({
               }`}>
                 <button
                   onClick={handleProcessPayment}
+                  disabled={checkoutTxDetails.totalToPay <= 0}
                   className={`w-full py-3.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg active:scale-95 ${
-                    theme === 'dark' 
-                      ? 'bg-[#18F2A4] text-black hover:bg-[#12d58f] hover:shadow-[#18F2A4]/10' 
-                      : 'bg-[#10B981] text-white hover:bg-[#0e9f6e]'
+                    checkoutTxDetails.totalToPay <= 0
+                      ? 'opacity-40 cursor-not-allowed bg-gray-700 text-gray-400'
+                      : theme === 'dark' 
+                        ? 'bg-[#18F2A4] text-black hover:bg-[#12d58f] hover:shadow-[#18F2A4]/10' 
+                        : 'bg-[#10B981] text-white hover:bg-[#0e9f6e]'
                   }`}
                 >
                   <CheckSquare className="w-4.5 h-4.5" />
-                  Confirmar Recebimento • Liberar Comanda
+                  <span>Confirmar Recebimento (R$ {checkoutTxDetails.totalToPay.toFixed(2)})</span>
                 </button>
               </div>
             </div>
@@ -1627,105 +1965,14 @@ export default function OrderApp({
                   Itens já Confirmados e Consumidos
                 </span>
                 
-                {!activeTable.items || activeTable.items.length === 0 ? (
-                  <div className={`p-4 text-center rounded-xl border text-xs text-gray-500 ${
-                    theme === 'dark' ? 'bg-[#111111]/30 border-[#1C1C1C]' : 'bg-gray-50 border-gray-100'
-                  }`}>
-                    Nenhum item consumido ainda nesta mesa/comanda.
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-2.5">
-                    {activeTable.items.map((item, idx) => {
-                      const prod = products.find(p => p.id === item.productId);
-                      if (!prod) return null;
-                      return (
-                        <div 
-                          key={idx} 
-                          className={`p-3 rounded-xl border flex flex-col sm:flex-row justify-between sm:items-center gap-3 ${
-                            theme === 'dark' ? 'bg-[#111]/30 border-[#1C1C1C]' : 'bg-white border-gray-100'
-                          }`}
-                        >
-                          {/* Product Details with Image & Status Badge */}
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-lg bg-gray-950 shrink-0 overflow-hidden border flex items-center justify-center" style={{ borderColor: theme === 'dark' ? '#222' : '#E5E5E5' }}>
-                              {prod.image ? (
-                                <img 
-                                  src={prod.image} 
-                                  alt={prod.name} 
-                                  referrerPolicy="no-referrer"
-                                  className="w-full h-full object-cover"
-                                />
-                              ) : (
-                                <div className="text-gray-500">
-                                  <GlassWater className="w-4 h-4" />
-                                </div>
-                              )}
-                            </div>
-                            <div className="flex flex-col">
-                              <div className="flex items-center gap-2">
-                                <span className="font-bold text-sm" style={{ color: theme === 'dark' ? '#FFF' : '#111' }}>
-                                  {prod.name}
-                                </span>
-                                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider ${
-                                  item.status === 'entregue'
-                                    ? 'bg-emerald-950/30 text-emerald-400 border border-emerald-900/30'
-                                    : item.status === 'pronto'
-                                      ? 'bg-blue-950/30 text-blue-400 border border-blue-900/30'
-                                      : item.status === 'preparo'
-                                        ? 'bg-amber-950/30 text-amber-400 border border-amber-900/30'
-                                        : 'bg-gray-900/30 text-gray-400 border border-gray-800/30'
-                                }`}>
-                                  {item.status}
-                                </span>
-                              </div>
-                              <span className="text-xs text-gray-400">
-                                {item.notes ? `Obs: "${item.notes}"` : 'Sem observações'}
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* Alteration Controls (Quantity adjusters + Trash to clear) */}
-                          <div className="flex items-center gap-2 justify-end shrink-0">
-                            <span className="text-xs font-mono font-bold text-gray-400 mr-2">
-                              R$ {((prod.sellPrice) * item.quantity).toFixed(2)}
-                            </span>
-                            
-                            <button 
-                              type="button"
-                              onClick={() => handleAlterConsumedItemQty(prod.id, -1)} 
-                              className={`w-9 h-9 flex items-center justify-center rounded-lg border text-sm font-black active:scale-90 cursor-pointer ${
-                                theme === 'dark' ? 'bg-[#1a1a1a] border-[#222] hover:bg-[#252525] text-white' : 'bg-white border-gray-200 hover:bg-gray-100'
-                              }`}
-                              title="Reduzir quantidade"
-                            >
-                              -
-                            </button>
-                            <span className="font-mono font-bold w-6 text-center text-sm">{item.quantity}</span>
-                            <button 
-                              type="button"
-                              onClick={() => handleAlterConsumedItemQty(prod.id, 1)} 
-                              className={`w-9 h-9 flex items-center justify-center rounded-lg border text-sm font-black active:scale-90 cursor-pointer ${
-                                theme === 'dark' ? 'bg-[#1a1a1a] border-[#222] hover:bg-[#252525] text-white' : 'bg-white border-gray-200 hover:bg-gray-100'
-                              }`}
-                              title="Adicionar quantidade"
-                            >
-                              +
-                            </button>
-
-                            <button 
-                              type="button"
-                              onClick={() => handleRemoveConsumedItem(prod.id)} 
-                              className="w-9 h-9 flex items-center justify-center rounded-lg border border-red-900/30 bg-red-950/10 text-red-400 hover:bg-red-950/30 ml-2 cursor-pointer"
-                              title="Cancelar/remover este item"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+                <ConsumedItemsList
+                  items={activeTable.items || []}
+                  products={products}
+                  theme={theme}
+                  mode="consumption"
+                  onAlterQty={handleAlterConsumedItemQty}
+                  onRemoveItem={handleRemoveConsumedItem}
+                />
               </div>
 
             </div>

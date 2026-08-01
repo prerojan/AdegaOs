@@ -95,6 +95,8 @@ export interface TableItem {
   cancelReason?: string;
   timestamp?: string;
   statusHistory?: any[];
+  paidQuantity?: number;
+  paidAmount?: number;
 }
 
 export interface TableComandaState {
