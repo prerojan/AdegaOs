@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Key, Smartphone, Wifi, WifiOff, RefreshCw, ShoppingCart, Search, Plus, Minus, Check, ArrowRight, User, AlertTriangle, TableProperties, DollarSign, X, CheckSquare, Layers, Sun, Moon, LogOut, Maximize2, Trash2, GlassWater, Info } from 'lucide-react';
-import { Product, TableComandaState, Sale, FinancialTransaction, CashierUser, SyncQueueItem } from '../types';
+import { Product, TableComandaState, Sale, FinancialTransaction, CashierUser, SyncQueueItem, ItemPaymentRecord } from '../types';
 import ProductCard from './ProductCard';
 import { ToastContainer, ToastItem, ToastType, playPremiumSound, useToastSubscription } from './ToastNotification';
 import { triggerThermalPrint } from '../lib/thermalPrinter';
@@ -74,141 +74,157 @@ function ConsumedItemsList({
         return (
           <div 
             key={idx} 
-            className={`p-3 rounded-xl border flex flex-col sm:flex-row justify-between sm:items-center gap-3 ${
+            className={`p-3 rounded-xl border flex flex-col justify-between gap-3 ${
               theme === 'dark' ? 'bg-[#111]/40 border-[#1C1C1C]' : 'bg-white border-gray-100 shadow-sm'
             }`}
           >
-            {/* Product thumbnail & basic info */}
-            <div className="flex items-center gap-3 flex-1 min-w-0">
-              <div className="w-10 h-10 rounded-lg bg-gray-950 shrink-0 overflow-hidden border flex items-center justify-center" style={{ borderColor: theme === 'dark' ? '#222' : '#E5E5E5' }}>
-                {prod?.image ? (
-                  <img 
-                    src={prod.image} 
-                    alt={prod.name} 
-                    referrerPolicy="no-referrer"
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="text-gray-500">
-                    <GlassWater className="w-4 h-4" />
+            {/* Main Row */}
+            <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3">
+              {/* Product thumbnail & basic info */}
+              <div className="flex items-center gap-3 flex-1 min-w-0">
+                <div className="w-10 h-10 rounded-lg bg-gray-950 shrink-0 overflow-hidden border flex items-center justify-center" style={{ borderColor: theme === 'dark' ? '#222' : '#E5E5E5' }}>
+                  {prod?.image ? (
+                    <img 
+                      src={prod.image} 
+                      alt={prod.name} 
+                      referrerPolicy="no-referrer"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="text-gray-500">
+                      <GlassWater className="w-4 h-4" />
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex flex-col flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-bold text-sm truncate" style={{ color: theme === 'dark' ? '#FFF' : '#111' }}>
+                      {prod ? prod.name : 'Produto'}
+                    </span>
+
+                    {item.status && (
+                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider ${
+                        item.status === 'entregue'
+                          ? 'bg-emerald-950/30 text-emerald-400 border border-emerald-900/30'
+                          : item.status === 'pronto'
+                            ? 'bg-blue-950/30 text-blue-400 border border-blue-900/30'
+                            : item.status === 'preparo'
+                              ? 'bg-amber-950/30 text-amber-400 border border-amber-900/30'
+                              : 'bg-gray-900/30 text-gray-400 border border-gray-800/30'
+                      }`}>
+                        {item.status}
+                      </span>
+                    )}
+
+                    {paidQty > 0 && (
+                      <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded uppercase bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                        {unpaidQty === 0 ? '✓ Quitado' : `Pago (${paidQty}/${totalQty})`}
+                      </span>
+                    )}
                   </div>
-                )}
+
+                  <div className="flex items-center gap-3 text-xs text-gray-400 mt-0.5">
+                    <span>Qtd Total: <strong className={theme === 'dark' ? 'text-white' : 'text-gray-900'}>{totalQty}x</strong></span>
+                    <span>Unit: <strong className="font-mono text-emerald-500">R$ {unitPrice.toFixed(2)}</strong></span>
+                    {item.notes && <span className="italic truncate max-w-[150px]">Obs: "{item.notes}"</span>}
+                  </div>
+                </div>
               </div>
 
-              <div className="flex flex-col flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-bold text-sm truncate" style={{ color: theme === 'dark' ? '#FFF' : '#111' }}>
-                    {prod ? prod.name : 'Produto'}
+              {/* Mode-specific actions */}
+              {mode === 'checkout' ? (
+                /* Itemized partial payment picker */
+                <div className="flex items-center gap-3 shrink-0 justify-end">
+                  {unpaidQty === 0 ? (
+                    <span className="text-xs font-bold text-emerald-500 bg-emerald-500/10 px-2 py-1 rounded">
+                      Totalmente Pago
+                    </span>
+                  ) : (
+                    <div className="flex items-center gap-2 bg-black/20 p-1.5 rounded-lg border border-gray-800">
+                      <span className="text-[10px] uppercase font-bold text-gray-400 mr-1">Pagar:</span>
+                      <button
+                        type="button"
+                        onClick={() => onUpdatePaymentQty && onUpdatePaymentQty(idx, Math.max(0, qtyToPayInTx - 1))}
+                        disabled={qtyToPayInTx <= 0}
+                        className="w-7 h-7 rounded bg-gray-800 hover:bg-gray-700 text-white font-bold flex items-center justify-center disabled:opacity-30 cursor-pointer"
+                      >
+                        -
+                      </button>
+                      <span className="font-mono font-bold text-xs w-6 text-center text-emerald-400">
+                        {qtyToPayInTx}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => onUpdatePaymentQty && onUpdatePaymentQty(idx, Math.min(unpaidQty, qtyToPayInTx + 1))}
+                        disabled={qtyToPayInTx >= unpaidQty}
+                        className="w-7 h-7 rounded bg-gray-800 hover:bg-gray-700 text-white font-bold flex items-center justify-center disabled:opacity-30 cursor-pointer"
+                      >
+                        +
+                      </button>
+                      <span className="text-xs font-mono font-bold ml-1 text-white">
+                        (R$ {(qtyToPayInTx * unitPrice).toFixed(2)})
+                      </span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                /* Consumption mode: quantity alteration and cancellation */
+                <div className="flex items-center gap-2 justify-end shrink-0">
+                  <span className="text-xs font-mono font-bold text-emerald-500 mr-2">
+                    R$ {totalAmount.toFixed(2)}
                   </span>
 
-                  {item.status && (
-                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider ${
-                      item.status === 'entregue'
-                        ? 'bg-emerald-950/30 text-emerald-400 border border-emerald-900/30'
-                        : item.status === 'pronto'
-                          ? 'bg-blue-950/30 text-blue-400 border border-blue-900/30'
-                          : item.status === 'preparo'
-                            ? 'bg-amber-950/30 text-amber-400 border border-amber-900/30'
-                            : 'bg-gray-900/30 text-gray-400 border border-gray-800/30'
-                    }`}>
-                      {item.status}
-                    </span>
+                  {onAlterQty && (
+                    <>
+                      <button 
+                        type="button"
+                        onClick={() => onAlterQty(item.productId, -1)} 
+                        className={`w-8 h-8 flex items-center justify-center rounded-lg border text-sm font-black active:scale-90 cursor-pointer ${
+                          theme === 'dark' ? 'bg-[#1a1a1a] border-[#222] hover:bg-[#252525] text-white' : 'bg-white border-gray-200 hover:bg-gray-100 text-gray-800'
+                        }`}
+                        title="Reduzir quantidade"
+                      >
+                        -
+                      </button>
+                      <span className="font-mono font-bold w-5 text-center text-xs">{totalQty}</span>
+                      <button 
+                        type="button"
+                        onClick={() => onAlterQty(item.productId, 1)} 
+                        className={`w-8 h-8 flex items-center justify-center rounded-lg border text-sm font-black active:scale-90 cursor-pointer ${
+                          theme === 'dark' ? 'bg-[#1a1a1a] border-[#222] hover:bg-[#252525] text-white' : 'bg-white border-gray-200 hover:bg-gray-100 text-gray-800'
+                        }`}
+                        title="Aumentar quantidade"
+                      >
+                        +
+                      </button>
+                    </>
                   )}
 
-                  {paidQty > 0 && (
-                    <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded uppercase bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-                      {unpaidQty === 0 ? '✓ Quitado' : `Pago (${paidQty}/${totalQty})`}
-                    </span>
+                  {onRemoveItem && (
+                    <button 
+                      type="button"
+                      onClick={() => onRemoveItem(item.productId)} 
+                      className="w-8 h-8 flex items-center justify-center rounded-lg border border-red-900/30 bg-red-950/10 text-red-400 hover:bg-red-950/30 ml-1 cursor-pointer"
+                      title="Cancelar/remover este item"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
                   )}
                 </div>
-
-                <div className="flex items-center gap-3 text-xs text-gray-400 mt-0.5">
-                  <span>Qtd Total: <strong className={theme === 'dark' ? 'text-white' : 'text-gray-900'}>{totalQty}x</strong></span>
-                  <span>Unit: <strong className="font-mono text-emerald-500">R$ {unitPrice.toFixed(2)}</strong></span>
-                  {item.notes && <span className="italic truncate max-w-[150px]">Obs: "{item.notes}"</span>}
-                </div>
-              </div>
+              )}
             </div>
 
-            {/* Mode-specific actions */}
-            {mode === 'checkout' ? (
-              /* Itemized partial payment picker */
-              <div className="flex items-center gap-3 shrink-0 justify-end">
-                {unpaidQty === 0 ? (
-                  <span className="text-xs font-bold text-emerald-500 bg-emerald-500/10 px-2 py-1 rounded">
-                    Totalmente Pago
-                  </span>
-                ) : (
-                  <div className="flex items-center gap-2 bg-black/20 p-1.5 rounded-lg border border-gray-800">
-                    <span className="text-[10px] uppercase font-bold text-gray-400 mr-1">Pagar:</span>
-                    <button
-                      type="button"
-                      onClick={() => onUpdatePaymentQty && onUpdatePaymentQty(idx, Math.max(0, qtyToPayInTx - 1))}
-                      disabled={qtyToPayInTx <= 0}
-                      className="w-7 h-7 rounded bg-gray-800 hover:bg-gray-700 text-white font-bold flex items-center justify-center disabled:opacity-30 cursor-pointer"
-                    >
-                      -
-                    </button>
-                    <span className="font-mono font-bold text-xs w-6 text-center text-emerald-400">
-                      {qtyToPayInTx}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => onUpdatePaymentQty && onUpdatePaymentQty(idx, Math.min(unpaidQty, qtyToPayInTx + 1))}
-                      disabled={qtyToPayInTx >= unpaidQty}
-                      className="w-7 h-7 rounded bg-gray-800 hover:bg-gray-700 text-white font-bold flex items-center justify-center disabled:opacity-30 cursor-pointer"
-                    >
-                      +
-                    </button>
-                    <span className="text-xs font-mono font-bold ml-1 text-white">
-                      (R$ {(qtyToPayInTx * unitPrice).toFixed(2)})
-                    </span>
+            {/* Payment history audit log box if item has previous payment records */}
+            {item.payments && item.payments.length > 0 && (
+              <div className="text-[10px] bg-black/25 p-2 rounded-lg border border-gray-800/50 flex flex-col gap-1 text-gray-400 mt-1">
+                <span className="font-bold text-emerald-400 uppercase tracking-wider text-[9px]">Histórico de Pagamentos Deste Item:</span>
+                {item.payments.map((p: ItemPaymentRecord, pIdx: number) => (
+                  <div key={pIdx} className="flex justify-between items-center font-mono text-[10px]">
+                    <span>• {p.qty} un via <strong className="uppercase text-white">{p.method}</strong> {p.userName ? `(${p.userName})` : ''}</span>
+                    <span className="text-emerald-400 font-bold">R$ {(p.amount || 0).toFixed(2)}</span>
                   </div>
-                )}
-              </div>
-            ) : (
-              /* Consumption mode: quantity alteration and cancellation */
-              <div className="flex items-center gap-2 justify-end shrink-0">
-                <span className="text-xs font-mono font-bold text-emerald-500 mr-2">
-                  R$ {totalAmount.toFixed(2)}
-                </span>
-
-                {onAlterQty && (
-                  <>
-                    <button 
-                      type="button"
-                      onClick={() => onAlterQty(item.productId, -1)} 
-                      className={`w-8 h-8 flex items-center justify-center rounded-lg border text-sm font-black active:scale-90 cursor-pointer ${
-                        theme === 'dark' ? 'bg-[#1a1a1a] border-[#222] hover:bg-[#252525] text-white' : 'bg-white border-gray-200 hover:bg-gray-100 text-gray-800'
-                      }`}
-                      title="Reduzir quantidade"
-                    >
-                      -
-                    </button>
-                    <span className="font-mono font-bold w-5 text-center text-xs">{totalQty}</span>
-                    <button 
-                      type="button"
-                      onClick={() => onAlterQty(item.productId, 1)} 
-                      className={`w-8 h-8 flex items-center justify-center rounded-lg border text-sm font-black active:scale-90 cursor-pointer ${
-                        theme === 'dark' ? 'bg-[#1a1a1a] border-[#222] hover:bg-[#252525] text-white' : 'bg-white border-gray-200 hover:bg-gray-100 text-gray-800'
-                      }`}
-                      title="Aumentar quantidade"
-                    >
-                      +
-                    </button>
-                  </>
-                )}
-
-                {onRemoveItem && (
-                  <button 
-                    type="button"
-                    onClick={() => onRemoveItem(item.productId)} 
-                    className="w-8 h-8 flex items-center justify-center rounded-lg border border-red-900/30 bg-red-950/10 text-red-400 hover:bg-red-950/30 ml-1 cursor-pointer"
-                    title="Cancelar/remover este item"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                )}
+                ))}
               </div>
             )}
           </div>
@@ -285,9 +301,6 @@ export default function OrderApp({
 
   // User details horizontal sliding menu state
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
-
-  // Cart Modal expanded view state
-  const [isCartModalOpen, setIsCartModalOpen] = useState(false);
 
   // Category list toggle state
   const [isCategoriesOpen, setIsCategoriesOpen] = useState(false);
@@ -399,7 +412,7 @@ export default function OrderApp({
   }, [readyItemsMap]);
 
   // Current navigation
-  const [activeScreen, setActiveScreen] = useState<'tables' | 'order' | 'checkout' | 'shift_closing'>('tables');
+  const [activeScreen, setActiveScreen] = useState<'tables' | 'order' | 'cart' | 'checkout' | 'shift_closing'>('tables');
   
   // Active table or comanda
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
@@ -423,6 +436,8 @@ export default function OrderApp({
     return isNaN(parsed) || parsed < 1 ? 1 : parsed;
   }, [splitInput]);
 
+  const [customAmountInput, setCustomAmountInput] = useState<string>('');
+
   const [paymentMethod, setPaymentMethod] = useState<'pix' | 'dinheiro' | 'debito' | 'credito'>('pix');
   const [stoneReference, setStoneReference] = useState('');
   const [cashReceived, setCashReceived] = useState<number | ''>('');
@@ -433,6 +448,7 @@ export default function OrderApp({
 
   // Reset selected item payment quantities when active table or screen changes
   useEffect(() => {
+    setCustomAmountInput('');
     if (activeTable && activeTable.items) {
       const initialMap: { [itemIdx: number]: number } = {};
       activeTable.items.forEach((item, idx) => {
@@ -459,13 +475,13 @@ export default function OrderApp({
       const prod = products.find(p => p.id === i.productId);
       const unitPrice = prod ? prod.sellPrice : (i.unitPrice || 0);
       const qty = i.quantity || 0;
-      const paidQty = i.paidQuantity || 0;
+      const paidAmt = i.paidAmount !== undefined ? i.paidAmount : ((i.paidQuantity || 0) * unitPrice);
 
       grossSubtotal += qty * unitPrice;
-      paidTotal += paidQty * unitPrice;
+      paidTotal += paidAmt;
     });
 
-    const remainingBalance = Math.max(0, grossSubtotal - paidTotal);
+    const remainingBalance = Math.max(0, Number((grossSubtotal - paidTotal).toFixed(2)));
 
     return { grossSubtotal, paidTotal, remainingBalance };
   }, [activeTable, products]);
@@ -515,6 +531,39 @@ export default function OrderApp({
 
     return { itemsToPay, totalToPay };
   }, [activeTable, products, selectedItemPaymentQty]);
+
+  // Per-person share based on total remaining balance
+  const perPersonShare = useMemo(() => {
+    const pending = activeTableTotals.remainingBalance;
+    if (pending <= 0 || splitCount <= 1) return pending;
+    return Number((pending / splitCount).toFixed(2));
+  }, [activeTableTotals.remainingBalance, splitCount]);
+
+  // Synchronize transaction value input whenever split count or active table changes
+  useEffect(() => {
+    if (splitCount > 1) {
+      setCustomAmountInput(perPersonShare > 0 ? perPersonShare.toFixed(2) : '');
+    } else if (activeTableTotals.remainingBalance > 0) {
+      setCustomAmountInput(activeTableTotals.remainingBalance.toFixed(2));
+    }
+  }, [splitCount, selectedTableId, activeScreen, perPersonShare, activeTableTotals.remainingBalance]);
+
+  // Current payment transaction value being processed right now
+  const currentTxAmount = useMemo(() => {
+    const pending = activeTableTotals.remainingBalance;
+    if (pending <= 0) return 0;
+
+    const parsed = parseFloat(customAmountInput);
+    if (!isNaN(parsed) && parsed > 0) {
+      return Math.min(pending, Number(parsed.toFixed(2)));
+    }
+
+    if (splitCount > 1) {
+      return perPersonShare;
+    }
+
+    return Math.min(pending, checkoutTxDetails.totalToPay);
+  }, [activeTableTotals.remainingBalance, customAmountInput, splitCount, perPersonShare, checkoutTxDetails.totalToPay]);
 
   // Authenticate staff PIN
   const handlePinSubmit = (num: string) => {
@@ -597,7 +646,7 @@ export default function OrderApp({
   }, [orderCart]);
 
   // Dispatch items to sector bar/kitchen queue
-  const handleDispatchOrder = () => {
+  const handleDispatchOrder = (navigateTo: 'tables' | 'order' | 'cart' | 'checkout' = 'tables') => {
     if (orderCart.length === 0) return;
     if (!selectedTableId || !activeTable) return;
 
@@ -639,7 +688,7 @@ export default function OrderApp({
     
     // Notify
     addToast('Pedido enviado com sucesso para a produção!', 'success');
-    setActiveScreen('tables');
+    setActiveScreen(navigateTo);
   };
 
   // Alter confirmed consumed item quantity or delete
@@ -740,35 +789,37 @@ export default function OrderApp({
     setCancelModalData(null);
   };
 
-  // Process checkout payments (full or itemized partial payment)
+  // Process checkout payments (standalone single payment or partial share payment)
   const handleProcessPayment = async () => {
     if (!selectedTableId || !activeTable) return;
 
-    const { itemsToPay, totalToPay } = checkoutTxDetails;
-
-    if (itemsToPay.length === 0 || totalToPay <= 0) {
-      addToast('Selecione ao menos um item com quantidade a pagar maior que zero.', 'warning');
+    if (currentTxAmount <= 0) {
+      addToast('O valor do pagamento deve ser maior que R$ 0,00.', 'warning');
       return;
     }
 
     const saleNumber = String(Math.floor(1000 + Math.random() * 9000));
     
+    // Map paid items for sale record
+    const { itemsToPay } = checkoutTxDetails;
+    const saleItems = itemsToPay.map(i => ({
+      productId: i.item.productId,
+      quantity: i.qtyToPay,
+      unitPrice: i.unitPrice
+    }));
+
     const newSale: Sale = {
-      id: `sale-${Date.now()}`,
+      id: `sale-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
       number: saleNumber,
       timestamp: new Date().toISOString(),
       type: activeTable.type,
       identifier: `${activeTable.type === 'mesa' ? 'Mesa' : 'Comanda'} ${activeTable.number}`,
-      items: itemsToPay.map(i => ({
-        productId: i.item.productId,
-        quantity: i.qtyToPay,
-        unitPrice: i.unitPrice
-      })),
-      subtotal: totalToPay,
+      items: saleItems,
+      subtotal: currentTxAmount,
       discount: 0,
-      total: totalToPay,
+      total: currentTxAmount,
       paymentMethod,
-      cardBrand: paymentMethod === 'credito' || paymentMethod === 'debito' ? 'Stone Terminal' : undefined,
+      cardBrand: paymentMethod === 'credito' || paymentMethod === 'debito' ? (stoneReference ? `Stone (${stoneReference})` : 'Stone Terminal') : undefined,
       status: 'pago',
       cashierId: authorizedUser?.id || authorizedUser?.name || 'u3',
       openedBy: authorizedUser?.name || 'Operador PDV',
@@ -776,29 +827,29 @@ export default function OrderApp({
     };
 
     const newTx: FinancialTransaction = {
-      id: `tx-${Date.now()}`,
+      id: `tx-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
       date: new Date().toISOString().split('T')[0],
       type: 'receita',
       category: 'Vendas',
       description: `Pagamento ${activeTable.type === 'mesa' ? 'Mesa' : 'Comanda'} ${activeTable.number}`,
-      value: totalToPay,
+      value: currentTxAmount,
       paymentMethod,
       status: 'pago'
     };
 
-    // Print non-fiscal sales coupon for items paid in this transaction
+    // Print non-fiscal sales coupon for this payment
     const receiptData = {
       number: saleNumber,
       date: new Date().toLocaleDateString('pt-BR'),
       time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
       identifier: `${activeTable.type === 'mesa' ? 'Mesa' : 'Comanda'} ${activeTable.number}`,
       cashierId: authorizedUser?.name || 'Operador',
-      subtotal: totalToPay,
+      subtotal: currentTxAmount,
       discount: 0,
-      total: totalToPay,
+      total: currentTxAmount,
       paymentMethod,
-      paidAmount: paymentMethod === 'dinheiro' && cashReceived !== '' ? Number(cashReceived) : totalToPay,
-      changeAmount: paymentMethod === 'dinheiro' && cashReceived !== '' && Number(cashReceived) > totalToPay ? Number(cashReceived) - totalToPay : 0,
+      paidAmount: paymentMethod === 'dinheiro' && cashReceived !== '' ? Number(cashReceived) : currentTxAmount,
+      changeAmount: paymentMethod === 'dinheiro' && cashReceived !== '' && Number(cashReceived) > currentTxAmount ? Number(cashReceived) - currentTxAmount : 0,
       items: itemsToPay.map(i => ({
         qty: i.qtyToPay,
         name: i.product ? i.product.name : 'Produto',
@@ -807,44 +858,19 @@ export default function OrderApp({
       }))
     };
 
-    // Execute real ESC/POS thermal printing of non-fiscal sales coupon
+    // Thermal print execution
     try {
-      console.log(`[OrderApp] Dispatching sale receipt #${saleNumber} to thermal printer...`);
       const printResult = await triggerThermalPrint('sale', receiptData, 'caixa');
-      console.log('[OrderApp] Thermal print result:', printResult);
-
       if (printResult.success) {
-        addToast(`Pagamento de R$ ${totalToPay.toFixed(2)} registrado! Cupom impresso.`, 'success');
+        addToast(`Pagamento de R$ ${currentTxAmount.toFixed(2)} (${paymentMethod.toUpperCase()}) registrado com sucesso! Cupom impresso.`, 'success');
       } else {
-        addToast(`Pagamento registrado, mas impressora avisou: ${printResult.errorMsg || 'Verifique o papel/conexão.'}`, 'warning');
+        addToast(`Pagamento registrado, mas impressora avisou: ${printResult.errorMsg || 'Verifique conexão/papel.'}`, 'warning');
       }
-    } catch (printErr: any) {
-      console.error('[OrderApp] Error executing thermal print:', printErr);
-      addToast(`Pagamento registrado! Falha na transmissão para a impressora.`, 'warning');
+    } catch (printErr) {
+      addToast(`Pagamento registrado! Falha na transmissão para impressora.`, 'warning');
     }
 
-    setCashReceived('');
-
-    // Calculate updated table items with paidQuantity & paidAmount increments
-    const updatedTableItems = activeTable.items.map((item, idx) => {
-      const payInfo = itemsToPay.find(p => p.itemIndex === idx);
-      if (!payInfo) return item;
-      const prevPaidQty = item.paidQuantity || 0;
-      const newPaidQty = prevPaidQty + payInfo.qtyToPay;
-      const prevPaidAmt = item.paidAmount || 0;
-      const newPaidAmt = prevPaidAmt + payInfo.amountToPay;
-      return {
-        ...item,
-        paidQuantity: newPaidQty,
-        paidAmount: newPaidAmt
-      };
-    });
-
-    // Check if ALL active items on the table are completely paid
-    const isCompletelyPaid = updatedTableItems
-      .filter(i => i.status !== 'cancelado')
-      .every(i => (i.quantity - (i.paidQuantity || 0)) <= 0);
-
+    // Record sale and financial tx in app state
     if (isOffline) {
       const queuePayload: SyncQueueItem = {
         id: `q-${Date.now()}`,
@@ -854,34 +880,71 @@ export default function OrderApp({
         status: 'pending'
       };
       setSyncQueue([...syncQueue, queuePayload]);
-
-      if (isCompletelyPaid) {
-        onUpdateTableItems(selectedTableId, []);
-        onUpdateTableStatus(selectedTableId, 'livre');
-        setSelectedTableId(null);
-        setActiveScreen('tables');
-      } else {
-        onUpdateTableItems(selectedTableId, updatedTableItems);
-        setActiveScreen('order');
-      }
-      return;
+    } else {
+      onAddSale(newSale);
+      onAddFinancial(newTx);
     }
 
-    // ONLINE
-    onAddSale(newSale);
-    onAddFinancial(newTx);
+    // Allocate currentTxAmount across unpaid table items
+    let amountLeftToAllocate = currentTxAmount;
+
+    const updatedTableItems = activeTable.items.map((item) => {
+      if (item.status === 'cancelado' || amountLeftToAllocate <= 0) return item;
+
+      const prod = products.find(p => p.id === item.productId);
+      const unitPrice = prod ? prod.sellPrice : (item.unitPrice || 0);
+      const unpaidAmountForItem = Math.max(0, (item.quantity * unitPrice) - (item.paidAmount || 0));
+
+      if (unpaidAmountForItem <= 0) return item;
+
+      const allocatedForThisItem = Number(Math.min(unpaidAmountForItem, amountLeftToAllocate).toFixed(2));
+      amountLeftToAllocate = Number((amountLeftToAllocate - allocatedForThisItem).toFixed(2));
+
+      const newPaidAmt = Number(((item.paidAmount || 0) + allocatedForThisItem).toFixed(2));
+      const newPaidQty = Math.min(item.quantity, Math.floor(newPaidAmt / (unitPrice || 1)));
+
+      const newPaymentRecord: ItemPaymentRecord = {
+        id: `pay-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
+        qty: unitPrice > 0 ? Number((allocatedForThisItem / unitPrice).toFixed(2)) : 1,
+        amount: allocatedForThisItem,
+        method: paymentMethod,
+        timestamp: new Date().toISOString(),
+        userName: authorizedUser?.name || 'Operador'
+      };
+
+      return {
+        ...item,
+        paidQuantity: newPaidQty,
+        paidAmount: newPaidAmt,
+        payments: [...(item.payments || []), newPaymentRecord]
+      };
+    });
+
+    const newPendingBalance = Math.max(0, activeTableTotals.remainingBalance - currentTxAmount);
+    const isCompletelyPaid = newPendingBalance <= 0.005;
 
     if (isCompletelyPaid) {
       onUpdateTableItems(selectedTableId, []);
       onUpdateTableStatus(selectedTableId, 'livre');
       setSelectedTableId(null);
       setActiveScreen('tables');
-      addToast(`Mesa/Comanda ${activeTable.number} quitada integralmente e liberada!`, 'success');
+      addToast(
+        `Mesa/Comanda ${activeTable.number} quitada integralmente e liberada!`,
+        'success'
+      );
     } else {
       onUpdateTableItems(selectedTableId, updatedTableItems);
-      addToast(`Pagamento parcial de R$ ${totalToPay.toFixed(2)} registrado!`, 'info');
-      setActiveScreen('order');
+      addToast(
+        `Pagamento de R$ ${currentTxAmount.toFixed(2)} (${paymentMethod.toUpperCase()}) registrado! Saldo pendente: R$ ${newPendingBalance.toFixed(2)}.`,
+        'info'
+      );
     }
+
+    // Reset payment / split controls for future transactions
+    setSplitInput('1');
+    setCustomAmountInput('');
+    setCashReceived('');
+    setStoneReference('');
   };
 
   // Re-sync queue once online
@@ -1210,19 +1273,7 @@ export default function OrderApp({
                     {activeTable?.type === 'mesa' ? 'Mesa' : 'Comanda'} {activeTable?.number}
                   </span>
 
-                  {/* Closing button if comanda is occupied */}
-                  {activeTable && activeTable.items.length > 0 ? (
-                    <button
-                      onClick={() => setActiveScreen('checkout')}
-                      className={`px-2.5 py-1 text-[11px] font-bold rounded-lg cursor-pointer transition-all shrink-0 ${
-                        theme === 'dark' ? 'bg-[#18F2A4] text-black hover:bg-[#12d58f]' : 'bg-[#10B981] text-white hover:bg-[#0e9f6e]'
-                      }`}
-                    >
-                      Fechar Conta
-                    </button>
-                  ) : (
-                    <div className="w-16 shrink-0"></div>
-                  )}
+                  <div className="w-16 shrink-0" />
                 </div>
 
                 {/* Option to assign table name to prevent customer confusion */}
@@ -1439,7 +1490,7 @@ export default function OrderApp({
                 <div className="flex gap-2 w-full">
                   <button
                     type="button"
-                    onClick={() => setIsCartModalOpen(true)}
+                    onClick={() => setActiveScreen('cart')}
                     className={`flex-1 py-2.5 rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer border ${
                       theme === 'dark'
                         ? 'bg-transparent border-[#1C1C1C] text-gray-300 hover:bg-[#111] hover:border-[#18F2A4]/50'
@@ -1453,7 +1504,7 @@ export default function OrderApp({
                   <button
                     type="button"
                     disabled={orderCart.length === 0}
-                    onClick={handleDispatchOrder}
+                    onClick={() => handleDispatchOrder('order')}
                     className={`flex-1 py-2.5 rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
                       orderCart.length === 0
                         ? 'opacity-40 cursor-not-allowed'
@@ -1469,16 +1520,211 @@ export default function OrderApp({
               </div>
 
             </div>
+          ) : activeScreen === 'cart' ? (
+            /* Subscreen 3: Full Screen Carrinho / Consumo View */
+            <div className="flex-1 flex flex-col overflow-hidden">
+              {/* Screen Header */}
+              <div className="p-3 border-b flex items-center justify-between gap-2" style={{ borderColor: theme === 'dark' ? '#1C1C1C' : '#E5E5E5' }}>
+                <button
+                  type="button"
+                  onClick={() => setActiveScreen('order')}
+                  className="text-xs font-semibold text-gray-400 hover:text-white cursor-pointer shrink-0 flex items-center gap-1"
+                >
+                  ← Voltar p/ Pedidos
+                </button>
+                <div className="flex items-center gap-2">
+                  <ShoppingCart className="w-4 h-4 text-[#18F2A4]" />
+                  <span className="text-xs font-black uppercase text-[#18F2A4]">
+                    Carrinho & Consumo — {activeTable?.type === 'mesa' ? 'Mesa' : 'Comanda'} {activeTable?.number}
+                  </span>
+                </div>
+                <div className="w-16 shrink-0" />
+              </div>
+
+              {/* Scrollable Carrinho Body */}
+              <div className="p-4 flex flex-col gap-6 overflow-y-auto flex-1">
+                
+                {/* Section 1: Fila de Lançamento (Draft Items) */}
+                <div className="flex flex-col gap-3">
+                  <div className="flex justify-between items-center">
+                    <span className="text-[11px] uppercase tracking-wider font-extrabold text-[#18F2A4]">
+                      Novos Pedidos em Rascunho (Fila de Lançamento)
+                    </span>
+                    <span className="text-xs font-mono font-bold text-gray-400">
+                      R$ {basketSubtotal.toFixed(2)}
+                    </span>
+                  </div>
+
+                  {orderCart.length === 0 ? (
+                    <div className={`p-4 text-center rounded-xl border text-xs text-gray-400 ${
+                      theme === 'dark' ? 'bg-[#111111]/50 border-[#1C1C1C]' : 'bg-gray-50 border-gray-100'
+                    }`}>
+                      Nenhum novo item na fila. Escolha produtos no catálogo de pedidos.
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-2.5">
+                      {orderCart.map((item, idx) => (
+                        <div 
+                          key={idx} 
+                          className={`p-3 rounded-xl border flex flex-col sm:flex-row justify-between sm:items-center gap-3 ${
+                            theme === 'dark' ? 'bg-[#111] border-[#1C1C1C]' : 'bg-gray-50 border-gray-100'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-lg bg-gray-950 shrink-0 overflow-hidden border flex items-center justify-center" style={{ borderColor: theme === 'dark' ? '#222' : '#E5E5E5' }}>
+                              {item.product.image ? (
+                                <img 
+                                  src={item.product.image} 
+                                  alt={item.product.name} 
+                                  referrerPolicy="no-referrer"
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <div className="text-gray-500">
+                                  <GlassWater className="w-4 h-4" />
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex flex-col">
+                              <span className="font-bold text-sm block" style={{ color: theme === 'dark' ? '#E5E5E5' : '#111' }}>
+                                {item.product.name}
+                              </span>
+                              <span className="text-xs text-emerald-500 font-bold font-mono">
+                                R$ {item.product.sellPrice.toFixed(2)}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-col sm:flex-row sm:items-center gap-3 shrink-0">
+                            <input
+                              type="text"
+                              placeholder="Observação (ex: com limão)..."
+                              value={item.notes}
+                              onChange={(e) => updateBasketNotes(idx, e.target.value)}
+                              className="text-xs px-2.5 py-1.5 rounded-lg border focus:outline-none focus:border-emerald-500 w-full sm:w-44"
+                              style={{
+                                backgroundColor: theme === 'dark' ? '#000' : '#FFF',
+                                borderColor: theme === 'dark' ? '#222' : '#E5E5E5',
+                                color: theme === 'dark' ? '#FFF' : '#000'
+                              }}
+                            />
+
+                            <div className="flex items-center gap-2 justify-end">
+                              <button 
+                                type="button"
+                                onClick={() => updateBasketQuantity(idx, -1)} 
+                                className={`w-9 h-9 flex items-center justify-center rounded-lg border text-sm font-black active:scale-90 cursor-pointer ${
+                                  theme === 'dark' ? 'bg-[#1a1a1a] border-[#222] hover:bg-[#252525]' : 'bg-white border-gray-200 hover:bg-gray-100'
+                                }`}
+                              >
+                                -
+                              </button>
+                              <span className="font-mono font-bold w-6 text-center text-sm">{item.quantity}</span>
+                              <button 
+                                type="button"
+                                onClick={() => updateBasketQuantity(idx, 1)} 
+                                className={`w-9 h-9 flex items-center justify-center rounded-lg border text-sm font-black active:scale-90 cursor-pointer ${
+                                  theme === 'dark' ? 'bg-[#1a1a1a] border-[#222] hover:bg-[#252525]' : 'bg-white border-gray-200 hover:bg-gray-100'
+                                }`}
+                              >
+                                +
+                              </button>
+                              
+                              <button 
+                                type="button"
+                                onClick={() => {
+                                  const newCart = [...orderCart];
+                                  newCart.splice(idx, 1);
+                                  setOrderCart(newCart);
+                                }} 
+                                className="w-9 h-9 flex items-center justify-center rounded-lg border border-red-900/30 bg-red-950/20 text-red-400 hover:bg-red-950/40 ml-1 cursor-pointer"
+                                title="Remover item da fila"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+
+                      <div className="flex justify-end pt-1">
+                        <button
+                          type="button"
+                          onClick={() => handleDispatchOrder('cart')}
+                          className={`px-4 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-2 ${
+                            theme === 'dark' ? 'bg-[#18F2A4] text-black hover:bg-[#12d58f]' : 'bg-[#10B981] text-white hover:bg-[#0e9f6e]'
+                          }`}
+                        >
+                          <Check className="w-4 h-4" />
+                          <span>Enviar Rascunho p/ Fila do Bar</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Section 2: Itens já Confirmados e Consumidos */}
+                <div className="flex flex-col gap-3">
+                  <span className="text-[11px] uppercase tracking-wider font-extrabold text-gray-400 block">
+                    Itens já Confirmados e Consumidos na Mesa
+                  </span>
+                  
+                  <ConsumedItemsList
+                    items={activeTable?.items || []}
+                    products={products}
+                    theme={theme}
+                    mode="consumption"
+                    onAlterQty={handleAlterConsumedItemQty}
+                    onRemoveItem={handleRemoveConsumedItem}
+                  />
+                </div>
+
+              </div>
+
+              {/* Fixed Footer with "Continuar Escolhendo" and "Fechar Conta" */}
+              <div className={`p-4 border-t flex flex-col sm:flex-row justify-between items-center gap-3 shrink-0 ${
+                theme === 'dark' ? 'bg-[#080808] border-[#1C1C1C]' : 'bg-white border-gray-200 shadow-xl'
+              }`}>
+                <div className="text-left w-full sm:w-auto">
+                  <span className="text-xs text-gray-400">Total Consumido:</span>
+                  <div className="font-mono text-base font-black text-emerald-500">
+                    R$ {(activeTableTotals.grossSubtotal + basketSubtotal).toFixed(2)}
+                  </div>
+                </div>
+
+                <div className="flex gap-2 w-full sm:w-auto justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setActiveScreen('order')}
+                    className={`px-4 py-2.5 text-xs font-bold rounded-xl border transition-all cursor-pointer ${
+                      theme === 'dark' ? 'bg-transparent border-[#222] text-gray-300 hover:bg-[#111]' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-100'
+                    }`}
+                  >
+                    Continuar Escolhendo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveScreen('checkout')}
+                    className={`px-5 py-2.5 text-xs font-extrabold rounded-xl transition-all cursor-pointer shadow-lg flex items-center gap-1.5 ${
+                      theme === 'dark' ? 'bg-[#18F2A4] text-black hover:bg-[#12d58f]' : 'bg-[#10B981] text-white hover:bg-[#0e9f6e]'
+                    }`}
+                  >
+                    <span>Fechar Conta</span>
+                    <span>→</span>
+                  </button>
+                </div>
+              </div>
+            </div>
           ) : (
-            /* Subscreen 3: Checkout and bill splitting with payments */
+            /* Subscreen 4: Checkout and bill splitting with payments */
             <div className="flex flex-col flex-1 h-full overflow-hidden">
               
               {/* Scrollable details container */}
               <div className="p-4 flex flex-col gap-4 flex-1 text-xs overflow-y-auto">
                 {/* Head */}
                 <div className="flex justify-between items-center border-b pb-2">
-                  <button onClick={() => setActiveScreen('order')} className="text-xs text-gray-400 hover:text-white">
-                    ← Voltar
+                  <button onClick={() => setActiveScreen('cart')} className="text-xs text-gray-400 hover:text-white flex items-center gap-1 cursor-pointer">
+                    ← Voltar p/ Carrinho
                   </button>
                   <span className="font-bold text-sm">Fechar Conta</span>
                 </div>
@@ -1532,16 +1778,19 @@ export default function OrderApp({
                       </div>
                     )}
                     <div className="flex justify-between font-bold text-white text-sm pt-1 border-t border-gray-800">
-                      <span>Valor Selecionado P/ Pagar Agora:</span>
-                      <span className="font-mono text-[#18F2A4]">R$ {checkoutTxDetails.totalToPay.toFixed(2)}</span>
+                      <span>Saldo Pendente Atual:</span>
+                      <span className="font-mono text-[#18F2A4]">R$ {activeTableTotals.remainingBalance.toFixed(2)}</span>
                     </div>
                   </div>
                 </div>
 
-                {/* Bill splitting selector */}
-                <div className="flex flex-col gap-1.5 p-3 rounded-xl border bg-black/10" style={{ borderColor: theme === 'dark' ? '#1C1C1C' : '#E5E5E5' }}>
-                  <span className="text-gray-400 font-semibold text-xs">Dividir Conta em Quantas Pessoas?</span>
-                  <div className="flex items-center gap-3">
+                {/* Bill splitting selector & Amount to pay */}
+                <div className="flex flex-col gap-2.5 p-3 rounded-xl border bg-black/10" style={{ borderColor: theme === 'dark' ? '#1C1C1C' : '#E5E5E5' }}>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex flex-col">
+                      <span className="text-gray-300 font-bold text-xs">Dividir Saldo Pendente (Simulador)</span>
+                      <span className="text-gray-500 text-[10px]">Quantas pessoas vão dividir os R$ {activeTableTotals.remainingBalance.toFixed(2)}?</span>
+                    </div>
                     <input
                       type="text"
                       inputMode="numeric"
@@ -1557,21 +1806,57 @@ export default function OrderApp({
                         }
                       }}
                       onFocus={(e) => e.target.select()}
-                      className="p-2 w-20 text-center rounded-lg border font-mono font-bold text-sm focus:outline-none focus:border-emerald-500"
+                      className="p-1.5 w-16 text-center rounded-lg border font-mono font-bold text-xs focus:outline-none focus:border-emerald-500"
                       style={{ backgroundColor: theme === 'dark' ? '#111' : 'white', borderColor: theme === 'dark' ? '#222' : '#E5E5E5', color: theme === 'dark' ? 'white' : 'black' }}
                     />
-                    <div className="flex flex-col">
-                      <span className="text-gray-400 text-[10px]">Custo por Pessoa (Valor Operação):</span>
-                      <span className="font-bold text-[#18F2A4] font-mono text-sm">
-                        R$ {(checkoutTxDetails.totalToPay / splitCount).toFixed(2)}
+                  </div>
+
+                  {splitCount > 1 && (
+                    <div className="flex justify-between items-center text-xs pt-2 border-t border-dashed border-gray-800">
+                      <span className="text-gray-400 font-medium">Valor Sugerido Por Pessoa:</span>
+                      <span className="text-[#18F2A4] font-mono font-extrabold text-sm">
+                        R$ {perPersonShare.toFixed(2)}
                       </span>
                     </div>
+                  )}
+
+                  <div className="flex flex-col gap-1.5 pt-2 border-t border-dashed border-gray-800">
+                    <div className="flex justify-between items-center">
+                      <label className="text-gray-300 text-xs font-bold">
+                        Valor a Pagar Nesta Transação (R$):
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setCustomAmountInput(activeTableTotals.remainingBalance.toFixed(2))}
+                        className="text-[10px] text-emerald-400 hover:underline font-semibold cursor-pointer"
+                      >
+                        Quitar Total (R$ {activeTableTotals.remainingBalance.toFixed(2)})
+                      </button>
+                    </div>
+                    <input
+                      type="number"
+                      step="0.01"
+                      max={activeTableTotals.remainingBalance}
+                      value={customAmountInput}
+                      onChange={(e) => setCustomAmountInput(e.target.value)}
+                      placeholder="0.00"
+                      className="p-2.5 rounded-lg border font-mono font-bold text-base focus:outline-none focus:border-emerald-500"
+                      style={{ backgroundColor: theme === 'dark' ? '#111' : 'white', borderColor: theme === 'dark' ? '#222' : '#E5E5E5', color: theme === 'dark' ? 'white' : 'black' }}
+                    />
                   </div>
                 </div>
 
                 {/* Payments selector */}
                 <div className="flex flex-col gap-2 pt-2 border-t border-dashed" style={{ borderColor: theme === 'dark' ? '#1C1C1C' : '#E5E5E5' }}>
-                  <span className="text-gray-400 font-semibold uppercase text-[10px] tracking-wider">Selecione Forma de Pagamento</span>
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-400 font-semibold uppercase text-[10px] tracking-wider">
+                      Selecione Forma de Pagamento
+                    </span>
+                    <span className="font-mono text-sm font-extrabold text-[#18F2A4]">
+                      R$ {currentTxAmount.toFixed(2)}
+                    </span>
+                  </div>
+
                   <div className="grid grid-cols-4 gap-1.5">
                     {(['pix', 'dinheiro', 'debito', 'credito'] as const).map(method => (
                       <button
@@ -1592,13 +1877,15 @@ export default function OrderApp({
                 {/* Maquininha Stone references indicator */}
                 {(paymentMethod === 'credito' || paymentMethod === 'debito') && (
                   <div className="flex flex-col gap-1.5">
-                    <label className="text-gray-400 font-semibold">Código de Conciliação Stone (NFC / NSU)</label>
+                    <label className="text-gray-400 font-semibold text-xs">
+                      Código Conciliação Stone Terminal (NFC / NSU)
+                    </label>
                     <input
                       type="text"
                       placeholder="Ex: Ref 004212"
                       value={stoneReference}
                       onChange={(e) => setStoneReference(e.target.value)}
-                      className="p-2 rounded border font-mono uppercase"
+                      className="p-2 rounded border font-mono uppercase text-xs"
                       style={{ backgroundColor: theme === 'dark' ? '#111' : 'white', borderColor: theme === 'dark' ? '#222' : '#E5E5E5', color: theme === 'dark' ? 'white' : 'black' }}
                     />
                   </div>
@@ -1608,23 +1895,25 @@ export default function OrderApp({
                 {paymentMethod === 'dinheiro' && (
                   <div className="flex flex-col gap-2 p-2.5 rounded-lg border border-dashed mt-2" style={{ borderColor: theme === 'dark' ? '#222' : '#E5E5E5', backgroundColor: theme === 'dark' ? '#080808' : '#F9F9F9' }}>
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs text-gray-400 font-semibold">Valor Recebido (R$):</span>
+                      <span className="text-xs text-gray-400 font-semibold">
+                        Valor Recebido em Dinheiro (R$):
+                      </span>
                       <input
                         type="number"
-                        min={checkoutTxDetails.totalToPay}
+                        min={currentTxAmount}
                         step="0.01"
                         placeholder="0.00"
                         value={cashReceived || ''}
-                        onChange={(e) => setCashReceived(Number(e.target.value))}
+                        onChange={(e) => setCashReceived(e.target.value ? Number(e.target.value) : '')}
                         className="w-24 text-right font-mono text-xs p-1.5 rounded border focus:outline-none"
                         style={{ backgroundColor: theme === 'dark' ? '#111' : 'white', borderColor: theme === 'dark' ? '#333' : '#CCC', color: theme === 'dark' ? 'white' : 'black' }}
                       />
                     </div>
-                    {cashReceived !== '' && Number(cashReceived) >= checkoutTxDetails.totalToPay && (
+                    {cashReceived !== '' && Number(cashReceived) >= currentTxAmount && (
                       <div className="flex justify-between text-xs font-bold text-amber-500 pt-1.5 border-t border-dashed border-[#222]/20">
                         <span>Troco ao Cliente:</span>
                         <span className="font-mono">
-                          R$ {(Number(cashReceived) - checkoutTxDetails.totalToPay).toFixed(2)}
+                          R$ {(Number(cashReceived) - currentTxAmount).toFixed(2)}
                         </span>
                       </div>
                     )}
@@ -1638,9 +1927,9 @@ export default function OrderApp({
               }`}>
                 <button
                   onClick={handleProcessPayment}
-                  disabled={checkoutTxDetails.totalToPay <= 0}
+                  disabled={currentTxAmount <= 0}
                   className={`w-full py-3.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg active:scale-95 ${
-                    checkoutTxDetails.totalToPay <= 0
+                    currentTxAmount <= 0
                       ? 'opacity-40 cursor-not-allowed bg-gray-700 text-gray-400'
                       : theme === 'dark' 
                         ? 'bg-[#18F2A4] text-black hover:bg-[#12d58f] hover:shadow-[#18F2A4]/10' 
@@ -1648,378 +1937,13 @@ export default function OrderApp({
                   }`}
                 >
                   <CheckSquare className="w-4.5 h-4.5" />
-                  <span>Confirmar Recebimento (R$ {checkoutTxDetails.totalToPay.toFixed(2)})</span>
+                  <span>
+                    Confirmar Recebimento (R$ {currentTxAmount.toFixed(2)})
+                  </span>
                 </button>
               </div>
             </div>
           )}
-        </div>
-      )}
-
-      {/* Table & Comanda Dynamic Configuration Modal */}
-      {isConfiguringTables && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className={`w-full max-w-sm rounded-2xl border p-4 flex flex-col gap-4 shadow-2xl ${
-            theme === 'dark' ? 'bg-[#0A0A0A] border-[#1C1C1C] text-white' : 'bg-white border-gray-200 text-[#111111]'
-          }`}>
-            <div className="flex justify-between items-center border-b pb-2" style={{ borderColor: theme === 'dark' ? '#1C1C1C' : '#E5E5E5' }}>
-              <h3 className="font-extrabold text-xs tracking-tight flex items-center gap-1.5">
-                Painel de Mesas & Comandas
-              </h3>
-              <button 
-                type="button"
-                onClick={() => {
-                  setIsConfiguringTables(false);
-                  setNewTableInput('');
-                }} 
-                className="text-gray-400 hover:text-white text-xs font-black p-1 cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* Quick Add Form */}
-            <div className="flex flex-col gap-2.5">
-              <span className="text-[9px] uppercase font-bold text-gray-400">Adicionar Novo Terminal (Unidade ou Lote)</span>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setNewTableType('mesa')}
-                  className={`py-1.5 text-xs font-black rounded-lg border transition-all cursor-pointer ${
-                    newTableType === 'mesa'
-                      ? (theme === 'dark' ? 'bg-[#18F2A4]/10 border-[#18F2A4] text-[#18F2A4]' : 'bg-[#10B981]/10 border-[#10B981] text-[#10B981]')
-                      : (theme === 'dark' ? 'bg-[#111] border-[#222] text-gray-400' : 'bg-gray-50 border-gray-200 text-gray-500')
-                  }`}
-                >
-                  Mesa
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setNewTableType('comanda')}
-                  className={`py-1.5 text-xs font-black rounded-lg border transition-all cursor-pointer ${
-                    newTableType === 'comanda'
-                      ? (theme === 'dark' ? 'bg-[#18F2A4]/10 border-[#18F2A4] text-[#18F2A4]' : 'bg-[#10B981]/10 border-[#10B981] text-[#10B981]')
-                      : (theme === 'dark' ? 'bg-[#111] border-[#222] text-gray-400' : 'bg-gray-50 border-gray-200 text-gray-500')
-                  }`}
-                >
-                  Comanda
-                </button>
-              </div>
-
-              <div className="flex flex-col gap-1.5 mt-1">
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    placeholder="Ex: 1-10 ou 15"
-                    value={newTableInput}
-                    onChange={(e) => setNewTableInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        const numbers = parseBatchNumbers(newTableInput);
-                        if (numbers.length === 0) {
-                          addToast('Digite um número ou faixa válida (Ex: 1-10 ou 15)', 'warning');
-                          return;
-                        }
-                        if (onAddTableComandaBatch) {
-                          onAddTableComandaBatch(newTableType, numbers);
-                        } else if (onAddTableComanda) {
-                          numbers.forEach(num => onAddTableComanda(newTableType, num));
-                        }
-                        addToast(`${numbers.length} ${newTableType === 'mesa' ? (numbers.length === 1 ? 'mesa cadastrada' : 'mesas cadastradas em lote') : (numbers.length === 1 ? 'comanda cadastrada' : 'comandas cadastradas em lote')}!`, 'success');
-                        setNewTableInput('');
-                      }
-                    }}
-                    className="p-2 rounded-lg border text-xs flex-1 focus:outline-none focus:border-emerald-500 font-bold"
-                    style={{ backgroundColor: theme === 'dark' ? '#111' : 'white', borderColor: theme === 'dark' ? '#222' : '#E5E5E5', color: theme === 'dark' ? 'white' : 'black' }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const numbers = parseBatchNumbers(newTableInput);
-                      if (numbers.length === 0) {
-                        addToast('Digite um número ou faixa válida (Ex: 1-10 ou 15)', 'warning');
-                        return;
-                      }
-                      if (onAddTableComandaBatch) {
-                        onAddTableComandaBatch(newTableType, numbers);
-                      } else if (onAddTableComanda) {
-                        numbers.forEach(num => onAddTableComanda(newTableType, num));
-                      }
-                      addToast(`${numbers.length} ${newTableType === 'mesa' ? (numbers.length === 1 ? 'mesa cadastrada' : 'mesas cadastradas em lote') : (numbers.length === 1 ? 'comanda cadastrada' : 'comandas cadastradas em lote')}!`, 'success');
-                      setNewTableInput('');
-                    }}
-                    className={`px-4 rounded-lg text-xs font-black transition-all active:scale-95 cursor-pointer shrink-0 ${
-                      theme === 'dark' ? 'bg-[#18F2A4] text-black hover:bg-[#12d58f]' : 'bg-[#10B981] text-white hover:bg-[#0e9f6e]'
-                    }`}
-                  >
-                    Adicionar
-                  </button>
-                </div>
-                <span className="text-[9px] text-gray-400 font-medium leading-tight flex items-center gap-1.5 mt-0.5">
-                  <Info className="w-3 h-3 text-emerald-500 shrink-0 inline" />
-                  <span>Digite <strong className={theme === 'dark' ? 'text-white' : 'text-gray-900'}>1 - 10</strong> ou <strong className={theme === 'dark' ? 'text-white' : 'text-gray-900'}>8 - 20</strong> para cadastrar em lote.</span>
-                </span>
-              </div>
-            </div>
-
-            {/* Existing Terminals List with delete capability */}
-            <div className="flex flex-col gap-2 flex-1 max-h-[180px] overflow-y-auto pr-1">
-              <span className="text-[9px] uppercase font-bold text-gray-400">Terminais Ativos ({tablesComandas.length})</span>
-              <div className="flex flex-col gap-1.5">
-                {tablesComandas.map((tbl) => (
-                  <div 
-                    key={tbl.id} 
-                    className="flex justify-between items-center p-2 rounded-lg border text-xs"
-                    style={{ 
-                      backgroundColor: theme === 'dark' ? '#0F0F0F' : '#F9F9F9', 
-                      borderColor: theme === 'dark' ? '#1C1C1C' : '#E5E5E5' 
-                    }}
-                  >
-                    <span className="font-bold flex items-center gap-1.5">
-                      <span className={`w-2 h-2 rounded-full ${tbl.status === 'ocupada' ? 'bg-red-500' : tbl.status === 'fechando' ? 'bg-amber-500' : 'bg-emerald-500'}`} />
-                      {tbl.type === 'mesa' ? 'Mesa' : 'Comanda'} {tbl.number}
-                      <span className="text-[9px] text-gray-500 font-normal">({tbl.status})</span>
-                    </span>
-                    {onRemoveTableComanda && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (tbl.status !== 'livre') {
-                            addToast(`Este terminal está ocupado ou finalizando. Libere-o primeiro antes de remover.`, 'warning');
-                            return;
-                          }
-                          (window as any).confirmModal(`Excluir permanentemente a ${tbl.type === 'mesa' ? 'Mesa' : 'Comanda'} ${tbl.number}?`, () => {
-                            onRemoveTableComanda(tbl.id);
-                          });
-                        }}
-                        className={`text-red-500 font-black hover:bg-red-500/10 px-2 py-1 rounded transition-colors cursor-pointer ${
-                          tbl.status !== 'livre' ? 'opacity-30 cursor-not-allowed' : ''
-                        }`}
-                      >
-                        Excluir
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setIsConfiguringTables(false)}
-              className="w-full py-2 rounded-xl text-xs font-bold border transition-all hover:bg-white/5 cursor-pointer"
-              style={{ borderColor: theme === 'dark' ? '#1C1C1C' : '#E5E5E5' }}
-            >
-              Fechar Painel
-            </button>
-          </div>
-        </div>
-      )}
-      {/* Expanded Cart and Consumed Items Detail Modal */}
-      {isCartModalOpen && activeTable && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          {/* Backdrop */}
-          <div 
-            className="absolute inset-0 bg-black/80 backdrop-blur-sm"
-            onClick={() => setIsCartModalOpen(false)}
-          />
-          
-          {/* Modal Content */}
-          <div className={`relative w-full max-w-2xl max-h-[85vh] rounded-2xl border shadow-2xl flex flex-col overflow-hidden transition-all animate-in fade-in zoom-in-95 duration-200 ${
-            theme === 'dark' ? 'bg-[#0A0A0A] border-[#1C1C1C] text-white' : 'bg-white border-gray-200 text-gray-950'
-          }`}>
-            {/* Header */}
-            <div className={`p-4 border-b flex justify-between items-center shrink-0 ${
-              theme === 'dark' ? 'border-[#1C1C1C]' : 'border-gray-200'
-            }`}>
-              <div className="flex flex-col">
-                <h3 className="font-bold text-base flex items-center gap-2">
-                  <ShoppingCart className="w-4 h-4 text-[#18F2A4]" />
-                  Carrinho & Consumo: {activeTable.type === 'mesa' ? 'Mesa' : 'Comanda'} {activeTable.number}
-                </h3>
-                <p className="text-[11px] text-gray-400">Visualize, adicione notas ou altere as quantidades dos itens consumidos e pendentes.</p>
-              </div>
-              <button 
-                type="button"
-                onClick={() => setIsCartModalOpen(false)}
-                className={`w-8 h-8 rounded-full border flex items-center justify-center transition-all cursor-pointer ${
-                  theme === 'dark' ? 'bg-[#151515] border-[#222] hover:bg-[#222] text-white' : 'bg-gray-100 border-gray-200 hover:bg-gray-200 text-gray-700'
-                }`}
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Scrollable Body */}
-            <div className="p-4 flex flex-col gap-6 overflow-y-auto flex-1">
-              
-              {/* Section 1: Fila de Lançamento (Draft Items) */}
-              <div>
-                <span className="text-[11px] uppercase tracking-wider font-extrabold text-[#18F2A4] block mb-3">
-                  Fila de Lançamento (Novos Pedidos)
-                </span>
-                
-                {orderCart.length === 0 ? (
-                  <div className={`p-4 text-center rounded-xl border text-xs text-gray-400 ${
-                    theme === 'dark' ? 'bg-[#111111]/50 border-[#1C1C1C]' : 'bg-gray-50 border-gray-100'
-                  }`}>
-                    Sem itens novos para lançar nesta fila. Adicione produtos no catálogo.
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-3">
-                    {orderCart.map((item, idx) => (
-                      <div 
-                        key={idx} 
-                        className={`p-3 rounded-xl border flex flex-col sm:flex-row justify-between sm:items-center gap-3 ${
-                          theme === 'dark' ? 'bg-[#111] border-[#1C1C1C]' : 'bg-gray-50 border-gray-100'
-                        }`}
-                      >
-                        {/* Product Info with Image */}
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-lg bg-gray-950 shrink-0 overflow-hidden border flex items-center justify-center" style={{ borderColor: theme === 'dark' ? '#222' : '#E5E5E5' }}>
-                            {item.product.image ? (
-                              <img 
-                                src={item.product.image} 
-                                alt={item.product.name} 
-                                referrerPolicy="no-referrer"
-                                className="w-full h-full object-cover"
-                              />
-                            ) : (
-                              <div className="text-gray-500">
-                                <GlassWater className="w-4 h-4" />
-                              </div>
-                            )}
-                          </div>
-                          <div className="flex flex-col">
-                            <span className="font-bold text-sm block" style={{ color: theme === 'dark' ? '#E5E5E5' : '#111' }}>
-                              {item.product.name}
-                            </span>
-                            <span className="text-xs text-emerald-500 font-bold font-mono">
-                              R$ {item.product.sellPrice.toFixed(2)}
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Adjusters & Notes */}
-                        <div className="flex flex-col sm:flex-row sm:items-center gap-3 shrink-0">
-                          {/* Note Field */}
-                          <input
-                            type="text"
-                            placeholder="Obs..."
-                            value={item.notes}
-                            onChange={(e) => updateBasketNotes(idx, e.target.value)}
-                            className="text-xs px-2.5 py-1.5 rounded-lg border focus:outline-none focus:border-emerald-500 w-full sm:w-40"
-                            style={{
-                              backgroundColor: theme === 'dark' ? '#000' : '#FFF',
-                              borderColor: theme === 'dark' ? '#222' : '#E5E5E5',
-                              color: theme === 'dark' ? '#FFF' : '#000'
-                            }}
-                          />
-
-                          {/* Qty adjusters */}
-                          <div className="flex items-center gap-2 justify-end">
-                            <button 
-                              type="button"
-                              onClick={() => updateBasketQuantity(idx, -1)} 
-                              className={`w-9 h-9 flex items-center justify-center rounded-lg border text-sm font-black active:scale-90 cursor-pointer ${
-                                theme === 'dark' ? 'bg-[#1a1a1a] border-[#222] hover:bg-[#252525]' : 'bg-white border-gray-200 hover:bg-gray-100'
-                              }`}
-                            >
-                              -
-                            </button>
-                            <span className="font-mono font-bold w-6 text-center text-sm">{item.quantity}</span>
-                            <button 
-                              type="button"
-                              onClick={() => updateBasketQuantity(idx, 1)} 
-                              className={`w-9 h-9 flex items-center justify-center rounded-lg border text-sm font-black active:scale-90 cursor-pointer ${
-                                theme === 'dark' ? 'bg-[#1a1a1a] border-[#222] hover:bg-[#252525]' : 'bg-white border-gray-200 hover:bg-gray-100'
-                              }`}
-                            >
-                              +
-                            </button>
-                            
-                            <button 
-                              type="button"
-                              onClick={() => {
-                                const newCart = [...orderCart];
-                                newCart.splice(idx, 1);
-                                setOrderCart(newCart);
-                              }} 
-                              className="w-9 h-9 flex items-center justify-center rounded-lg border border-red-900/30 bg-red-950/20 text-red-400 hover:bg-red-950/40 ml-2 cursor-pointer"
-                              title="Remover item da fila"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Section 2: Itens já Consumidos (Confirmed Items) */}
-              <div>
-                <span className="text-[11px] uppercase tracking-wider font-extrabold text-gray-400 block mb-3">
-                  Itens já Confirmados e Consumidos
-                </span>
-                
-                <ConsumedItemsList
-                  items={activeTable.items || []}
-                  products={products}
-                  theme={theme}
-                  mode="consumption"
-                  onAlterQty={handleAlterConsumedItemQty}
-                  onRemoveItem={handleRemoveConsumedItem}
-                />
-              </div>
-
-            </div>
-
-            {/* Footer */}
-            <div className={`p-4 border-t flex flex-col sm:flex-row justify-between items-center gap-3 shrink-0 ${
-              theme === 'dark' ? 'bg-[#0F0F0F] border-[#1C1C1C]' : 'bg-gray-50 border-gray-200'
-            }`}>
-              <div className="text-left w-full sm:w-auto">
-                <span className="text-xs text-gray-400">Total Acumulado (Lançamentos + Consumo):</span>
-                <div className="font-mono text-base font-black text-emerald-500">
-                  R$ {((activeTable.items?.reduce((acc, item) => {
-                    const p = products.find(prod => prod.id === item.productId);
-                    return acc + (p ? p.sellPrice * item.quantity : 0);
-                  }, 0) || 0) + basketSubtotal).toFixed(2)}
-                </div>
-              </div>
-
-              <div className="flex gap-2 w-full sm:w-auto justify-end">
-                <button
-                  type="button"
-                  onClick={() => setIsCartModalOpen(false)}
-                  className={`px-4 py-2 text-xs font-semibold rounded-lg border transition-all cursor-pointer ${
-                    theme === 'dark' ? 'bg-transparent border-[#222] text-gray-300 hover:bg-[#111]' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-100'
-                  }`}
-                >
-                  Continuar Escolhendo
-                </button>
-                {orderCart.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      handleDispatchOrder();
-                      setIsCartModalOpen(false);
-                    }}
-                    className={`px-4 py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
-                      theme === 'dark' ? 'bg-[#18F2A4] text-black hover:bg-[#12d58f]' : 'bg-[#10B981] text-white hover:bg-[#0e9f6e]'
-                    }`}
-                  >
-                    <Check className="w-3.5 h-3.5" />
-                    Enviar p/ Fila do Bar
-                  </button>
-                )}
-              </div>
-            </div>
-
-          </div>
         </div>
       )}
 

@@ -86,6 +86,15 @@ export interface FinancialTransaction {
   paymentMethod?: string;
 }
 
+export interface ItemPaymentRecord {
+  id: string;
+  qty: number;
+  amount: number;
+  method: string;
+  timestamp: string;
+  userName?: string;
+}
+
 export interface TableItem {
   productId: string;
   quantity: number;
@@ -97,6 +106,7 @@ export interface TableItem {
   statusHistory?: any[];
   paidQuantity?: number;
   paidAmount?: number;
+  payments?: ItemPaymentRecord[];
 }
 
 export interface TableComandaState {
